@@ -117,6 +117,11 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
+              configHash:
+                description: |-
+                  The hash of the Cluster ConfigMap app
+                  If no config is applied yet, this will be null.
+                type: string
             type: object
         required:
         - spec

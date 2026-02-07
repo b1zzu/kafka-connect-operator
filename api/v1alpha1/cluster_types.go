@@ -54,6 +54,11 @@ type ClusterStatus struct {
 	// +listMapKey=type
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
+
+	// The hash of the Cluster ConfigMap app
+	// If no config is applied yet, this will be null.
+	// +optional
+	ConfigHash *string `json:"configHash,omitempty"`
 }
 
 // +kubebuilder:object:root=true
