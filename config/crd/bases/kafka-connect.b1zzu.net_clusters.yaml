@@ -44,6 +44,11 @@ spec:
                   type: string
                 description: 'Kafka Connect properties (aka configs): https://kafka.apache.org/41/configuration/kafka-connect-configs/'
                 type: object
+              replicas:
+                description: Number of Kafka Connect replicas to run
+                format: int32
+                minimum: 0
+                type: integer
             type: object
           status:
             description: status defines the observed state of Cluster

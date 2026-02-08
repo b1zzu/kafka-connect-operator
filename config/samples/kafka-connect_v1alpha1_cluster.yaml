@@ -6,6 +6,7 @@ metadata:
     app.kubernetes.io/managed-by: kustomize
   name: my-cluster
 spec:
+  replicas: 2
   properties:
     bootstrap.servers: my-cluster-kafka-bootstrap:9092
     key.converter: org.apache.kafka.connect.json.JsonConverter

@@ -28,6 +28,11 @@ type ClusterSpec struct {
 	// The following markers will use OpenAPI v3 schema to validate the value
 	// More info: https://book.kubebuilder.io/reference/markers/crd-validation.html
 
+	// Number of Kafka Connect replicas to run
+	// +optional
+	// +kubebuilder:validation:Minimum:=0
+	Replicas *int32 `json:"replicas,omitempty"`
+
 	// Kafka Connect properties (aka configs): https://kafka.apache.org/41/configuration/kafka-connect-configs/
 	// +optional
 	Properties map[string]string `json:"properties"`

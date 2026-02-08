@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	kafkaconnectv1alpha1 "github.com/b1zzu/kafka-connect-operator/api/v1alpha1"
+	kcv1alpha1 "github.com/b1zzu/kafka-connect-operator/api/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
 	appsv1ac "k8s.io/client-go/applyconfigurations/apps/v1"
 	corev1ac "k8s.io/client-go/applyconfigurations/core/v1"
@@ -14,11 +14,10 @@ import (
 
 // TODO: Network policies
 
-func deploymentForCluster(cluster *kafkaconnectv1alpha1.Cluster) *appsv1ac.DeploymentApplyConfiguration {
+func deploymentForCluster(cluster *kcv1alpha1.Cluster) *appsv1ac.DeploymentApplyConfiguration {
 	// TODO: Allow configuring different image
 	image := "apache/kafka:4.1.1"
 
-	// TODO: Allow to configure number of replicas
 	// TODO: Allow to configure mount volumes for plugins
 
 	labels := map[string]string{
@@ -35,6 +34,11 @@ func deploymentForCluster(cluster *kafkaconnectv1alpha1.Cluster) *appsv1ac.Deplo
 		"config/hash": configHash,
 	}
 
+	var replicas int32 = 1
+	if cluster.Spec.Replicas != nil {
+		replicas = *cluster.Spec.Replicas
+	}
+
 	// TODO: Configure liveness and readines prope
 	// TODO: Configure Resources R: 250m/1G L: 1000m/4G
 	// TODO: Allow configuration of topology spread
@@ -44,7 +48,7 @@ func deploymentForCluster(cluster *kafkaconnectv1alpha1.Cluster) *appsv1ac.Deplo
 	return appsv1ac.Deployment(name, cluster.Namespace).
 		WithOwnerReferences(ownerReferenceForCluster(cluster)).
 		WithSpec(appsv1ac.DeploymentSpec().
-			WithReplicas(1).
+			WithReplicas(replicas).
 			WithSelector(metav1ac.LabelSelector().WithMatchLabels(labels)).
 			WithTemplate(corev1ac.PodTemplateSpec().
 				WithLabels(labels).
@@ -82,7 +86,7 @@ func deploymentForCluster(cluster *kafkaconnectv1alpha1.Cluster) *appsv1ac.Deplo
 		)
 }
 
-func kafkaConnectPropertiesForCluster(cluster *kafkaconnectv1alpha1.Cluster) map[string]string {
+func kafkaConnectPropertiesForCluster(cluster *kcv1alpha1.Cluster) map[string]string {
 	properties := cluster.Spec.Properties
 
 	// Hardcoded mandatory properties
@@ -104,11 +108,11 @@ func kafkaConnectPropertiesForCluster(cluster *kafkaconnectv1alpha1.Cluster) map
 	return properties
 }
 
-func configMapNameForCluster(cluster *kafkaconnectv1alpha1.Cluster) string {
+func configMapNameForCluster(cluster *kcv1alpha1.Cluster) string {
 	return fmt.Sprintf("%s-connect-config", cluster.Name)
 }
 
-func configMapForCluster(cluster *kafkaconnectv1alpha1.Cluster) *corev1ac.ConfigMapApplyConfiguration {
+func configMapForCluster(cluster *kcv1alpha1.Cluster) *corev1ac.ConfigMapApplyConfiguration {
 	propertiesBuilder := &strings.Builder{}
 
 	properties := kafkaConnectPropertiesForCluster(cluster)
@@ -127,7 +131,7 @@ func configMapForCluster(cluster *kafkaconnectv1alpha1.Cluster) *corev1ac.Config
 		WithOwnerReferences(ownerReferenceForCluster(cluster))
 }
 
-func ownerReferenceForCluster(cluster *kafkaconnectv1alpha1.Cluster) *metav1ac.OwnerReferenceApplyConfiguration {
+func ownerReferenceForCluster(cluster *kcv1alpha1.Cluster) *metav1ac.OwnerReferenceApplyConfiguration {
 	return metav1ac.OwnerReference().
 		WithAPIVersion(cluster.GetObjectKind().GroupVersionKind().GroupVersion().String()).
 		WithKind(cluster.GetObjectKind().GroupVersionKind().Kind).
