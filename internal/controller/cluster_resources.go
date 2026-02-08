@@ -12,8 +12,14 @@ import (
 	metav1ac "k8s.io/client-go/applyconfigurations/meta/v1"
 )
 
+// TODO: Network policies
+
 func deploymentForCluster(cluster *kafkaconnectv1alpha1.Cluster) *appsv1ac.DeploymentApplyConfiguration {
+	// TODO: Allow configuring different image
 	image := "apache/kafka:4.1.1"
+
+	// TODO: Allow to configure number of replicas
+	// TODO: Allow to configure mount volumes for plugins
 
 	labels := map[string]string{
 		"app.kubernetes.io/name":     "kafka-connect",
@@ -29,7 +35,13 @@ func deploymentForCluster(cluster *kafkaconnectv1alpha1.Cluster) *appsv1ac.Deplo
 		"config/hash": configHash,
 	}
 
-	return appsv1ac.Deployment(cluster.Name, cluster.Namespace).
+	// TODO: Configure liveness and readines prope
+	// TODO: Configure Resources R: 250m/1G L: 1000m/4G
+	// TODO: Allow configuration of topology spread
+
+	name := fmt.Sprintf("%s-connect", cluster.Name)
+
+	return appsv1ac.Deployment(name, cluster.Namespace).
 		WithOwnerReferences(ownerReferenceForCluster(cluster)).
 		WithSpec(appsv1ac.DeploymentSpec().
 			WithReplicas(1).
@@ -45,6 +57,9 @@ func deploymentForCluster(cluster *kafkaconnectv1alpha1.Cluster) *appsv1ac.Deplo
 						WithImage(image).
 						WithImagePullPolicy(corev1.PullIfNotPresent).
 						WithCommand("/opt/kafka/bin/connect-distributed.sh", "/config/connect.properties").
+						WithEnv(corev1ac.EnvVar().
+							WithName("CONNECT_REST_ADVERTISED_HOST_NAME").
+							WithValueFrom(corev1ac.EnvVarSource().WithFieldRef(corev1ac.ObjectFieldSelector().WithFieldPath("status.podIP")))).
 						WithPorts(corev1ac.ContainerPort().
 							WithContainerPort(8083).
 							WithName("http")).
@@ -61,16 +76,42 @@ func deploymentForCluster(cluster *kafkaconnectv1alpha1.Cluster) *appsv1ac.Deplo
 					WithVolumes(corev1ac.Volume().
 						WithName("config").
 						WithConfigMap(corev1ac.ConfigMapVolumeSource().
-							WithName(cluster.Name))),
+							WithName(configMapNameForCluster(cluster)))),
 				),
 			),
 		)
 }
 
+func kafkaConnectPropertiesForCluster(cluster *kafkaconnectv1alpha1.Cluster) map[string]string {
+	properties := cluster.Spec.Properties
+
+	// Hardcoded mandatory properties
+	properties["listeners"] = "http://:8083"
+	properties["rest.advertised.host.name"] = "${env:CONNECT_REST_ADVERTISED_HOST_NAME}"
+	properties["rest.advertised.listener"] = "http"
+	properties["rest.advertised.port"] = "8083"
+	properties["rest.extension.classes"] = "" // cluster is secured using network policies
+
+	// Env config provider
+	// Allow to define additional properties as CONNECT_* envs
+	// See: https://kafka.apache.org/41/configuration/configuration-providers/#envvarconfigprovider
+	properties["config.providers"] = "env"
+	properties["config.providers.env.class"] = "org.apache.kafka.common.config.provider.EnvVarConfigProvider"
+	properties["config.providers.env.param.allowlist.pattern"] = "^CONNECT_.*"
+
+	// TODO: File config providers
+
+	return properties
+}
+
+func configMapNameForCluster(cluster *kafkaconnectv1alpha1.Cluster) string {
+	return fmt.Sprintf("%s-connect-config", cluster.Name)
+}
+
 func configMapForCluster(cluster *kafkaconnectv1alpha1.Cluster) *corev1ac.ConfigMapApplyConfiguration {
 	propertiesBuilder := &strings.Builder{}
 
-	properties := cluster.Spec.Properties
+	properties := kafkaConnectPropertiesForCluster(cluster)
 	propertiesKeys := make([]string, 0, len(cluster.Spec.Properties))
 	for k := range properties {
 		propertiesKeys = append(propertiesKeys, k)
@@ -80,7 +121,8 @@ func configMapForCluster(cluster *kafkaconnectv1alpha1.Cluster) *corev1ac.Config
 		fmt.Fprintf(propertiesBuilder, "%s=%s\n", k, properties[k])
 	}
 
-	return corev1ac.ConfigMap(cluster.Name, cluster.Namespace).
+	name := configMapNameForCluster(cluster)
+	return corev1ac.ConfigMap(name, cluster.Namespace).
 		WithData(map[string]string{"connect.properties": propertiesBuilder.String()}).
 		WithOwnerReferences(ownerReferenceForCluster(cluster))
 }

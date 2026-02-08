@@ -4,13 +4,13 @@ metadata:
   labels:
     app.kubernetes.io/name: kafka-connect-operator
     app.kubernetes.io/managed-by: kustomize
-  name: cluster-sample
+  name: my-cluster
 spec:
   properties:
     bootstrap.servers: my-cluster-kafka-bootstrap:9092
     key.converter: org.apache.kafka.connect.json.JsonConverter
     value.converter: org.apache.kafka.connect.json.JsonConverter
-    group.id: connect-cluster
-    offset.storage.topic: connect-offsets
-    config.storage.topic: connect-configs
-    status.storage.topic: connect-status
+    group.id: my-cluster-connect
+    config.storage.topic: my-cluster-connect-configs
+    offset.storage.topic: my-cluster-connect-offsets
+    status.storage.topic: my-cluster-connect-status
