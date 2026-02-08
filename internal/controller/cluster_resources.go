@@ -7,6 +7,8 @@ import (
 
 	kcv1alpha1 "github.com/b1zzu/kafka-connect-operator/api/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	appsv1ac "k8s.io/client-go/applyconfigurations/apps/v1"
 	corev1ac "k8s.io/client-go/applyconfigurations/core/v1"
 	metav1ac "k8s.io/client-go/applyconfigurations/meta/v1"
@@ -39,8 +41,6 @@ func deploymentForCluster(cluster *kcv1alpha1.Cluster) *appsv1ac.DeploymentApply
 		replicas = *cluster.Spec.Replicas
 	}
 
-	// TODO: Configure liveness and readines prope
-	// TODO: Configure Resources R: 250m/1G L: 1000m/4G
 	// TODO: Allow configuration of topology spread
 
 	name := fmt.Sprintf("%s-connect", cluster.Name)
@@ -67,6 +67,33 @@ func deploymentForCluster(cluster *kcv1alpha1.Cluster) *appsv1ac.DeploymentApply
 						WithPorts(corev1ac.ContainerPort().
 							WithContainerPort(8083).
 							WithName("http")).
+						WithResources(corev1ac.ResourceRequirements().
+							WithRequests(corev1.ResourceList{ // Request and limits are based on standard cloud ratio 1CPU 4GB
+								corev1.ResourceCPU:    resource.MustParse("250m"),
+								corev1.ResourceMemory: resource.MustParse("1Gi"),
+							}).
+							WithLimits(corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("1000m"),
+								corev1.ResourceMemory: resource.MustParse("4Gi"),
+							})).
+						WithLivenessProbe(corev1ac.Probe().
+							WithHTTPGet(corev1ac.HTTPGetAction().
+								WithPath("/health").
+								WithPort(intstr.FromString("http"))).
+							WithInitialDelaySeconds(30).
+							WithPeriodSeconds(10).
+							WithTimeoutSeconds(5).
+							WithFailureThreshold(3),
+						).
+						WithReadinessProbe(corev1ac.Probe().
+							WithHTTPGet(corev1ac.HTTPGetAction().
+								WithPath("/health").
+								WithPort(intstr.FromString("http"))).
+							WithInitialDelaySeconds(10).
+							WithPeriodSeconds(5).
+							WithTimeoutSeconds(3).
+							WithFailureThreshold(3),
+						).
 						WithVolumeMounts(corev1ac.VolumeMount().
 							WithName("config").
 							WithMountPath("/config").
