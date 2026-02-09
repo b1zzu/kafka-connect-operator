@@ -158,6 +158,23 @@ func configMapForCluster(cluster *kcv1alpha1.Cluster) *corev1ac.ConfigMapApplyCo
 		WithOwnerReferences(ownerReferenceForCluster(cluster))
 }
 
+func serviceForCluster(cluster *kcv1alpha1.Cluster) *corev1ac.ServiceApplyConfiguration {
+	labels := map[string]string{
+		"app.kubernetes.io/name":     "kafka-connect",
+		"app.kubernetes.io/instance": cluster.Name,
+	}
+
+	name := fmt.Sprintf("%s-connect", cluster.Name)
+
+	return corev1ac.Service(name, cluster.Namespace).
+		WithSpec(corev1ac.ServiceSpec().
+			WithSelector(labels).
+			WithPorts(corev1ac.ServicePort().
+				WithProtocol(corev1.ProtocolTCP).
+				WithPort(8083).
+				WithTargetPort(intstr.FromString("http"))))
+}
+
 func ownerReferenceForCluster(cluster *kcv1alpha1.Cluster) *metav1ac.OwnerReferenceApplyConfiguration {
 	return metav1ac.OwnerReference().
 		WithAPIVersion(cluster.GetObjectKind().GroupVersionKind().GroupVersion().String()).

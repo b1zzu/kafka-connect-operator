@@ -90,6 +90,11 @@ func (r *ClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, err
 	}
 
+	cluster, err = r.reconcileService(ctx, cluster)
+	if err != nil || cluster == nil {
+		return ctrl.Result{}, err
+	}
+
 	cluster, err = r.reconcileConfigMap(ctx, cluster)
 	if err != nil || cluster == nil {
 		return ctrl.Result{}, err
@@ -179,6 +184,33 @@ func (r *ClusterReconciler) serverSideApply(ctx context.Context, obj runtime.App
 		Force:        ptr.To(false),
 		FieldManager: serverSideApplyManager,
 	})
+}
+
+func (r *ClusterReconciler) reconcileService(ctx context.Context, cluster *kcv1alpha1.Cluster) (*kcv1alpha1.Cluster, error) {
+	serviceA := serviceForCluster(cluster)
+
+	err := r.serverSideApply(ctx, serviceA)
+	if err != nil {
+
+		err := r.updateStatusCondition(ctx, cluster, metav1.Condition{
+			Type:    typeAvailableCluster,
+			Status:  metav1.ConditionFalse,
+			Reason:  "Error",
+			Message: fmt.Sprintf("Failed to apply Service: %s", err),
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to update Cluster status after failed to apply Service: %w", err)
+		}
+		return nil, fmt.Errorf("failed to apply Service: %w", err)
+	}
+
+	// Refetch the cluster after Server-Side Apply
+	cluster, err = r.getCluster(ctx, types.NamespacedName{Name: cluster.Name, Namespace: cluster.Namespace})
+	if err != nil || cluster == nil {
+		return cluster, err
+	}
+
+	return cluster, nil
 }
 
 func (r *ClusterReconciler) reconcileConfigMap(ctx context.Context, cluster *kcv1alpha1.Cluster) (*kcv1alpha1.Cluster, error) {
