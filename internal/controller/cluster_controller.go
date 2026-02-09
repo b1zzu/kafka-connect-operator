@@ -128,7 +128,7 @@ func (r *ClusterReconciler) getCluster(ctx context.Context, key types.Namespaced
 			return nil, nil
 		}
 
-		return cluster, fmt.Errorf("failed to get Cluster: %w", err)
+		return nil, fmt.Errorf("failed to get Cluster: %w", err)
 	}
 	return cluster, nil
 }

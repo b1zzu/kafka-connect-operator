@@ -1,0 +1,10 @@
+apiVersion: kafka-connect.b1zzu.net/v1alpha1
+kind: Connector
+metadata:
+  labels:
+    app.kubernetes.io/name: kafka-connect-operator
+    app.kubernetes.io/managed-by: kustomize
+  name: my-connector
+spec:
+  cluster:
+    name: my-cluster
