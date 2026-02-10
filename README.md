@@ -110,6 +110,57 @@ the '--force' flag and manually ensure that any custom configuration
 previously added to 'dist/chart/values.yaml' or 'dist/chart/manager/manager.yaml'
 is manually re-applied afterwards.
 
+## Local
+
+Some notes on how to test locally.
+
+Use kind (works with Podman)
+
+```
+kind create cluster
+```
+
+Deploy Kafka using the Strimzi operator
+
+```
+kubectl create -f 'https://strimzi.io/install/latest?namespace=default'
+kubectl apply -f https://strimzi.io/examples/latest/kafka/kafka-ephemeral.yaml
+```
+
+Install the CRDs
+
+```
+make install
+```
+
+Deploy the samples
+
+```
+kubectl apply -k config/samples
+```
+
+To test Connector deployments while running the controller locally you can fake the Kubernetes
+by adding this to your `/etc/hosts` where `my-cluster` is the name of the Kafka Connect Cluster
+and `default` the namespace where it's deployed:
+
+```
+127.0.0.1 my-cluster-connect.default
+```
+
+Then start the controller locally:
+
+```
+make run
+```
+
+Once the Kafka Connect cluster is ready, forward the rest port locally:
+
+```
+kubectl port-forward services/my-cluster-connect 8083:8083
+```
+
+The sample will deploy a Kafka Connect cluster with the name `my-cluster` when you will start the 
+
 ## Contributing
 // TODO(user): Add detailed information on how you would like others to contribute to this project
 

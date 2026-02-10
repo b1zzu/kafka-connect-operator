@@ -40,6 +40,8 @@ type ConnectorSpec struct {
 	// MirrorMaker: https://kafka.apache.org/41/configuration/mirrormaker-configs/
 	// +optional
 	Properties map[string]string `json:"properties"`
+
+	// TODO: Rename to config
 }
 
 // ConnectorStatus defines the observed state of Connector.

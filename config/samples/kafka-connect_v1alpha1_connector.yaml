@@ -8,3 +8,7 @@ metadata:
 spec:
   cluster:
     name: my-cluster
+  properties:
+    connector.class: org.apache.kafka.connect.mirror.MirrorHeartbeatConnector
+    source.cluster.alias: source
+    target.cluster.alias: target
