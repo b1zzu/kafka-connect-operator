@@ -1,51 +1,193 @@
 # kafka-connect-operator
-// TODO(user): Add simple overview of use/purpose
 
-## Description
-// TODO(user): An in-depth paragraph about your project and overview of use
+This tiny operator manages secured Kafka Connect clusters and Connectors on Kubernetes.
 
-## Getting Started
+This operator is a lighter alternative to the more blooted Strimzi operator, and it's more flexible because it allows you to define any Kafka cluster and authentication, like AWS MSK IAM auth.
 
-### Prerequisites
-- go version v1.24.6+
-- docker version 17.03+.
-- kubectl version v1.11.3+.
-- Access to a Kubernetes v1.11.3+ cluster.
+> Note: After 4 years the Strimzi operator has also introduced the option to define your custom authentication: https://github.com/strimzi/strimzi-kafka-operator/pull/11760
 
-### To Deploy on the cluster
-**Build and push your image to the location specified by `IMG`:**
+## Quick Starts
 
-```sh
-make docker-build docker-push IMG=<some-registry>/kafka-connect-operator:tag
+Prerequisites
+
+- kind: https://github.com/kubernetes-sigs/kind
+
+Start the Kubernetes cluster locally
+
+```bash
+kind create cluster
 ```
 
-**NOTE:** This image ought to be published in the personal registry you specified.
-And it is required to have access to pull the image from the working environment.
-Make sure you have the proper permission to the registry if the above commands don’t work.
+### Deploy the Operator
 
-**Install the CRDs into the cluster:**
+Deploy the kafka-connect-operator
 
-```sh
-make install
+```bash
+make deploy IMG=ghcr.io/b1zzu/kafka-connect-operator:latest
 ```
 
-**Deploy the Manager to the cluster with the image specified by `IMG`:**
+This will deploy the `latest` version of the operator to the `kafka-connect-operator` namespace.
 
-```sh
-make deploy IMG=<some-registry>/kafka-connect-operator:tag
+Follow the deployment of the operator:
+
+```bash
+kubectl get pod -n kafka-connect-operator --watch
 ```
 
-> **NOTE**: If you encounter RBAC errors, you may need to grant yourself cluster-admin
-privileges or be logged in as admin.
+You can also follow the operator’s log:
 
-**Create instances of your solution**
-You can apply the samples (examples) from the config/sample:
-
-```sh
-kubectl apply -k config/samples/
+```bash
+kubectl logs deployment/kafka-connect-controller-manager -n kafka-connect-operator -f
 ```
 
->**NOTE**: Ensure that the samples has default values to test it out.
+### Deploy an Apache Kafka Connect cluster
+
+To run a Kafka Connect cluster you need a Kafka cluster, and the easiest way is to use Strimzi.
+
+Deploy the Strimzi operator:
+
+```bash
+kubectl create -f 'https://strimzi.io/install/latest?namespace=default' -n default
+```
+
+Deploy the Kafka cluster:
+
+```bash
+kubectl apply -f 'https://strimzi.io/examples/latest/kafka/kafka-single-node.yaml' -n default
+```
+
+Deploy the Kafka Connect cluster:
+
+```bash
+kubectl apply -f - <<<EOF
+apiVersion: kafka-connect.b1zzu.net/v1alpha1
+kind: Cluster
+metadata:
+  name: my-cluster
+spec:
+  replicas: 1
+  config:
+    bootstrap.servers: my-cluster-kafka-bootstrap:9092
+    key.converter: org.apache.kafka.connect.json.JsonConverter
+    value.converter: org.apache.kafka.connect.json.JsonConverter
+    group.id: connect-my-cluster
+    config.storage.topic: connect-my-cluster-configs
+    offset.storage.topic: connect-my-cluster-offsets
+    status.storage.topic: connect-my-cluster-status
+    config.storage.replication.factor: "1"
+    offset.storage.replication.factor: "1"
+    status.storage.replication.factor: "1"
+EOF
+```
+
+Follow the deployment of the Kafka Connect cluster:
+
+```bash
+kubectl get pod -n default --watch
+```
+
+You can also follow the cluster’s log:
+
+```bash
+kubectl logs deployment/my-cluster-connect -n default -f
+```
+
+### Deploy a Connector
+
+Deploy a connector to your Kafka Connect cluster:
+
+```bash
+kubectl apply -f - <<EOF
+apiVersion: kafka-connect.b1zzu.net/v1alpha1
+kind: Connector
+metadata:
+  name: my-connector
+spec:
+  cluster:
+    name: my-cluster
+  config:
+    connector.class: org.apache.kafka.connect.mirror.MirrorSourceConnector
+    tasks.max: "1"
+    source.cluster.alias: source
+    target.cluster.alias: target
+    source.cluster.bootstrap.servers: my-cluster-kafka-bootstrap:9092
+    target.cluster.bootstrap.servers: my-cluster-kafka-bootstrap:9092
+    topics: example-a
+    replication.policy.class: org.apache.kafka.connect.mirror.DefaultReplicationPolicy
+    transforms: rename
+    transforms.rename.type: org.apache.kafka.connect.transforms.RegexRouter
+    transforms.rename.regex: topic-a
+    transforms.rename.replacement: topic-b
+EOF
+```
+
+Check the connector status:
+
+```bash
+kubectl describe connector my-connector -o yaml
+```
+
+## Reference
+
+### Cluster
+
+```yaml
+apiVersion: kafka-connect.b1zzu.net/v1alpha1
+kind: Cluster
+metadata:
+  name: NAME
+spec:
+  # Number of Kafka Connect replicas (optional, defaults to 1)
+  replicas: 2
+
+  # Kafka Connect configuration
+  # See: https://kafka.apache.org/41/configuration/kafka-connect-configs/
+  config:
+    # Kafka cluster connection
+    bootstrap.servers: <string>
+
+    # Converters
+    key.converter: <string>
+    value.converter: <string>
+
+    # Connect cluster identification
+    group.id: <string>
+
+    # Internal topics
+    config.storage.topic: <string>
+    offset.storage.topic: <string>
+    status.storage.topic: <string>
+
+  # Network policy configuration (optional)
+  networkPolicy:
+    # Set to false to disable automatic NetworkPolicy creation
+    enabled: true
+```
+
+### Connector
+
+```yaml
+apiVersion: kafka-connect.b1zzu.net/v1alpha1
+kind: Connector
+metadata:
+  name: NAME
+spec:
+  # Reference to the Kafka Connect cluster (required)
+  # Note: it must be in the same namespace
+  cluster:
+    name: NAME
+
+  # Connector configuration
+  # Source connectors: https://kafka.apache.org/41/configuration/kafka-connect-configs/#source-connector-configs
+  # Sink connectors: https://kafka.apache.org/41/configuration/kafka-connect-configs/#sink-connector-configs
+  # MirrorMaker: https://kafka.apache.org/41/configuration/mirrormaker-configs/
+  config:
+    # Connector class (required)
+    connector.class: <string>
+
+    # ...
+
+```
 
 ### Network Security
 
@@ -66,24 +208,67 @@ spec:
     enabled: false
 ```
 
-### To Uninstall
-**Delete the instances (CRs) from the cluster:**
+## Development
 
-```sh
-kubectl delete -k config/samples/
+### My Workspace
+
+This Development tutorial is based on my workspaces, so if you are facing issue try to imitate it as much as possible
+
+- Fedora 43
+- go version 1.25.7
+- podman version 5.7.1
+- kind version 0.31.0
+- kubectl version 1.34.3
+- make version 4.4.1
+
+### Local Development
+
+Use kind (works with Podman)
+
+```bash
+kind create cluster
 ```
 
-**Delete the APIs(CRDs) from the cluster:**
+Deploy Kafka using the Strimzi operator
 
-```sh
-make uninstall
+```bash
+kubectl create -f 'https://strimzi.io/install/latest?namespace=default'
+kubectl apply -f 'https://strimzi.io/examples/latest/kafka/kafka-single-node.yaml' -n default
 ```
 
-**UnDeploy the controller from the cluster:**
+Install the CRDs
 
-```sh
-make undeploy
+```bash
+make install
 ```
+
+Deploy the samples
+
+```bash
+kubectl apply -k config/samples
+```
+
+To test Connector deployments while running the controller locally you can fake the Kubernetes
+by adding this to your `/etc/hosts` where `my-cluster` is the name of the Kafka Connect Cluster
+and `default` the namespace where it's deployed:
+
+```
+127.0.0.1 my-cluster-connect.default
+```
+
+Then start the controller locally:
+
+```bash
+make run
+```
+
+Once the Kafka Connect cluster is ready, forward the rest port locally:
+
+```bash
+kubectl port-forward services/my-cluster-connect 8083:8083
+```
+
+The sample will deploy a Kafka Connect cluster with the name `my-cluster` when you will start the manager locally.
 
 ## Project Distribution
 
@@ -111,77 +296,7 @@ the project, i.e.:
 kubectl apply -f https://raw.githubusercontent.com/<org>/kafka-connect-operator/<tag or branch>/dist/install.yaml
 ```
 
-### By providing a Helm Chart
-
-1. Build the chart using the optional helm plugin
-
-```sh
-kubebuilder edit --plugins=helm/v2-alpha
-```
-
-2. See that a chart was generated under 'dist/chart', and users
-can obtain this solution from there.
-
-**NOTE:** If you change the project, you need to update the Helm Chart
-using the same command above to sync the latest changes. Furthermore,
-if you create webhooks, you need to use the above command with
-the '--force' flag and manually ensure that any custom configuration
-previously added to 'dist/chart/values.yaml' or 'dist/chart/manager/manager.yaml'
-is manually re-applied afterwards.
-
-## Local
-
-Some notes on how to test locally.
-
-Use kind (works with Podman)
-
-```
-kind create cluster
-```
-
-Deploy Kafka using the Strimzi operator
-
-```
-kubectl create -f 'https://strimzi.io/install/latest?namespace=default'
-kubectl apply -f https://strimzi.io/examples/latest/kafka/kafka-ephemeral.yaml
-```
-
-Install the CRDs
-
-```
-make install
-```
-
-Deploy the samples
-
-```
-kubectl apply -k config/samples
-```
-
-To test Connector deployments while running the controller locally you can fake the Kubernetes
-by adding this to your `/etc/hosts` where `my-cluster` is the name of the Kafka Connect Cluster
-and `default` the namespace where it's deployed:
-
-```
-127.0.0.1 my-cluster-connect.default
-```
-
-Then start the controller locally:
-
-```
-make run
-```
-
-Once the Kafka Connect cluster is ready, forward the rest port locally:
-
-```
-kubectl port-forward services/my-cluster-connect 8083:8083
-```
-
-The sample will deploy a Kafka Connect cluster with the name `my-cluster` when you will start the 
-
 ## Contributing
-// TODO(user): Add detailed information on how you would like others to contribute to this project
 
 **NOTE:** Run `make help` for more information on all potential `make` targets
 
@@ -202,4 +317,3 @@ distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
-
