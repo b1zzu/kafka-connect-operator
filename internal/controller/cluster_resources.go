@@ -16,8 +16,10 @@ import (
 )
 
 func deploymentForCluster(cluster *kcv1alpha1.Cluster) *appsv1ac.DeploymentApplyConfiguration {
-	// TODO: Allow configuring different image
-	image := "apache/kafka:4.1.1"
+	image := "docker.io/apache/kafka:latest"
+	if cluster.Spec.Image != nil {
+		image = *cluster.Spec.Image
+	}
 
 	// TODO: Allow to configure mount volumes for plugins
 

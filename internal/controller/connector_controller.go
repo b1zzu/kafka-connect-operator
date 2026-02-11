@@ -151,13 +151,12 @@ func (r *ConnectorReconciler) reconcileConnector(ctx context.Context, connector 
 	// Get existing connector from Kafka Connect
 	existingConnector, err := kafkaConnect.GetConnector(ctx, connector.Name)
 	if err != nil {
-		err := r.updateStatusCondition(ctx, connector, metav1.Condition{
+		if err := r.updateStatusCondition(ctx, connector, metav1.Condition{
 			Type:    typeRunningConnector,
 			Status:  metav1.ConditionUnknown,
 			Reason:  "Error",
 			Message: fmt.Sprintf("Failed to get connector: %s", err.Error()),
-		})
-		if err != nil {
+		}); err != nil {
 			return nil, fmt.Errorf("failed to update status after failed to get connector: %w", err)
 		}
 		return nil, fmt.Errorf("failed to get connector: %w", err)

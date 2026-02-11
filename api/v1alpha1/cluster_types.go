@@ -33,6 +33,11 @@ type ClusterSpec struct {
 	// +kubebuilder:validation:Minimum:=0
 	Replicas *int32 `json:"replicas,omitempty"`
 
+	// Image used to deploy Kafka Connect, it should be based on docker.io/apache/kafka
+	// +optional
+	// +kubebuilder:default="docker.io/apache/kafka:latest"
+	Image *string `json:"image,omitempty"`
+
 	// Kafka Connect configs: https://kafka.apache.org/41/configuration/kafka-connect-configs/
 	// +optional
 	Config map[string]string `json:"config"`

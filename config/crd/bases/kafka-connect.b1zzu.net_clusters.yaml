@@ -44,6 +44,11 @@ spec:
                   type: string
                 description: 'Kafka Connect configs: https://kafka.apache.org/41/configuration/kafka-connect-configs/'
                 type: object
+              image:
+                default: docker.io/apache/kafka:latest
+                description: Image used to deploy Kafka Connect, it should be based
+                  on docker.io/apache/kafka
+                type: string
               networkPolicy:
                 description: NetworkPolicy configuration
                 properties:
