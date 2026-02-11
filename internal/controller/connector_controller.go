@@ -177,7 +177,14 @@ func (r *ConnectorReconciler) reconcileConnector(ctx context.Context, connector 
 			return nil, r.updateStatusConditionAndReturnError(ctx, connector, err, "failed to create connector")
 		}
 
-		// TODO: if the status is not updated the reconciliation will not restart
+		err := r.updateStatusCondition(ctx, connector, metav1.Condition{
+			Type:   typeRunningConnector,
+			Status: metav1.ConditionFalse,
+			Reason: "Starting",
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to update status: %w", err)
+		}
 
 		log.Info("Connector created successfully")
 
@@ -201,6 +208,15 @@ func (r *ConnectorReconciler) reconcileConnector(ctx context.Context, connector 
 		err = kafkaConnect.UpdateConnectorConfig(ctx, connector.Name, desiredConfig)
 		if err != nil {
 			return nil, r.updateStatusConditionAndReturnError(ctx, connector, err, "failed to update connector config")
+		}
+
+		err := r.updateStatusCondition(ctx, connector, metav1.Condition{
+			Type:   typeRunningConnector,
+			Status: metav1.ConditionFalse,
+			Reason: "Updating",
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to update status: %w", err)
 		}
 
 		log.Info("Connector config updated successfully")
@@ -321,10 +337,6 @@ func (r *ConnectorReconciler) updateStatusCondition(
 	connector *kcv1alpha1.Connector,
 	condition metav1.Condition,
 ) error {
-	log := logf.FromContext(ctx)
-
-	log.Info("Updateing Connector status condition", "type", condition.Type, "status", condition.Status)
-
 	meta.SetStatusCondition(&connector.Status.Conditions, condition)
 	err := r.Status().Update(ctx, connector)
 	if err != nil {
