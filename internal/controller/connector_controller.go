@@ -281,8 +281,7 @@ func (r *ConnectorReconciler) reconcileConnectorFinalizer(ctx context.Context, c
 		kafkaConnect := r.newKafkaConnectClient(connector)
 		err := kafkaConnect.DeleteConnector(ctx, connector.Name)
 		if err != nil {
-			// TODO: Update the status
-			return nil, fmt.Errorf("failed to delete connector: %w", err)
+			return nil, r.updateStatusConditionAndReturnError(ctx, connector, err, "failed to delete connector")
 		}
 
 		log.Info("Connector deleted successfully, removing finalizer")
