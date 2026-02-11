@@ -33,9 +33,9 @@ type ClusterSpec struct {
 	// +kubebuilder:validation:Minimum:=0
 	Replicas *int32 `json:"replicas,omitempty"`
 
-	// Kafka Connect properties (aka configs): https://kafka.apache.org/41/configuration/kafka-connect-configs/
+	// Kafka Connect configs: https://kafka.apache.org/41/configuration/kafka-connect-configs/
 	// +optional
-	Properties map[string]string `json:"properties"`
+	Config map[string]string `json:"config"`
 }
 
 // ClusterStatus defines the observed state of Cluster.

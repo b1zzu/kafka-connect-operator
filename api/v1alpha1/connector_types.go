@@ -34,14 +34,12 @@ type ConnectorSpec struct {
 	// The name of the Kafka Connect cluster hosting the connector.
 	ClusterRef corev1.LocalObjectReference `json:"cluster"`
 
-	// Connector properties (aka configs):
+	// Connector configs:
 	// Source: https://kafka.apache.org/41/configuration/kafka-connect-configs/#source-connector-configs
 	// Sink: https://kafka.apache.org/41/configuration/kafka-connect-configs/#sink-connector-configs
 	// MirrorMaker: https://kafka.apache.org/41/configuration/mirrormaker-configs/
 	// +optional
-	Properties map[string]string `json:"properties"`
-
-	// TODO: Rename to config
+	Config map[string]string `json:"config"`
 }
 
 // ConnectorStatus defines the observed state of Connector.

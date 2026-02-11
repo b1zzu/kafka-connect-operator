@@ -92,8 +92,8 @@ func (in *ClusterSpec) DeepCopyInto(out *ClusterSpec) {
 		*out = new(int32)
 		**out = **in
 	}
-	if in.Properties != nil {
-		in, out := &in.Properties, &out.Properties
+	if in.Config != nil {
+		in, out := &in.Config, &out.Config
 		*out = make(map[string]string, len(*in))
 		for key, val := range *in {
 			(*out)[key] = val
@@ -201,8 +201,8 @@ func (in *ConnectorList) DeepCopyObject() runtime.Object {
 func (in *ConnectorSpec) DeepCopyInto(out *ConnectorSpec) {
 	*out = *in
 	out.ClusterRef = in.ClusterRef
-	if in.Properties != nil {
-		in, out := &in.Properties, &out.Properties
+	if in.Config != nil {
+		in, out := &in.Config, &out.Config
 		*out = make(map[string]string, len(*in))
 		for key, val := range *in {
 			(*out)[key] = val

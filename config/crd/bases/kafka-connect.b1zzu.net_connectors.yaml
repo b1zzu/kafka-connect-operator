@@ -53,11 +53,11 @@ spec:
                     type: string
                 type: object
                 x-kubernetes-map-type: atomic
-              properties:
+              config:
                 additionalProperties:
                   type: string
                 description: |-
-                  Connector properties (aka configs):
+                  Connector configs:
                   Source: https://kafka.apache.org/41/configuration/kafka-connect-configs/#source-connector-configs
                   Sink: https://kafka.apache.org/41/configuration/kafka-connect-configs/#sink-connector-configs
                   MirrorMaker: https://kafka.apache.org/41/configuration/mirrormaker-configs/

@@ -113,26 +113,26 @@ func deploymentForCluster(cluster *kcv1alpha1.Cluster) *appsv1ac.DeploymentApply
 		)
 }
 
-func kafkaConnectPropertiesForCluster(cluster *kcv1alpha1.Cluster) map[string]string {
-	properties := cluster.Spec.Properties
+func kafkaConnectConfigsForCluster(cluster *kcv1alpha1.Cluster) map[string]string {
+	configs := cluster.Spec.Config
 
-	// Hardcoded mandatory properties
-	properties["listeners"] = "http://:8083"
-	properties["rest.advertised.host.name"] = "${env:CONNECT_REST_ADVERTISED_HOST_NAME}"
-	properties["rest.advertised.listener"] = "http"
-	properties["rest.advertised.port"] = "8083"
-	properties["rest.extension.classes"] = "" // cluster is secured using network policies
+	// Hardcoded mandatory configs
+	configs["listeners"] = "http://:8083"
+	configs["rest.advertised.host.name"] = "${env:CONNECT_REST_ADVERTISED_HOST_NAME}"
+	configs["rest.advertised.listener"] = "http"
+	configs["rest.advertised.port"] = "8083"
+	configs["rest.extension.classes"] = "" // cluster is secured using network policies
 
 	// Env config provider
-	// Allow to define additional properties as CONNECT_* envs
+	// Allow to use CONNECT_* envs in config
 	// See: https://kafka.apache.org/41/configuration/configuration-providers/#envvarconfigprovider
-	properties["config.providers"] = "env"
-	properties["config.providers.env.class"] = "org.apache.kafka.common.config.provider.EnvVarConfigProvider"
-	properties["config.providers.env.param.allowlist.pattern"] = "^CONNECT_.*"
+	configs["config.providers"] = "env"
+	configs["config.providers.env.class"] = "org.apache.kafka.common.config.provider.EnvVarConfigProvider"
+	configs["config.providers.env.param.allowlist.pattern"] = "^CONNECT_.*"
 
 	// TODO: File config providers
 
-	return properties
+	return configs
 }
 
 func configMapNameForCluster(cluster *kcv1alpha1.Cluster) string {
@@ -140,21 +140,21 @@ func configMapNameForCluster(cluster *kcv1alpha1.Cluster) string {
 }
 
 func configMapForCluster(cluster *kcv1alpha1.Cluster) *corev1ac.ConfigMapApplyConfiguration {
-	propertiesBuilder := &strings.Builder{}
+	configsBuilder := &strings.Builder{}
 
-	properties := kafkaConnectPropertiesForCluster(cluster)
-	propertiesKeys := make([]string, 0, len(cluster.Spec.Properties))
-	for k := range properties {
-		propertiesKeys = append(propertiesKeys, k)
+	configs := kafkaConnectConfigsForCluster(cluster)
+	configsKeys := make([]string, 0, len(cluster.Spec.Config))
+	for k := range configs {
+		configsKeys = append(configsKeys, k)
 	}
-	sort.Strings(propertiesKeys)
-	for _, k := range propertiesKeys {
-		fmt.Fprintf(propertiesBuilder, "%s=%s\n", k, properties[k])
+	sort.Strings(configsKeys)
+	for _, k := range configsKeys {
+		fmt.Fprintf(configsBuilder, "%s=%s\n", k, configs[k])
 	}
 
 	name := configMapNameForCluster(cluster)
 	return corev1ac.ConfigMap(name, cluster.Namespace).
-		WithData(map[string]string{"connect.properties": propertiesBuilder.String()}).
+		WithData(map[string]string{"connect.properties": configsBuilder.String()}).
 		WithOwnerReferences(ownerReferenceForCluster(cluster))
 }
 

@@ -39,10 +39,10 @@ spec:
           spec:
             description: spec defines the desired state of Cluster
             properties:
-              properties:
+              config:
                 additionalProperties:
                   type: string
-                description: 'Kafka Connect properties (aka configs): https://kafka.apache.org/41/configuration/kafka-connect-configs/'
+                description: 'Kafka Connect configs: https://kafka.apache.org/41/configuration/kafka-connect-configs/'
                 type: object
               replicas:
                 description: Number of Kafka Connect replicas to run

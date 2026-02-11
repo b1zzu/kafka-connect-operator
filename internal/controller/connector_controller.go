@@ -169,7 +169,7 @@ func (r *ConnectorReconciler) reconcileConnector(ctx context.Context, connector 
 		// Create the connector
 		newConnector := &kafkaconnect.Connector{
 			Name:   connector.Name,
-			Config: connector.Spec.Properties,
+			Config: connector.Spec.Config,
 		}
 
 		err = kafkaConnect.CreateConnector(ctx, newConnector)
@@ -195,7 +195,7 @@ func (r *ConnectorReconciler) reconcileConnector(ctx context.Context, connector 
 	}
 
 	actualConfig := existingConnector.Config
-	desiredConfig := connector.Spec.Properties
+	desiredConfig := connector.Spec.Config
 
 	// Remove the name from the actualConfig otherwise it will
 	// enter in an infinite update loop because the desired config
