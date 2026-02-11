@@ -174,16 +174,7 @@ func (r *ConnectorReconciler) reconcileConnector(ctx context.Context, connector 
 
 		err = kafkaConnect.CreateConnector(ctx, newConnector)
 		if err != nil {
-			err := r.updateStatusCondition(ctx, connector, metav1.Condition{
-				Type:    typeRunningConnector,
-				Status:  metav1.ConditionFalse,
-				Reason:  "Error",
-				Message: fmt.Sprintf("Failed to create connector: %s", err.Error()),
-			})
-			if err != nil {
-				return nil, fmt.Errorf("failed to update status after failed to create connector: %w", err)
-			}
-			return nil, fmt.Errorf("failed to create connector: %w", err)
+			return nil, r.updateStatusConditionAndReturnError(ctx, connector, err, "failed to create connector")
 		}
 
 		// TODO: if the status is not updated the reconciliation will not restart
@@ -233,16 +224,7 @@ func (r *ConnectorReconciler) reconcileConnectorStatus(ctx context.Context, conn
 	// Get connector status from Kafka Connect
 	status, err := kafkaConnect.GetConnectorStatus(ctx, connector.Name)
 	if err != nil {
-		err := r.updateStatusCondition(ctx, connector, metav1.Condition{
-			Type:    typeRunningConnector,
-			Status:  metav1.ConditionUnknown,
-			Reason:  "Error",
-			Message: fmt.Sprintf("Failed to get connector status: %s", err.Error()),
-		})
-		if err != nil {
-			return nil, fmt.Errorf("failed to update status after failed to get connector status: %w", err)
-		}
-		return nil, fmt.Errorf("failed to get connector status: %w", err)
+		return nil, r.updateStatusConditionAndReturnError(ctx, connector, err, "failed to get connector status")
 	}
 
 	// Map Kafka Connect status to Kubernetes condition
