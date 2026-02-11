@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -379,8 +380,6 @@ func mapConnectorStatusToCondition(status *kafkaconnect.ConnectorStatus) metav1.
 		Type: typeRunningConnector,
 	}
 
-	// TODO: Extract the reason why the connector has failed
-
 	switch status.Connector.State {
 	case "RUNNING":
 		failedTasks := countFailedTasks(status.Tasks)
@@ -400,7 +399,7 @@ func mapConnectorStatusToCondition(status *kafkaconnect.ConnectorStatus) metav1.
 	case "FAILED":
 		condition.Status = metav1.ConditionFalse
 		condition.Reason = "Failed"
-		condition.Message = "Connector failed"
+		condition.Message = fmt.Sprintf("Connector failed with trace: %s", strings.ReplaceAll(status.Connector.Trace, "\n\t", "\n"))
 	default:
 		condition.Status = metav1.ConditionUnknown
 		condition.Reason = "Unknown"
