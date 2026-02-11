@@ -25,6 +25,7 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	netv1 "k8s.io/api/networking/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -53,7 +54,8 @@ const (
 // ClusterReconciler reconciles a Cluster object
 type ClusterReconciler struct {
 	client.Client
-	Scheme *runtime.Scheme
+	Scheme    *runtime.Scheme
+	Namespace string
 }
 
 // +kubebuilder:rbac:groups=kafka-connect.b1zzu.net,resources=clusters,verbs=get;list;watch;create;update;patch;delete
@@ -62,6 +64,7 @@ type ClusterReconciler struct {
 // +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch
 // +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch
+// +kubebuilder:rbac:groups=networking.k8s.io,resources=networkpolicies,verbs=get;list;watch;create;update;patch;delete
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -95,6 +98,11 @@ func (r *ClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, err
 	}
 
+	cluster, err = r.reconcileNetworkPolicy(ctx, cluster)
+	if err != nil || cluster == nil {
+		return ctrl.Result{}, err
+	}
+
 	cluster, err = r.reconcileConfigMap(ctx, cluster)
 	if err != nil || cluster == nil {
 		return ctrl.Result{}, err
@@ -115,6 +123,7 @@ func (r *ClusterReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		For(&kcv1alpha1.Cluster{}).
 		Owns(&appsv1.Deployment{}).
 		Owns(&corev1.ConfigMap{}).
+		Owns(&netv1.NetworkPolicy{}).
 		Named("cluster").
 		Complete(r)
 }
@@ -274,6 +283,45 @@ func (r *ClusterReconciler) reconcileConfigMap(ctx context.Context, cluster *kcv
 	}
 
 	// ConfigMap is already align
+	return cluster, nil
+}
+
+func (r *ClusterReconciler) reconcileNetworkPolicy(ctx context.Context, cluster *kcv1alpha1.Cluster) (*kcv1alpha1.Cluster, error) {
+	// Check if NetworkPolicy is enabled (default: true)
+	enabled := true
+	if cluster.Spec.NetworkPolicy != nil && cluster.Spec.NetworkPolicy.Enabled != nil {
+		enabled = *cluster.Spec.NetworkPolicy.Enabled
+	}
+
+	// TODO: When the networkpolicy is disabled we need to delete it
+
+	if !enabled {
+		// NetworkPolicy is disabled, skip reconciliation
+		return cluster, nil
+	}
+
+	networkPolicyA := networkPolicyForCluster(cluster, r.Namespace)
+
+	err := r.serverSideApply(ctx, networkPolicyA)
+	if err != nil {
+		err := r.updateStatusCondition(ctx, cluster, metav1.Condition{
+			Type:    typeAvailableCluster,
+			Status:  metav1.ConditionFalse,
+			Reason:  "Error",
+			Message: fmt.Sprintf("Failed to apply NetworkPolicy: %s", err),
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to update Cluster status after failed to apply NetworkPolicy: %w", err)
+		}
+		return nil, fmt.Errorf("failed to apply NetworkPolicy: %w", err)
+	}
+
+	// Refetch the cluster after Server-Side Apply
+	cluster, err = r.getCluster(ctx, types.NamespacedName{Name: cluster.Name, Namespace: cluster.Namespace})
+	if err != nil || cluster == nil {
+		return cluster, err
+	}
+
 	return cluster, nil
 }
 

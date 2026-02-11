@@ -36,6 +36,19 @@ type ClusterSpec struct {
 	// Kafka Connect configs: https://kafka.apache.org/41/configuration/kafka-connect-configs/
 	// +optional
 	Config map[string]string `json:"config"`
+
+	// NetworkPolicy configuration
+	// +optional
+	NetworkPolicy *NetworkPolicyConfig `json:"networkPolicy,omitempty"`
+}
+
+// NetworkPolicyConfig defines the NetworkPolicy configuration
+type NetworkPolicyConfig struct {
+	// Enabled controls whether NetworkPolicies should be created
+	// Default: true
+	// +optional
+	// +kubebuilder:default:=true
+	Enabled *bool `json:"enabled,omitempty"`
 }
 
 // ClusterStatus defines the observed state of Cluster.

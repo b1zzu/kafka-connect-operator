@@ -47,6 +47,25 @@ kubectl apply -k config/samples/
 
 >**NOTE**: Ensure that the samples has default values to test it out.
 
+### Network Security
+
+The operator automatically creates NetworkPolicies for each Kafka Connect cluster to secure the REST API (port 8083). By default, only the operator and other pods in the same cluster can access the Kafka Connect API.
+
+The operator will automatically detect the namespace where it's running to set-up the cross-namespace ingress policy.
+
+**To disable NetworkPolicies:**
+If you need to disable NetworkPolicy creation (not recommended for production), add the following to your Cluster CR:
+
+```yaml
+apiVersion: kafka-connect.b1zzu.net/v1alpha1
+kind: Cluster
+metadata:
+  name: my-cluster
+spec:
+  networkPolicy:
+    enabled: false
+```
+
 ### To Uninstall
 **Delete the instances (CRs) from the cluster:**
 

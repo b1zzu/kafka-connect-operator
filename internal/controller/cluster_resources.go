@@ -12,9 +12,8 @@ import (
 	appsv1ac "k8s.io/client-go/applyconfigurations/apps/v1"
 	corev1ac "k8s.io/client-go/applyconfigurations/core/v1"
 	metav1ac "k8s.io/client-go/applyconfigurations/meta/v1"
+	netv1ac "k8s.io/client-go/applyconfigurations/networking/v1"
 )
-
-// TODO: Network policies
 
 func deploymentForCluster(cluster *kcv1alpha1.Cluster) *appsv1ac.DeploymentApplyConfiguration {
 	// TODO: Allow configuring different image
@@ -173,6 +172,56 @@ func serviceForCluster(cluster *kcv1alpha1.Cluster) *corev1ac.ServiceApplyConfig
 				WithProtocol(corev1.ProtocolTCP).
 				WithPort(8083).
 				WithTargetPort(intstr.FromString("http"))))
+}
+
+func networkPolicyForCluster(cluster *kcv1alpha1.Cluster, operatorNamespace string) *netv1ac.NetworkPolicyApplyConfiguration {
+	podLabels := map[string]string{
+		"app.kubernetes.io/name":     "kafka-connect",
+		"app.kubernetes.io/instance": cluster.Name,
+	}
+
+	operatorPodLabels := map[string]string{
+		"control-plane":          "controller-manager",
+		"app.kubernetes.io/name": "kafka-connect-operator",
+	}
+
+	operatorNamespaceLabels := map[string]string{
+		"kubernetes.io/metadata.name": operatorNamespace,
+	}
+
+	name := fmt.Sprintf("%s-connect", cluster.Name)
+
+	return netv1ac.NetworkPolicy(name, cluster.Namespace).
+		WithOwnerReferences(ownerReferenceForCluster(cluster)).
+		WithSpec(netv1ac.NetworkPolicySpec().
+			WithPodSelector(metav1ac.LabelSelector().WithMatchLabels(podLabels)).
+			WithPolicyTypes("Ingress").
+			WithIngress(
+				// Rule 1: Allow operator access
+				netv1ac.NetworkPolicyIngressRule().
+					WithFrom(
+						netv1ac.NetworkPolicyPeer().
+							WithNamespaceSelector(metav1ac.LabelSelector().WithMatchLabels(operatorNamespaceLabels)).
+							WithPodSelector(metav1ac.LabelSelector().WithMatchLabels(operatorPodLabels)),
+					).
+					WithPorts(
+						netv1ac.NetworkPolicyPort().
+							WithProtocol(corev1.ProtocolTCP).
+							WithPort(intstr.FromInt(8083)),
+					),
+				// Rule 2: Allow inter-pod communication (distributed mode)
+				netv1ac.NetworkPolicyIngressRule().
+					WithFrom(
+						netv1ac.NetworkPolicyPeer().
+							WithPodSelector(metav1ac.LabelSelector().WithMatchLabels(podLabels)),
+					).
+					WithPorts(
+						netv1ac.NetworkPolicyPort().
+							WithProtocol(corev1.ProtocolTCP).
+							WithPort(intstr.FromInt(8083)),
+					),
+			),
+		)
 }
 
 func ownerReferenceForCluster(cluster *kcv1alpha1.Cluster) *metav1ac.OwnerReferenceApplyConfiguration {
