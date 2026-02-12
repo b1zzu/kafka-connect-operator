@@ -18,4 +18,13 @@ resources:
   kind: Cluster
   path: github.com/b1zzu/kafka-connect-operator/api/v1alpha1
   version: v1alpha1
+- api:
+    crdVersion: v1
+    namespaced: true
+  controller: true
+  domain: b1zzu.net
+  group: kafka-connect
+  kind: Connector
+  path: github.com/b1zzu/kafka-connect-operator/api/v1alpha1
+  version: v1alpha1
 version: "3"

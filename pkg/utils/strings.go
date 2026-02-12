@@ -15,21 +15,12 @@ limitations under the License.
 package utils
 
 import (
-	"fmt"
-	"strings"
-
-	corev1 "k8s.io/api/core/v1"
+	"hash/fnv"
+	"strconv"
 )
 
-func PropertiesToEnvs(properties map[string]string) []corev1.EnvVar {
-	envs := make([]corev1.EnvVar, 0, len(properties))
-	for k, v := range properties {
-		k = strings.ReplaceAll(k, ".", "_")
-		k = strings.ToUpper(k)
-		k = fmt.Sprintf("KAFKA_%s", k)
-
-		envs = append(envs, corev1.EnvVar{Name: k, Value: v})
-	}
-
-	return envs
+func FNVHashString(s string) string {
+	h := fnv.New64a()
+	h.Write([]byte(s))
+	return strconv.FormatUint(h.Sum64(), 16)
 }

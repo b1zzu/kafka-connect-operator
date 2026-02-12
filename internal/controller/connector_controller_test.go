@@ -28,7 +28,7 @@ import (
 	kafkaconnectv1alpha1 "github.com/b1zzu/kafka-connect-operator/api/v1alpha1"
 )
 
-var _ = Describe("Cluster Controller", func() {
+var _ = Describe("Connector Controller", func() {
 	Context("When reconciling a resource", func() {
 		const resourceName = "test-resource"
 
@@ -38,13 +38,13 @@ var _ = Describe("Cluster Controller", func() {
 			Name:      resourceName,
 			Namespace: "default", // TODO(user):Modify as needed
 		}
-		cluster := &kafkaconnectv1alpha1.Cluster{}
+		connector := &kafkaconnectv1alpha1.Connector{}
 
 		BeforeEach(func() {
-			By("creating the custom resource for the Kind Cluster")
-			err := k8sClient.Get(ctx, typeNamespacedName, cluster)
+			By("creating the custom resource for the Kind Connector")
+			err := k8sClient.Get(ctx, typeNamespacedName, connector)
 			if err != nil && errors.IsNotFound(err) {
-				resource := &kafkaconnectv1alpha1.Cluster{
+				resource := &kafkaconnectv1alpha1.Connector{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      resourceName,
 						Namespace: "default",
@@ -57,16 +57,16 @@ var _ = Describe("Cluster Controller", func() {
 
 		AfterEach(func() {
 			// TODO(user): Cleanup logic after each test, like removing the resource instance.
-			resource := &kafkaconnectv1alpha1.Cluster{}
+			resource := &kafkaconnectv1alpha1.Connector{}
 			err := k8sClient.Get(ctx, typeNamespacedName, resource)
 			Expect(err).NotTo(HaveOccurred())
 
-			By("Cleanup the specific resource instance Cluster")
+			By("Cleanup the specific resource instance Connector")
 			Expect(k8sClient.Delete(ctx, resource)).To(Succeed())
 		})
 		It("should successfully reconcile the resource", func() {
 			By("Reconciling the created resource")
-			controllerReconciler := &ClusterReconciler{
+			controllerReconciler := &ConnectorReconciler{
 				Client: k8sClient,
 				Scheme: k8sClient.Scheme(),
 			}

@@ -1,0 +1,23 @@
+apiVersion: kafka-connect.b1zzu.net/v1alpha1
+kind: Connector
+metadata:
+  labels:
+    app.kubernetes.io/name: kafka-connect-operator
+    app.kubernetes.io/managed-by: kustomize
+  name: my-connector
+spec:
+  cluster:
+    name: my-cluster
+  config:
+    connector.class: org.apache.kafka.connect.mirror.MirrorSourceConnector
+    tasks.max: "1"
+    source.cluster.alias: source
+    target.cluster.alias: target
+    source.cluster.bootstrap.servers: my-cluster-kafka-bootstrap:9092
+    target.cluster.bootstrap.servers: my-cluster-kafka-bootstrap:9092
+    topics: example-a
+    replication.policy.class: org.apache.kafka.connect.mirror.DefaultReplicationPolicy
+    transforms: rename
+    transforms.rename.type: org.apache.kafka.connect.transforms.RegexRouter
+    transforms.rename.regex: topic-a
+    transforms.rename.replacement: topic-b

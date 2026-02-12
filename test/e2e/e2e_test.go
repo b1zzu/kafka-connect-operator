@@ -2,8 +2,6 @@
 // +build e2e
 
 /*
-Copyright 2026.
-
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
@@ -34,16 +32,16 @@ import (
 )
 
 // namespace where the project is deployed in
-const namespace = "kafka-connect-operator-system"
+const namespace = "kafka-connect-operator"
 
 // serviceAccountName created for the project
-const serviceAccountName = "kafka-connect-operator-controller-manager"
+const serviceAccountName = "kafka-connect-controller-manager"
 
 // metricsServiceName is the name of the metrics service of the project
-const metricsServiceName = "kafka-connect-operator-controller-manager-metrics-service"
+const metricsServiceName = "kafka-connect-controller-manager-metrics-service"
 
 // metricsRoleBindingName is the name of the RBAC that will be created to allow get the metrics data
-const metricsRoleBindingName = "kafka-connect-operator-metrics-binding"
+const metricsRoleBindingName = "kafka-connect-metrics-binding"
 
 var _ = Describe("Manager", Ordered, func() {
 	var controllerPodName string
@@ -176,7 +174,7 @@ var _ = Describe("Manager", Ordered, func() {
 		It("should ensure the metrics endpoint is serving metrics", func() {
 			By("creating a ClusterRoleBinding for the service account to allow access to metrics")
 			cmd := exec.Command("kubectl", "create", "clusterrolebinding", metricsRoleBindingName,
-				"--clusterrole=kafka-connect-operator-metrics-reader",
+				"--clusterrole=kafka-connect-metrics-reader",
 				fmt.Sprintf("--serviceaccount=%s:%s", namespace, serviceAccountName),
 			)
 			_, err := utils.Run(cmd)

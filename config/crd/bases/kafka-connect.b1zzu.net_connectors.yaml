@@ -4,20 +4,20 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.20.0
-  name: clusters.kafka-connect.b1zzu.net
+  name: connectors.kafka-connect.b1zzu.net
 spec:
   group: kafka-connect.b1zzu.net
   names:
-    kind: Cluster
-    listKind: ClusterList
-    plural: clusters
-    singular: cluster
+    kind: Connector
+    listKind: ConnectorList
+    plural: connectors
+    singular: connector
   scope: Namespaced
   versions:
   - name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: Cluster is the Schema for the clusters API
+        description: Connector is the Schema for the connectors API
         properties:
           apiVersion:
             description: |-
@@ -37,40 +37,40 @@ spec:
           metadata:
             type: object
           spec:
-            description: spec defines the desired state of Cluster
+            description: spec defines the desired state of Connector
             properties:
+              cluster:
+                description: The name of the Kafka Connect cluster hosting the connector.
+                properties:
+                  name:
+                    default: ""
+                    description: |-
+                      Name of the referent.
+                      This field is effectively required, but due to backwards compatibility is
+                      allowed to be empty. Instances of this type with an empty value here are
+                      almost certainly wrong.
+                      More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                    type: string
+                type: object
+                x-kubernetes-map-type: atomic
               config:
                 additionalProperties:
                   type: string
-                description: 'Kafka Connect configs: https://kafka.apache.org/41/configuration/kafka-connect-configs/'
+                description: |-
+                  Connector configs:
+                  Source: https://kafka.apache.org/41/configuration/kafka-connect-configs/#source-connector-configs
+                  Sink: https://kafka.apache.org/41/configuration/kafka-connect-configs/#sink-connector-configs
+                  MirrorMaker: https://kafka.apache.org/41/configuration/mirrormaker-configs/
                 type: object
-              image:
-                default: docker.io/apache/kafka:latest
-                description: Image used to deploy Kafka Connect, it should be based
-                  on docker.io/apache/kafka
-                type: string
-              networkPolicy:
-                description: NetworkPolicy configuration
-                properties:
-                  enabled:
-                    default: true
-                    description: |-
-                      Enabled controls whether NetworkPolicies should be created
-                      Default: true
-                    type: boolean
-                type: object
-              replicas:
-                description: Number of Kafka Connect replicas to run
-                format: int32
-                minimum: 0
-                type: integer
+            required:
+            - cluster
             type: object
           status:
-            description: status defines the observed state of Cluster
+            description: status defines the observed state of Connector
             properties:
               conditions:
                 description: |-
-                  conditions represent the current state of the Cluster resource.
+                  conditions represent the current state of the Connector resource.
                   Each condition has a unique type and reflects the status of a specific aspect of the resource.
 
                   Standard condition types include:
@@ -137,11 +137,6 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
-              configHash:
-                description: |-
-                  The hash of the Cluster ConfigMap app
-                  If no config is applied yet, this will be null.
-                type: string
             type: object
         required:
         - spec

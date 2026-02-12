@@ -35,6 +35,7 @@ rules:
   - kafka-connect.b1zzu.net
   resources:
   - clusters
+  - connectors
   verbs:
   - create
   - delete
@@ -47,13 +48,27 @@ rules:
   - kafka-connect.b1zzu.net
   resources:
   - clusters/finalizers
+  - connectors/finalizers
   verbs:
   - update
 - apiGroups:
   - kafka-connect.b1zzu.net
   resources:
   - clusters/status
+  - connectors/status
   verbs:
   - get
   - patch
   - update
+- apiGroups:
+  - networking.k8s.io
+  resources:
+  - networkpolicies
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch

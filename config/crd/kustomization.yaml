@@ -3,6 +3,7 @@
 # It should be run by config/default
 resources:
 - bases/kafka-connect.b1zzu.net_clusters.yaml
+- bases/kafka-connect.b1zzu.net_connectors.yaml
 # +kubebuilder:scaffold:crdkustomizeresource
 
 patches:

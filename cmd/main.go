@@ -1,6 +1,4 @@
 /*
-Copyright 2026.
-
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
@@ -19,7 +17,9 @@ package main
 import (
 	"crypto/tls"
 	"flag"
+	"fmt"
 	"os"
+	"strings"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
@@ -50,6 +50,19 @@ func init() {
 
 	utilruntime.Must(kafkaconnectv1alpha1.AddToScheme(scheme))
 	// +kubebuilder:scaffold:scheme
+}
+
+func getOperatorNamespace() (string, error) {
+	// Read namespace from ServiceAccount mount (standard K8s pattern)
+	nsBytes, err := os.ReadFile("/var/run/secrets/kubernetes.io/serviceaccount/namespace")
+	if err != nil {
+		// Fall back to default namespace when running locally (file doesn't exist)
+		if os.IsNotExist(err) {
+			return "kafka-connect-operator", nil
+		}
+		return "", fmt.Errorf("failed to read namespace: %w", err)
+	}
+	return strings.TrimSpace(string(nsBytes)), nil
 }
 
 // nolint:gocyclo
@@ -154,6 +167,13 @@ func main() {
 		metricsServerOptions.KeyName = metricsCertKey
 	}
 
+	// Get the operator namespace for NetworkPolicy configuration
+	operatorNamespace, err := getOperatorNamespace()
+	if err != nil {
+		setupLog.Error(err, "unable to get operator namespace")
+		os.Exit(1)
+	}
+
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme:                 scheme,
 		Metrics:                metricsServerOptions,
@@ -179,10 +199,18 @@ func main() {
 	}
 
 	if err := (&controller.ClusterReconciler{
+		Client:    mgr.GetClient(),
+		Scheme:    mgr.GetScheme(),
+		Namespace: operatorNamespace,
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "Cluster")
+		os.Exit(1)
+	}
+	if err := (&controller.ConnectorReconciler{
 		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),
 	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "Cluster")
+		setupLog.Error(err, "unable to create controller", "controller", "Connector")
 		os.Exit(1)
 	}
 	// +kubebuilder:scaffold:builder
