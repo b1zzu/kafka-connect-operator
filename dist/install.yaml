@@ -758,7 +758,7 @@ spec:
         - --health-probe-bind-address=:8081
         command:
         - /manager
-        image: ghcr.io/b1zzu/kafka-connect-operator:2c39d5f-39
+        image: ghcr.io/b1zzu/kafka-connect-operator:a97c7e9-44
         livenessProbe:
           httpGet:
             path: /healthz
