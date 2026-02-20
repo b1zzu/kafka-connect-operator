@@ -3,7 +3,8 @@ name: Build and Push Container Images
 on:
   push:
     branches:
-      - '**'  # All branches including main
+      - main
+  pull_request:
   release:
     types: [published]
 
@@ -47,7 +48,7 @@ jobs:
         with:
           context: .
           platforms: linux/arm64,linux/amd64
-          push: true
+          push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
