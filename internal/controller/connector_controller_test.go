@@ -20,12 +20,12 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-
 	kafkaconnectv1alpha1 "github.com/b1zzu/kafka-connect-operator/api/v1alpha1"
+	kafkaconnect "github.com/b1zzu/kafka-connect-operator/pkg/kafka-connect"
 )
 
 var _ = Describe("Connector Controller", func() {
@@ -77,6 +77,125 @@ var _ = Describe("Connector Controller", func() {
 			Expect(err).NotTo(HaveOccurred())
 			// TODO(user): Add more specific assertions depending on your controller's reconciliation logic.
 			// Example: If you expect a certain status condition after reconciliation, verify it here.
+		})
+	})
+
+	Context("getDesiredConnectorState", func() {
+		It("should return running when annotation is absent", func() {
+			connector := &kafkaconnectv1alpha1.Connector{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test",
+					Namespace: "default",
+				},
+			}
+			state, err := getDesiredConnectorState(connector)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(state).To(Equal("running"))
+		})
+
+		It("should return running when annotations map exists but state annotation is absent", func() {
+			connector := &kafkaconnectv1alpha1.Connector{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test",
+					Namespace: "default",
+					Annotations: map[string]string{
+						"other-annotation": "value",
+					},
+				},
+			}
+			state, err := getDesiredConnectorState(connector)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(state).To(Equal("running"))
+		})
+
+		It("should return paused when annotation is paused", func() {
+			connector := &kafkaconnectv1alpha1.Connector{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test",
+					Namespace: "default",
+					Annotations: map[string]string{
+						connectorStateAnnotation: "paused",
+					},
+				},
+			}
+			state, err := getDesiredConnectorState(connector)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(state).To(Equal("paused"))
+		})
+
+		It("should return stopped when annotation is stopped", func() {
+			connector := &kafkaconnectv1alpha1.Connector{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test",
+					Namespace: "default",
+					Annotations: map[string]string{
+						connectorStateAnnotation: "stopped",
+					},
+				},
+			}
+			state, err := getDesiredConnectorState(connector)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(state).To(Equal("stopped"))
+		})
+
+		It("should return running when annotation is running", func() {
+			connector := &kafkaconnectv1alpha1.Connector{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test",
+					Namespace: "default",
+					Annotations: map[string]string{
+						connectorStateAnnotation: "running",
+					},
+				},
+			}
+			state, err := getDesiredConnectorState(connector)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(state).To(Equal("running"))
+		})
+
+		It("should return error for invalid annotation value", func() {
+			connector := &kafkaconnectv1alpha1.Connector{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test",
+					Namespace: "default",
+					Annotations: map[string]string{
+						connectorStateAnnotation: "invalid",
+					},
+				},
+			}
+			_, err := getDesiredConnectorState(connector)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("invalid connector state annotation value"))
+		})
+	})
+
+	Context("mapConnectorStatusToCondition", func() {
+		It("should map STOPPED state to Stopped condition", func() {
+			status := &kafkaconnect.ConnectorStatus{
+				Name: "test",
+				Connector: kafkaconnect.ConnectorStatusConnector{
+					State:    "STOPPED",
+					WorkerID: "worker-1",
+				},
+			}
+			condition := mapConnectorStatusToCondition(status)
+			Expect(condition.Status).To(Equal(metav1.ConditionFalse))
+			Expect(condition.Reason).To(Equal("Stopped"))
+			Expect(condition.Message).To(Equal("Connector is stopped"))
+		})
+
+		It("should map PAUSED state to Paused condition", func() {
+			status := &kafkaconnect.ConnectorStatus{
+				Name: "test",
+				Connector: kafkaconnect.ConnectorStatusConnector{
+					State:    "PAUSED",
+					WorkerID: "worker-1",
+				},
+			}
+			condition := mapConnectorStatusToCondition(status)
+			Expect(condition.Status).To(Equal(metav1.ConditionFalse))
+			Expect(condition.Reason).To(Equal("Paused"))
+			Expect(condition.Message).To(Equal("Connector is paused"))
 		})
 	})
 })
