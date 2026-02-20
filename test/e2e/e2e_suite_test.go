@@ -32,6 +32,8 @@ import (
 var (
 	// managerImage is the manager image to be built and loaded for testing.
 	managerImage = "example.com/kafka-connect-operator:v0.0.1"
+	// pluginsImage is the sample-plugins image to be built and loaded for testing.
+	pluginsImage = "ghcr.io/b1zzu/kafka-connect-operator/sample-plugins:latest"
 	// shouldCleanupCertManager tracks whether CertManager was installed by this suite.
 	shouldCleanupCertManager = false
 )
@@ -57,6 +59,20 @@ var _ = BeforeSuite(func() {
 	By("loading the manager image on Kind")
 	err = utils.LoadImageToKindClusterWithName(managerImage)
 	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to load the manager image into Kind")
+
+	containerTool := os.Getenv("CONTAINER_TOOL")
+	if containerTool == "" {
+		containerTool = "docker"
+	}
+
+	By("building the sample-plugins image")
+	cmd = exec.Command(containerTool, "build", "-t", pluginsImage, "plugins")
+	_, err = utils.Run(cmd)
+	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to build the sample-plugins image")
+
+	By("loading the sample-plugins image on Kind")
+	err = utils.LoadImageToKindClusterWithName(pluginsImage)
+	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to load the sample-plugins image into Kind")
 
 	setupCertManager()
 })
