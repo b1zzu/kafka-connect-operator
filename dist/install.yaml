@@ -67,6 +67,32 @@ spec:
                       Default: true
                     type: boolean
                 type: object
+              plugins:
+                description: |-
+                  Plugins is a list of Kafka Connect plugins to mount from OCI images.
+                  Each plugin image is mounted as a read-only volume in the Kafka Connect container.
+                  The operator automatically configures plugin.path to include all plugin mount directories.
+                items:
+                  description: Plugin defines a Kafka Connect plugin to be mounted
+                    from an OCI image.
+                  properties:
+                    image:
+                      description: OCI image reference containing the plugin artifacts.
+                      minLength: 1
+                      type: string
+                    pullPolicy:
+                      description: |-
+                        Pull policy for the OCI image.
+                        Defaults to Always if :latest tag is specified, or IfNotPresent otherwise.
+                      enum:
+                      - Always
+                      - Never
+                      - IfNotPresent
+                      type: string
+                  required:
+                  - image
+                  type: object
+                type: array
               replicas:
                 description: Number of Kafka Connect replicas to run
                 format: int32
@@ -695,7 +721,7 @@ spec:
         - --health-probe-bind-address=:8081
         command:
         - /manager
-        image: ghcr.io/b1zzu/kafka-connect-operator:47ebad9-13
+        image: ghcr.io/b1zzu/kafka-connect-operator:457b6d6-18
         livenessProbe:
           httpGet:
             path: /healthz
