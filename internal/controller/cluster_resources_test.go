@@ -33,6 +33,16 @@ var _ = Describe("Cluster Resources", func() {
 		}
 	}
 
+	newClusterWithSecrets := func(plugins []kcv1alpha1.Plugin, secrets []kcv1alpha1.SecretMount) *kcv1alpha1.Cluster {
+		return &kcv1alpha1.Cluster{
+			Spec: kcv1alpha1.ClusterSpec{
+				Config:  map[string]string{"bootstrap.servers": "localhost:9092"},
+				Plugins: plugins,
+				Secrets: secrets,
+			},
+		}
+	}
+
 	Describe("deploymentForCluster", func() {
 		It("should have only the config volume when no plugins are specified", func() {
 			cluster := newCluster(nil)
@@ -95,6 +105,73 @@ var _ = Describe("Cluster Resources", func() {
 			volumes := dep.Spec.Template.Spec.Volumes
 			Expect(volumes).To(HaveLen(2))
 			Expect(volumes[1].Image.PullPolicy).To(BeNil())
+		})
+
+		It("should add secret volumes and mounts with correct paths", func() {
+			cluster := newClusterWithSecrets(nil, []kcv1alpha1.SecretMount{
+				{Name: "my-keystore", SecretRef: corev1.LocalObjectReference{Name: "my-keystore-secret"}},
+				{Name: "my-truststore", SecretRef: corev1.LocalObjectReference{Name: "my-truststore-secret"}},
+			})
+			dep := deploymentForCluster(cluster)
+
+			volumes := dep.Spec.Template.Spec.Volumes
+			Expect(volumes).To(HaveLen(3)) // config + 2 secrets
+
+			Expect(*volumes[0].Name).To(Equal("config"))
+			Expect(*volumes[1].Name).To(Equal("secret-0"))
+			Expect(*volumes[1].Secret.SecretName).To(Equal("my-keystore-secret"))
+			Expect(*volumes[2].Name).To(Equal("secret-1"))
+			Expect(*volumes[2].Secret.SecretName).To(Equal("my-truststore-secret"))
+
+			mounts := dep.Spec.Template.Spec.Containers[0].VolumeMounts
+			Expect(mounts).To(HaveLen(3))
+			Expect(*mounts[0].Name).To(Equal("config"))
+			Expect(*mounts[1].Name).To(Equal("secret-0"))
+			Expect(*mounts[1].MountPath).To(Equal("/secrets/my-keystore"))
+			Expect(*mounts[1].ReadOnly).To(BeTrue())
+			Expect(*mounts[2].Name).To(Equal("secret-1"))
+			Expect(*mounts[2].MountPath).To(Equal("/secrets/my-truststore"))
+			Expect(*mounts[2].ReadOnly).To(BeTrue())
+		})
+
+		It("should add both plugin and secret volumes together", func() {
+			cluster := newClusterWithSecrets(
+				[]kcv1alpha1.Plugin{
+					{Image: "registry.example.com/plugin-a:1.0"},
+				},
+				[]kcv1alpha1.SecretMount{
+					{Name: "my-keystore", SecretRef: corev1.LocalObjectReference{Name: "my-keystore-secret"}},
+				},
+			)
+			dep := deploymentForCluster(cluster)
+
+			volumes := dep.Spec.Template.Spec.Volumes
+			Expect(volumes).To(HaveLen(3)) // config + 1 plugin + 1 secret
+
+			Expect(*volumes[0].Name).To(Equal("config"))
+			Expect(*volumes[1].Name).To(Equal("plugin-0"))
+			Expect(*volumes[2].Name).To(Equal("secret-0"))
+
+			mounts := dep.Spec.Template.Spec.Containers[0].VolumeMounts
+			Expect(mounts).To(HaveLen(3))
+			Expect(*mounts[0].Name).To(Equal("config"))
+			Expect(*mounts[1].Name).To(Equal("plugin-0"))
+			Expect(*mounts[1].MountPath).To(Equal("/plugins/0"))
+			Expect(*mounts[2].Name).To(Equal("secret-0"))
+			Expect(*mounts[2].MountPath).To(Equal("/secrets/my-keystore"))
+		})
+
+		It("should have only the config volume when no plugins or secrets are specified", func() {
+			cluster := newClusterWithSecrets(nil, nil)
+			dep := deploymentForCluster(cluster)
+
+			volumes := dep.Spec.Template.Spec.Volumes
+			Expect(volumes).To(HaveLen(1))
+			Expect(*volumes[0].Name).To(Equal("config"))
+
+			mounts := dep.Spec.Template.Spec.Containers[0].VolumeMounts
+			Expect(mounts).To(HaveLen(1))
+			Expect(*mounts[0].Name).To(Equal("config"))
 		})
 	})
 
@@ -193,6 +270,14 @@ var _ = Describe("Cluster Resources", func() {
 			_, err := kafkaConnectConfigsForCluster(cluster)
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("plugin.path"))
+		})
+
+		It("should always include file config provider", func() {
+			cluster := newCluster(nil)
+			configs, err := kafkaConnectConfigsForCluster(cluster)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(configs).To(HaveKeyWithValue("config.providers", "env,file"))
+			Expect(configs).To(HaveKeyWithValue("config.providers.file.class", "org.apache.kafka.common.config.provider.FileConfigProvider"))
 		})
 	})
 })

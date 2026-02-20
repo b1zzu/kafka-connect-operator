@@ -7,8 +7,15 @@ metadata:
     app.kubernetes.io/managed-by: kustomize
 spec:
   replicas: 1
+
   plugins:
     - image: ghcr.io/b1zzu/kafka-connect-operator/sample-plugins:latest
+
+  # secrets:
+  #   - name: my-keystore
+  #     secretRef:
+  #       name: my-keystore
+
   config:
     bootstrap.servers: my-cluster-kafka-bootstrap:9092
     key.converter: org.apache.kafka.connect.json.JsonConverter

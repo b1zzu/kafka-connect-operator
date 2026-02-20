@@ -90,6 +90,43 @@ spec:
                 format: int32
                 minimum: 0
                 type: integer
+              secrets:
+                description: |-
+                  Secrets is a list of Kubernetes Secrets to mount into the Kafka Connect pods.
+                  Each Secret is mounted read-only at /secrets/{name}.
+                  Secret content changes do not trigger pod restarts because the operator does not
+                  control secret content. Kubernetes handles secret volume updates automatically
+                  via the kubelet's periodic sync.
+                items:
+                  description: SecretMount defines a Kubernetes Secret to mount into
+                    Kafka Connect pods.
+                  properties:
+                    name:
+                      description: |-
+                        Name is the identifier for this secret mount.
+                        The secret will be mounted at /secrets/{name}.
+                      minLength: 1
+                      type: string
+                    secretRef:
+                      description: SecretRef is a reference to a Kubernetes Secret
+                        in the same namespace.
+                      properties:
+                        name:
+                          default: ""
+                          description: |-
+                            Name of the referent.
+                            This field is effectively required, but due to backwards compatibility is
+                            allowed to be empty. Instances of this type with an empty value here are
+                            almost certainly wrong.
+                            More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                          type: string
+                      type: object
+                      x-kubernetes-map-type: atomic
+                  required:
+                  - name
+                  - secretRef
+                  type: object
+                type: array
             type: object
           status:
             description: status defines the observed state of Cluster

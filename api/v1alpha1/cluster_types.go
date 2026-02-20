@@ -47,6 +47,14 @@ type ClusterSpec struct {
 	// +optional
 	Plugins []Plugin `json:"plugins,omitempty"`
 
+	// Secrets is a list of Kubernetes Secrets to mount into the Kafka Connect pods.
+	// Each Secret is mounted read-only at /secrets/{name}.
+	// Secret content changes do not trigger pod restarts because the operator does not
+	// control secret content. Kubernetes handles secret volume updates automatically
+	// via the kubelet's periodic sync.
+	// +optional
+	Secrets []SecretMount `json:"secrets,omitempty"`
+
 	// NetworkPolicy configuration
 	// +optional
 	NetworkPolicy *NetworkPolicyConfig `json:"networkPolicy,omitempty"`
@@ -63,6 +71,17 @@ type Plugin struct {
 	// +optional
 	// +kubebuilder:validation:Enum=Always;Never;IfNotPresent
 	PullPolicy *corev1.PullPolicy `json:"pullPolicy,omitempty"`
+}
+
+// SecretMount defines a Kubernetes Secret to mount into Kafka Connect pods.
+type SecretMount struct {
+	// Name is the identifier for this secret mount.
+	// The secret will be mounted at /secrets/{name}.
+	// +kubebuilder:validation:MinLength=1
+	Name string `json:"name"`
+
+	// SecretRef is a reference to a Kubernetes Secret in the same namespace.
+	SecretRef corev1.LocalObjectReference `json:"secretRef"`
 }
 
 // NetworkPolicyConfig defines the NetworkPolicy configuration
