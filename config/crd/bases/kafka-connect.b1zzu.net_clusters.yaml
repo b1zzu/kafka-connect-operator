@@ -78,6 +78,12 @@ spec:
                       description: OCI image reference containing the plugin artifacts.
                       minLength: 1
                       type: string
+                    name:
+                      description: |-
+                        Name is the identifier for this plugin mount.
+                        The plugin will be mounted at /plugins/{name}.
+                      minLength: 1
+                      type: string
                     pullPolicy:
                       description: |-
                         Pull policy for the OCI image.
@@ -89,8 +95,12 @@ spec:
                       type: string
                   required:
                   - image
+                  - name
                   type: object
                 type: array
+                x-kubernetes-list-map-keys:
+                - name
+                x-kubernetes-list-type: map
               podAnnotations:
                 additionalProperties:
                   type: string
@@ -148,6 +158,9 @@ spec:
                   - secretRef
                   type: object
                 type: array
+                x-kubernetes-list-map-keys:
+                - name
+                x-kubernetes-list-type: map
               serviceAccountAnnotations:
                 additionalProperties:
                   type: string

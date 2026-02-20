@@ -9,7 +9,8 @@ spec:
   replicas: 1
 
   plugins:
-    - image: ghcr.io/b1zzu/kafka-connect-operator/sample-plugins:latest
+    - name: sample-plugins
+      image: ghcr.io/b1zzu/kafka-connect-operator/sample-plugins:latest
 
   # secrets:
   #   - name: my-keystore
