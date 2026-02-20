@@ -1,11 +1,15 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": ["config:recommended"],
+  "extends": [
+    "config:recommended"
+  ],
   "customManagers": [
     {
       "customType": "regex",
       "description": "Update default Apache Kafka image in Go source files",
-      "fileMatch": ["\\.go$"],
+      "managerFilePatterns": [
+        "/\\.go$/"
+      ],
       "matchStrings": [
         "\"(?<depName>docker\\.io\\/apache\\/kafka):(?<currentValue>[^\"]+)\""
       ],
@@ -14,7 +18,9 @@
     {
       "customType": "regex",
       "description": "Update connect-file plugin version in plugins Dockerfile",
-      "fileMatch": ["^plugins/Dockerfile$"],
+      "managerFilePatterns": [
+        "/^plugins/Dockerfile$/"
+      ],
       "matchStrings": [
         "ARG CONNECT_FILE_VERSION=(?<currentValue>\\S+)"
       ],
@@ -25,7 +31,9 @@
     {
       "customType": "regex",
       "description": "Update connect-mirror plugin version in plugins Dockerfile",
-      "fileMatch": ["^plugins/Dockerfile$"],
+      "managerFilePatterns": [
+        "/^plugins/Dockerfile$/"
+      ],
       "matchStrings": [
         "ARG CONNECT_MIRROR_VERSION=(?<currentValue>\\S+)"
       ],
@@ -36,7 +44,9 @@
     {
       "customType": "regex",
       "description": "Update JMX Exporter version in jmx-exporter Dockerfile",
-      "fileMatch": ["^jmx-exporter/Dockerfile$"],
+      "managerFilePatterns": [
+        "/^jmx-exporter/Dockerfile$/"
+      ],
       "matchStrings": [
         "ARG JMX_EXPORTER_VERSION=(?<currentValue>\\S+)"
       ],
@@ -46,7 +56,9 @@
     {
       "customType": "regex",
       "description": "Update default JMX Exporter image in Go source files",
-      "fileMatch": ["\\.go$"],
+      "managerFilePatterns": [
+        "/\\.go$/"
+      ],
       "matchStrings": [
         "\"(?<depName>ghcr\\.io\\/b1zzu\\/kafka-connect-operator\\/jmx-exporter):(?<currentValue>[^\"]+)\""
       ],
@@ -56,22 +68,30 @@
   "packageRules": [
     {
       "description": "Group all Go module dependency updates",
-      "matchManagers": ["gomod"],
+      "matchManagers": [
+        "gomod"
+      ],
       "groupName": "go dependencies"
     },
     {
       "description": "Group all main Dockerfile updates",
-      "matchFileNames": ["Dockerfile"],
+      "matchFileNames": [
+        "Dockerfile"
+      ],
       "groupName": "dockerfile"
     },
     {
       "description": "Group all plugins Dockerfile updates",
-      "matchFileNames": ["plugins/Dockerfile"],
+      "matchFileNames": [
+        "plugins/Dockerfile"
+      ],
       "groupName": "plugins dockerfile"
     },
     {
       "description": "Group all jmx-exporter Dockerfile updates",
-      "matchFileNames": ["jmx-exporter/Dockerfile"],
+      "matchFileNames": [
+        "jmx-exporter/Dockerfile"
+      ],
       "groupName": "jmx-exporter dockerfile"
     }
   ]
