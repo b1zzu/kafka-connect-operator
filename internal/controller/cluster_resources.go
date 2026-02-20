@@ -16,6 +16,7 @@ package controller
 
 import (
 	"fmt"
+	"maps"
 	"sort"
 	"strings"
 
@@ -155,22 +156,18 @@ func deploymentForCluster(cluster *kcv1alpha1.Cluster) *appsv1ac.DeploymentApply
 		)
 }
 
-func kafkaConnectConfigsForCluster(cluster *kcv1alpha1.Cluster) map[string]string {
-	configs := cluster.Spec.Config
-
-	// Hardcoded mandatory configs
-	configs["listeners"] = "http://:8083"
-	configs["rest.advertised.host.name"] = "${env:CONNECT_REST_ADVERTISED_HOST_NAME}"
-	configs["rest.advertised.listener"] = "http"
-	configs["rest.advertised.port"] = "8083"
-	configs["rest.extension.classes"] = "" // cluster is secured using network policies
-
-	// Env config provider
-	// Allow to use CONNECT_* envs in config
-	// See: https://kafka.apache.org/41/configuration/configuration-providers/#envvarconfigprovider
-	configs["config.providers"] = "env"
-	configs["config.providers.env.class"] = "org.apache.kafka.common.config.provider.EnvVarConfigProvider"
-	configs["config.providers.env.param.allowlist.pattern"] = "^CONNECT_.*"
+func kafkaConnectConfigsForCluster(cluster *kcv1alpha1.Cluster) (map[string]string, error) {
+	// Operator-managed configs: single source of truth
+	managedConfigs := map[string]string{
+		"listeners":                                    "http://:8083",
+		"rest.advertised.host.name":                    "${env:CONNECT_REST_ADVERTISED_HOST_NAME}",
+		"rest.advertised.listener":                     "http",
+		"rest.advertised.port":                         "8083",
+		"rest.extension.classes":                       "", // cluster is secured using network policies
+		"config.providers":                             "env",
+		"config.providers.env.class":                   "org.apache.kafka.common.config.provider.EnvVarConfigProvider",
+		"config.providers.env.param.allowlist.pattern": "^CONNECT_.*",
+	}
 
 	// Auto-configure plugin.path when plugins are present
 	if len(cluster.Spec.Plugins) > 0 {
@@ -178,23 +175,43 @@ func kafkaConnectConfigsForCluster(cluster *kcv1alpha1.Cluster) map[string]strin
 		for i := range cluster.Spec.Plugins {
 			paths[i] = fmt.Sprintf("/plugins/%d", i)
 		}
-		configs["plugin.path"] = strings.Join(paths, ",")
+		managedConfigs["plugin.path"] = strings.Join(paths, ",")
 	}
+
+	// Check for conflicts between user config and operator-managed keys
+	var conflicts []string
+	for key := range managedConfigs {
+		if _, exists := cluster.Spec.Config[key]; exists {
+			conflicts = append(conflicts, key)
+		}
+	}
+	if len(conflicts) > 0 {
+		sort.Strings(conflicts)
+		return nil, fmt.Errorf("spec.config contains operator-managed keys that cannot be overridden: %s", strings.Join(conflicts, ", "))
+	}
+
+	// Merge: copy user configs, then apply managed configs
+	configs := make(map[string]string, len(cluster.Spec.Config)+len(managedConfigs))
+	maps.Copy(configs, cluster.Spec.Config)
+	maps.Copy(configs, managedConfigs)
 
 	// TODO: File config providers
 
-	return configs
+	return configs, nil
 }
 
 func configMapNameForCluster(cluster *kcv1alpha1.Cluster) string {
 	return fmt.Sprintf("%s-connect-config", cluster.Name)
 }
 
-func configMapForCluster(cluster *kcv1alpha1.Cluster) *corev1ac.ConfigMapApplyConfiguration {
-	configsBuilder := &strings.Builder{}
+func configMapForCluster(cluster *kcv1alpha1.Cluster) (*corev1ac.ConfigMapApplyConfiguration, error) {
+	configs, err := kafkaConnectConfigsForCluster(cluster)
+	if err != nil {
+		return nil, err
+	}
 
-	configs := kafkaConnectConfigsForCluster(cluster)
-	configsKeys := make([]string, 0, len(cluster.Spec.Config))
+	configsBuilder := &strings.Builder{}
+	configsKeys := make([]string, 0, len(configs))
 	for k := range configs {
 		configsKeys = append(configsKeys, k)
 	}
@@ -206,7 +223,7 @@ func configMapForCluster(cluster *kcv1alpha1.Cluster) *corev1ac.ConfigMapApplyCo
 	name := configMapNameForCluster(cluster)
 	return corev1ac.ConfigMap(name, cluster.Namespace).
 		WithData(map[string]string{"connect.properties": configsBuilder.String()}).
-		WithOwnerReferences(ownerReferenceForCluster(cluster))
+		WithOwnerReferences(ownerReferenceForCluster(cluster)), nil
 }
 
 func serviceForCluster(cluster *kcv1alpha1.Cluster) *corev1ac.ServiceApplyConfiguration {

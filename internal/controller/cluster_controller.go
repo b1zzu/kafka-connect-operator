@@ -42,6 +42,8 @@ import (
 const (
 	// typeAvailableCluster represents the status of the Deployment reconciliation
 	typeAvailableCluster = "Available"
+
+	reasonInvalidConfig = "InvalidConfig"
 )
 
 const (
@@ -223,9 +225,24 @@ func (r *ClusterReconciler) reconcileService(ctx context.Context, cluster *kcv1a
 func (r *ClusterReconciler) reconcileConfigMap(ctx context.Context, cluster *kcv1alpha1.Cluster) (*kcv1alpha1.Cluster, error) {
 	log := logf.FromContext(ctx)
 
-	configMapA := configMapForCluster(cluster)
+	configMapA, err := configMapForCluster(cluster)
+	if err != nil {
+		log.Info("Invalid Cluster config", "message", err.Error())
 
-	err := r.serverSideApply(ctx, configMapA)
+		err := r.updateStatusCondition(ctx, cluster, metav1.Condition{
+			Type:    typeAvailableCluster,
+			Status:  metav1.ConditionFalse,
+			Reason:  reasonInvalidConfig,
+			Message: err.Error(),
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to update Cluster status after invalid config: %w", err)
+		}
+		// Stop reconciliation; user must fix spec.config
+		return nil, nil
+	}
+
+	err = r.serverSideApply(ctx, configMapA)
 	if err != nil {
 
 		err := r.updateStatusCondition(ctx, cluster, metav1.Condition{
