@@ -15,6 +15,7 @@ limitations under the License.
 package v1alpha1
 
 import (
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -40,9 +41,28 @@ type ClusterSpec struct {
 	// +optional
 	Config map[string]string `json:"config"`
 
+	// Plugins is a list of Kafka Connect plugins to mount from OCI images.
+	// Each plugin image is mounted as a read-only volume in the Kafka Connect container.
+	// The operator automatically configures plugin.path to include all plugin mount directories.
+	// +optional
+	Plugins []Plugin `json:"plugins,omitempty"`
+
 	// NetworkPolicy configuration
 	// +optional
 	NetworkPolicy *NetworkPolicyConfig `json:"networkPolicy,omitempty"`
+}
+
+// Plugin defines a Kafka Connect plugin to be mounted from an OCI image.
+type Plugin struct {
+	// OCI image reference containing the plugin artifacts.
+	// +kubebuilder:validation:MinLength=1
+	Image string `json:"image"`
+
+	// Pull policy for the OCI image.
+	// Defaults to Always if :latest tag is specified, or IfNotPresent otherwise.
+	// +optional
+	// +kubebuilder:validation:Enum=Always;Never;IfNotPresent
+	PullPolicy *corev1.PullPolicy `json:"pullPolicy,omitempty"`
 }
 
 // NetworkPolicyConfig defines the NetworkPolicy configuration
