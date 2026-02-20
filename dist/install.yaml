@@ -615,15 +615,9 @@ rules:
 - apiGroups:
   - ""
   resources:
-  - pods
-  verbs:
-  - get
-  - list
-  - watch
-- apiGroups:
-  - ""
-  resources:
+  - configmaps
   - serviceaccounts
+  - services
   verbs:
   - create
   - delete
@@ -631,6 +625,14 @@ rules:
   - list
   - patch
   - update
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - pods
+  verbs:
+  - get
+  - list
   - watch
 - apiGroups:
   - apps
@@ -816,7 +818,7 @@ spec:
         - --health-probe-bind-address=:8081
         command:
         - /manager
-        image: ghcr.io/b1zzu/kafka-connect-operator:29f84ef-60
+        image: ghcr.io/b1zzu/kafka-connect-operator:df58325-61
         livenessProbe:
           httpGet:
             path: /healthz
