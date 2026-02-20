@@ -35,7 +35,26 @@ func deploymentForCluster(cluster *kcv1alpha1.Cluster) *appsv1ac.DeploymentApply
 		image = *cluster.Spec.Image
 	}
 
-	// TODO: Allow to configure mount volumes for plugins
+	// Build plugin volumes and volume mounts from OCI image references
+	pluginVolumes := make([]*corev1ac.VolumeApplyConfiguration, 0, len(cluster.Spec.Plugins))
+	pluginMounts := make([]*corev1ac.VolumeMountApplyConfiguration, 0, len(cluster.Spec.Plugins))
+	for i, plugin := range cluster.Spec.Plugins {
+		volName := fmt.Sprintf("plugin-%d", i)
+		mountPath := fmt.Sprintf("/plugins/%d", i)
+
+		imgVolSrc := corev1ac.ImageVolumeSource().WithReference(plugin.Image)
+		if plugin.PullPolicy != nil {
+			imgVolSrc = imgVolSrc.WithPullPolicy(*plugin.PullPolicy)
+		}
+
+		pluginVolumes = append(pluginVolumes, corev1ac.Volume().
+			WithName(volName).
+			WithImage(imgVolSrc))
+		pluginMounts = append(pluginMounts, corev1ac.VolumeMount().
+			WithName(volName).
+			WithMountPath(mountPath).
+			WithReadOnly(true))
+	}
 
 	labels := map[string]string{
 		"app.kubernetes.io/name":     "kafka-connect",
@@ -59,6 +78,20 @@ func deploymentForCluster(cluster *kcv1alpha1.Cluster) *appsv1ac.DeploymentApply
 	// TODO: Allow configuration of topology spread
 
 	name := fmt.Sprintf("%s-connect", cluster.Name)
+
+	volumes := append([]*corev1ac.VolumeApplyConfiguration{
+		corev1ac.Volume().
+			WithName("config").
+			WithConfigMap(corev1ac.ConfigMapVolumeSource().
+				WithName(configMapNameForCluster(cluster))),
+	}, pluginVolumes...)
+
+	volumeMounts := append([]*corev1ac.VolumeMountApplyConfiguration{
+		corev1ac.VolumeMount().
+			WithName("config").
+			WithMountPath("/config").
+			WithReadOnly(true),
+	}, pluginMounts...)
 
 	return appsv1ac.Deployment(name, cluster.Namespace).
 		WithOwnerReferences(ownerReferenceForCluster(cluster)).
@@ -109,20 +142,14 @@ func deploymentForCluster(cluster *kcv1alpha1.Cluster) *appsv1ac.DeploymentApply
 							WithTimeoutSeconds(3).
 							WithFailureThreshold(3),
 						).
-						WithVolumeMounts(corev1ac.VolumeMount().
-							WithName("config").
-							WithMountPath("/config").
-							WithReadOnly(true)).
+						WithVolumeMounts(volumeMounts...).
 						WithSecurityContext(corev1ac.SecurityContext().
 							WithRunAsNonRoot(true).
 							WithRunAsUser(65534).
 							WithAllowPrivilegeEscalation(false).
 							WithCapabilities(corev1ac.Capabilities().WithDrop("ALL"))),
 					).
-					WithVolumes(corev1ac.Volume().
-						WithName("config").
-						WithConfigMap(corev1ac.ConfigMapVolumeSource().
-							WithName(configMapNameForCluster(cluster)))),
+					WithVolumes(volumes...),
 				),
 			),
 		)
@@ -144,6 +171,15 @@ func kafkaConnectConfigsForCluster(cluster *kcv1alpha1.Cluster) map[string]strin
 	configs["config.providers"] = "env"
 	configs["config.providers.env.class"] = "org.apache.kafka.common.config.provider.EnvVarConfigProvider"
 	configs["config.providers.env.param.allowlist.pattern"] = "^CONNECT_.*"
+
+	// Auto-configure plugin.path when plugins are present
+	if len(cluster.Spec.Plugins) > 0 {
+		paths := make([]string, len(cluster.Spec.Plugins))
+		for i := range cluster.Spec.Plugins {
+			paths[i] = fmt.Sprintf("/plugins/%d", i)
+		}
+		configs["plugin.path"] = strings.Join(paths, ",")
+	}
 
 	// TODO: File config providers
 
