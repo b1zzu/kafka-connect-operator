@@ -1,6 +1,6 @@
 FROM --platform=$BUILDPLATFORM docker.io/busybox AS download
 
-ARG CONNECT_FILE_VERSION=4.0.0
+ARG CONNECT_FILE_VERSION=4.2.0
 ARG CONNECT_MIRROR_VERSION=4.0.0
 
 RUN wget -q -O /connect-file.jar \
