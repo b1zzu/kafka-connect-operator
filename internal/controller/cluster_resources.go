@@ -30,7 +30,7 @@ import (
 )
 
 func deploymentForCluster(cluster *kcv1alpha1.Cluster) *appsv1ac.DeploymentApplyConfiguration {
-	image := "docker.io/apache/kafka:latest"
+	image := "docker.io/apache/kafka:4.2.0"
 	if cluster.Spec.Image != nil {
 		image = *cluster.Spec.Image
 	}

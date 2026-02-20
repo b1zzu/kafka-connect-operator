@@ -140,8 +140,8 @@ spec:
   # Number of Kafka Connect replicas (optional, defaults to 1)
   replicas: 2
 
-  # The Kafka Connect image to use (optional, defaults to 'docker.io/apache/kafka:latest')
-  image: docker.io/apache/kafka:latest
+  # The Kafka Connect image to use (optional)
+  image: docker.io/apache/kafka:4.2.0
 
   # Kafka Connect configuration
   # See: https://kafka.apache.org/41/configuration/kafka-connect-configs/
