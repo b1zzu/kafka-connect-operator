@@ -99,6 +99,17 @@ type ClusterSpec struct {
 	// Merged with internal labels; internal keys take precedence.
 	// +optional
 	PodLabels map[string]string `json:"podLabels,omitempty"`
+
+	// TopologySpreadConstraints describes how pods should be spread across topology domains.
+	// When not set, no topology spread constraints are applied.
+	// If labelSelector is not defined, Kubernetes uses the same selector as the deployment.
+	// +optional
+	TopologySpreadConstraints []corev1.TopologySpreadConstraint `json:"topologySpreadConstraints,omitempty"`
+
+	// Resources defines the CPU/memory requests and limits for the Kafka Connect container.
+	// When not set, defaults to requests: {cpu: 250m, memory: 1Gi}, limits: {cpu: 1000m, memory: 4Gi}.
+	// +optional
+	Resources *corev1.ResourceRequirements `json:"resources,omitempty"`
 }
 
 // Plugin defines a Kafka Connect plugin to be mounted from an OCI image.

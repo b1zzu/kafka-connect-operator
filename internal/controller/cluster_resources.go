@@ -23,6 +23,7 @@ import (
 	kcv1alpha1 "github.com/b1zzu/kafka-connect-operator/api/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	appsv1ac "k8s.io/client-go/applyconfigurations/apps/v1"
 	corev1ac "k8s.io/client-go/applyconfigurations/core/v1"
@@ -145,8 +146,6 @@ func deploymentForCluster(cluster *kcv1alpha1.Cluster) *appsv1ac.DeploymentApply
 		replicas = *cluster.Spec.Replicas
 	}
 
-	// TODO: Allow configuration of topology spread
-
 	name := fmt.Sprintf("%s-connect", cluster.Name)
 
 	volumes := append([]*corev1ac.VolumeApplyConfiguration{
@@ -202,6 +201,61 @@ func deploymentForCluster(cluster *kcv1alpha1.Cluster) *appsv1ac.DeploymentApply
 			WithName("metrics"))
 	}
 
+	// Build resource requirements
+	resources := &corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("250m"),
+			corev1.ResourceMemory: resource.MustParse("1Gi"),
+		},
+		Limits: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("1000m"),
+			corev1.ResourceMemory: resource.MustParse("4Gi"),
+		},
+	}
+	if cluster.Spec.Resources != nil {
+		resources = cluster.Spec.Resources
+	}
+
+	podSpec := corev1ac.PodSpec().
+		WithServiceAccountName(serviceAccountNameForCluster(cluster)).
+		WithSecurityContext(corev1ac.PodSecurityContext().
+			WithRunAsNonRoot(true)).
+		WithContainers(corev1ac.Container().
+			WithName("kafka-connect").
+			WithImage(image).
+			WithImagePullPolicy(corev1.PullIfNotPresent).
+			WithCommand("/opt/kafka/bin/connect-distributed.sh", "/config/connect.properties").
+			WithEnv(envVars...).
+			WithPorts(ports...).
+			WithResources(resourceRequirementsToApplyConfig(resources)).
+			WithLivenessProbe(corev1ac.Probe().
+				WithHTTPGet(corev1ac.HTTPGetAction().
+					WithPath("/health").
+					WithPort(intstr.FromString("http"))).
+				WithInitialDelaySeconds(30).
+				WithPeriodSeconds(10).
+				WithTimeoutSeconds(5).
+				WithFailureThreshold(3),
+			).
+			WithReadinessProbe(corev1ac.Probe().
+				WithHTTPGet(corev1ac.HTTPGetAction().
+					WithPath("/health").
+					WithPort(intstr.FromString("http"))).
+				WithInitialDelaySeconds(10).
+				WithPeriodSeconds(5).
+				WithTimeoutSeconds(3).
+				WithFailureThreshold(3),
+			).
+			WithVolumeMounts(volumeMounts...).
+			WithSecurityContext(corev1ac.SecurityContext().
+				WithRunAsNonRoot(true).
+				WithRunAsUser(65534).
+				WithAllowPrivilegeEscalation(false).
+				WithCapabilities(corev1ac.Capabilities().WithDrop("ALL"))),
+		).
+		WithVolumes(volumes...).
+		WithTopologySpreadConstraints(topologySpreadConstraintsToApplyConfig(cluster.Spec.TopologySpreadConstraints)...)
+
 	return appsv1ac.Deployment(name, cluster.Namespace).
 		WithOwnerReferences(ownerReferenceForCluster(cluster)).
 		WithAnnotations(deploymentAnnotation).
@@ -211,53 +265,7 @@ func deploymentForCluster(cluster *kcv1alpha1.Cluster) *appsv1ac.DeploymentApply
 			WithTemplate(corev1ac.PodTemplateSpec().
 				WithLabels(podLabels).
 				WithAnnotations(podAnnotations).
-				WithSpec(corev1ac.PodSpec().
-					WithServiceAccountName(serviceAccountNameForCluster(cluster)).
-					WithSecurityContext(corev1ac.PodSecurityContext().
-						WithRunAsNonRoot(true)).
-					WithContainers(corev1ac.Container().
-						WithName("kafka-connect").
-						WithImage(image).
-						WithImagePullPolicy(corev1.PullIfNotPresent).
-						WithCommand("/opt/kafka/bin/connect-distributed.sh", "/config/connect.properties").
-						WithEnv(envVars...).
-						WithPorts(ports...).
-						WithResources(corev1ac.ResourceRequirements().
-							WithRequests(corev1.ResourceList{ // Request and limits are based on standard cloud ratio 1CPU 4GB
-								corev1.ResourceCPU:    resource.MustParse("250m"),
-								corev1.ResourceMemory: resource.MustParse("1Gi"),
-							}).
-							WithLimits(corev1.ResourceList{
-								corev1.ResourceCPU:    resource.MustParse("1000m"),
-								corev1.ResourceMemory: resource.MustParse("4Gi"),
-							})).
-						WithLivenessProbe(corev1ac.Probe().
-							WithHTTPGet(corev1ac.HTTPGetAction().
-								WithPath("/health").
-								WithPort(intstr.FromString("http"))).
-							WithInitialDelaySeconds(30).
-							WithPeriodSeconds(10).
-							WithTimeoutSeconds(5).
-							WithFailureThreshold(3),
-						).
-						WithReadinessProbe(corev1ac.Probe().
-							WithHTTPGet(corev1ac.HTTPGetAction().
-								WithPath("/health").
-								WithPort(intstr.FromString("http"))).
-							WithInitialDelaySeconds(10).
-							WithPeriodSeconds(5).
-							WithTimeoutSeconds(3).
-							WithFailureThreshold(3),
-						).
-						WithVolumeMounts(volumeMounts...).
-						WithSecurityContext(corev1ac.SecurityContext().
-							WithRunAsNonRoot(true).
-							WithRunAsUser(65534).
-							WithAllowPrivilegeEscalation(false).
-							WithCapabilities(corev1ac.Capabilities().WithDrop("ALL"))),
-					).
-					WithVolumes(volumes...),
-				),
+				WithSpec(podSpec),
 			),
 		)
 }
@@ -440,4 +448,55 @@ func ownerReferenceForCluster(cluster *kcv1alpha1.Cluster) *metav1ac.OwnerRefere
 		WithUID(cluster.GetUID()).
 		WithBlockOwnerDeletion(true).
 		WithController(true)
+}
+
+func resourceRequirementsToApplyConfig(r *corev1.ResourceRequirements) *corev1ac.ResourceRequirementsApplyConfiguration {
+	ac := corev1ac.ResourceRequirements()
+	if r.Requests != nil {
+		ac = ac.WithRequests(r.Requests)
+	}
+	if r.Limits != nil {
+		ac = ac.WithLimits(r.Limits)
+	}
+	return ac
+}
+
+func topologySpreadConstraintsToApplyConfig(constraints []corev1.TopologySpreadConstraint) []*corev1ac.TopologySpreadConstraintApplyConfiguration {
+	acs := make([]*corev1ac.TopologySpreadConstraintApplyConfiguration, 0, len(constraints))
+	for _, c := range constraints {
+		ac := corev1ac.TopologySpreadConstraint().
+			WithMaxSkew(c.MaxSkew).
+			WithTopologyKey(c.TopologyKey).
+			WithWhenUnsatisfiable(c.WhenUnsatisfiable).
+			WithLabelSelector(labelSelectorToApplyConfig(c.LabelSelector)).
+			WithMatchLabelKeys(c.MatchLabelKeys...)
+		if c.MinDomains != nil {
+			ac = ac.WithMinDomains(*c.MinDomains)
+		}
+		if c.NodeAffinityPolicy != nil {
+			ac = ac.WithNodeAffinityPolicy(*c.NodeAffinityPolicy)
+		}
+		if c.NodeTaintsPolicy != nil {
+			ac = ac.WithNodeTaintsPolicy(*c.NodeTaintsPolicy)
+		}
+		acs = append(acs, ac)
+	}
+	return acs
+}
+
+func labelSelectorToApplyConfig(ls *metav1.LabelSelector) *metav1ac.LabelSelectorApplyConfiguration {
+	if ls == nil {
+		return nil
+	}
+	ac := metav1ac.LabelSelector().
+		WithMatchLabels(ls.MatchLabels)
+	for _, expr := range ls.MatchExpressions {
+		ac = ac.WithMatchExpressions(
+			metav1ac.LabelSelectorRequirement().
+				WithKey(expr.Key).
+				WithOperator(expr.Operator).
+				WithValues(expr.Values...),
+		)
+	}
+	return ac
 }
