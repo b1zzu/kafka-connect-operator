@@ -70,13 +70,59 @@ var _ = Describe("Manager", Ordered, func() {
 		cmd = exec.Command("make", "deploy", fmt.Sprintf("IMG=%s", managerImage))
 		_, err = utils.Run(cmd)
 		Expect(err).NotTo(HaveOccurred(), "Failed to deploy the controller-manager")
+
+		By("installing Strimzi operator")
+		cmd = exec.Command("kubectl", "create", "-f",
+			"https://strimzi.io/install/latest?namespace=default", "-n", "default")
+		_, err = utils.Run(cmd)
+		Expect(err).NotTo(HaveOccurred(), "Failed to install Strimzi operator")
+
+		By("waiting for Strimzi operator to be available")
+		cmd = exec.Command("kubectl", "wait", "deployment/strimzi-cluster-operator",
+			"-n", "default", "--for=condition=Available", "--timeout=5m")
+		_, err = utils.Run(cmd)
+		Expect(err).NotTo(HaveOccurred(), "Strimzi operator did not become available")
+
+		By("deploying Kafka cluster")
+		cmd = exec.Command("kubectl", "apply", "-f",
+			"https://strimzi.io/examples/latest/kafka/kafka-single-node.yaml", "-n", "default")
+		_, err = utils.Run(cmd)
+		Expect(err).NotTo(HaveOccurred(), "Failed to deploy Kafka cluster")
+
+		By("waiting for Kafka cluster to be ready")
+		cmd = exec.Command("kubectl", "wait", "kafka/my-cluster",
+			"-n", "default", "--for=condition=Ready", "--timeout=10m")
+		_, err = utils.Run(cmd)
+		Expect(err).NotTo(HaveOccurred(), "Kafka cluster did not become ready")
+
+		By("applying sample CRs")
+		cmd = exec.Command("kubectl", "apply", "-k", "config/samples", "-n", "default")
+		_, err = utils.Run(cmd)
+		Expect(err).NotTo(HaveOccurred(), "Failed to apply sample CRs")
 	})
 
 	// After all tests have been executed, clean up by undeploying the controller, uninstalling CRDs,
 	// and deleting the namespace.
 	AfterAll(func() {
+		By("deleting sample CRs")
+		cmd := exec.Command("kubectl", "delete", "-k", "config/samples",
+			"-n", "default", "--ignore-not-found")
+		_, _ = utils.Run(cmd)
+
+		By("deleting Kafka cluster")
+		cmd = exec.Command("kubectl", "delete", "-f",
+			"https://strimzi.io/examples/latest/kafka/kafka-single-node.yaml",
+			"-n", "default", "--ignore-not-found")
+		_, _ = utils.Run(cmd)
+
+		By("deleting Strimzi operator")
+		cmd = exec.Command("kubectl", "delete", "-f",
+			"https://strimzi.io/install/latest?namespace=default",
+			"-n", "default", "--ignore-not-found")
+		_, _ = utils.Run(cmd)
+
 		By("cleaning up the curl pod for metrics")
-		cmd := exec.Command("kubectl", "delete", "pod", "curl-metrics", "-n", namespace)
+		cmd = exec.Command("kubectl", "delete", "pod", "curl-metrics", "-n", namespace)
 		_, _ = utils.Run(cmd)
 
 		By("undeploying the controller-manager")
@@ -131,6 +177,45 @@ var _ = Describe("Manager", Ordered, func() {
 				fmt.Println("Pod description:\n", podDescription)
 			} else {
 				fmt.Println("Failed to describe controller pod")
+			}
+
+			By("Fetching events from default namespace")
+			cmd = exec.Command("kubectl", "get", "events", "-n", "default", "--sort-by=.lastTimestamp")
+			defaultEvents, err := utils.Run(cmd)
+			if err == nil {
+				_, _ = fmt.Fprintf(GinkgoWriter, "Default namespace events:\n%s", defaultEvents)
+			} else {
+				_, _ = fmt.Fprintf(GinkgoWriter, "Failed to get default namespace events: %s", err)
+			}
+
+			By("Fetching Kafka Connect pod logs")
+			cmd = exec.Command("kubectl", "logs", "deployment/my-cluster-connect",
+				"-n", "default", "--tail=100")
+			connectLogs, err := utils.Run(cmd)
+			if err == nil {
+				_, _ = fmt.Fprintf(GinkgoWriter, "Kafka Connect logs:\n%s", connectLogs)
+			} else {
+				_, _ = fmt.Fprintf(GinkgoWriter, "Failed to get Kafka Connect logs: %s", err)
+			}
+
+			By("Fetching Connector CR status")
+			cmd = exec.Command("kubectl", "get", "connector", "my-connector",
+				"-n", "default", "-o", "yaml")
+			connectorStatus, err := utils.Run(cmd)
+			if err == nil {
+				_, _ = fmt.Fprintf(GinkgoWriter, "Connector CR:\n%s", connectorStatus)
+			} else {
+				_, _ = fmt.Fprintf(GinkgoWriter, "Failed to get Connector CR: %s", err)
+			}
+
+			By("Fetching Cluster CR status")
+			cmd = exec.Command("kubectl", "get", "cluster", "my-cluster",
+				"-n", "default", "-o", "yaml")
+			clusterStatus, err := utils.Run(cmd)
+			if err == nil {
+				_, _ = fmt.Fprintf(GinkgoWriter, "Cluster CR:\n%s", clusterStatus)
+			} else {
+				_, _ = fmt.Fprintf(GinkgoWriter, "Failed to get Cluster CR: %s", err)
 			}
 		}
 	})
@@ -266,15 +351,37 @@ var _ = Describe("Manager", Ordered, func() {
 
 		// +kubebuilder:scaffold:e2e-webhooks-checks
 
-		// TODO: Customize the e2e test suite with scenarios specific to your project.
-		// Consider applying sample/CR(s) and check their status and/or verifying
-		// the reconciliation by using the metrics, i.e.:
-		// metricsOutput, err := getMetricsOutput()
-		// Expect(err).NotTo(HaveOccurred(), "Failed to retrieve logs from curl pod")
-		// Expect(metricsOutput).To(ContainSubstring(
-		//    fmt.Sprintf(`controller_runtime_reconcile_total{controller="%s",result="success"} 1`,
-		//    strings.ToLower(<Kind>),
-		// ))
+		It("should deploy Connect and reach Connector Running state", func() {
+			By("waiting for the Connect deployment to be available")
+			verifyConnectDeployment := func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "deployment", "my-cluster-connect",
+					"-n", "default",
+					"-o", "jsonpath={.status.conditions[?(@.type=='Available')].status}")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(Equal("True"), "Connect deployment not yet available")
+			}
+			Eventually(verifyConnectDeployment, 5*time.Minute, 10*time.Second).Should(Succeed())
+
+			By("waiting for Connector my-connector to be Running")
+			verifyConnectorRunning := func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "connector", "my-connector",
+					"-n", "default",
+					"-o", "jsonpath={.status.conditions[?(@.type=='Running')].status}")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(Equal("True"), "Connector not yet Running")
+			}
+			Eventually(verifyConnectorRunning, 5*time.Minute, 10*time.Second).Should(Succeed())
+
+			By("verifying the Connector Running condition reason")
+			cmd := exec.Command("kubectl", "get", "connector", "my-connector",
+				"-n", "default",
+				"-o", "jsonpath={.status.conditions[?(@.type=='Running')].reason}")
+			output, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(output).To(Equal("Running"), "Unexpected Connector condition reason")
+		})
 	})
 })
 
