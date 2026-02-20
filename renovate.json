@@ -33,5 +33,22 @@
       "datasourceTemplate": "maven",
       "registryUrlTemplate": "https://repo1.maven.org/maven2"
     }
+  ],
+  "packageRules": [
+    {
+      "description": "Group all Go module dependency updates",
+      "matchManagers": ["gomod"],
+      "groupName": "go dependencies"
+    },
+    {
+      "description": "Group all main Dockerfile updates",
+      "matchFileNames": ["Dockerfile"],
+      "groupName": "dockerfile"
+    },
+    {
+      "description": "Group all plugins Dockerfile updates",
+      "matchFileNames": ["plugins/Dockerfile"],
+      "groupName": "plugins dockerfile"
+    }
   ]
 }
