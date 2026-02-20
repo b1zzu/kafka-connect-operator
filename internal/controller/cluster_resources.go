@@ -39,9 +39,9 @@ func deploymentForCluster(cluster *kcv1alpha1.Cluster) *appsv1ac.DeploymentApply
 	// Build plugin volumes and volume mounts from OCI image references
 	pluginVolumes := make([]*corev1ac.VolumeApplyConfiguration, 0, len(cluster.Spec.Plugins))
 	pluginMounts := make([]*corev1ac.VolumeMountApplyConfiguration, 0, len(cluster.Spec.Plugins))
-	for i, plugin := range cluster.Spec.Plugins {
-		volName := fmt.Sprintf("plugin-%d", i)
-		mountPath := fmt.Sprintf("/plugins/%d", i)
+	for _, plugin := range cluster.Spec.Plugins {
+		volName := fmt.Sprintf("plugin-%s", plugin.Name)
+		mountPath := fmt.Sprintf("/plugins/%s", plugin.Name)
 
 		imgVolSrc := corev1ac.ImageVolumeSource().WithReference(plugin.Image)
 		if plugin.PullPolicy != nil {
@@ -202,8 +202,8 @@ func kafkaConnectConfigsForCluster(cluster *kcv1alpha1.Cluster) (map[string]stri
 	// Auto-configure plugin.path when plugins are present
 	if len(cluster.Spec.Plugins) > 0 {
 		paths := make([]string, len(cluster.Spec.Plugins))
-		for i := range cluster.Spec.Plugins {
-			paths[i] = fmt.Sprintf("/plugins/%d", i)
+		for i, plugin := range cluster.Spec.Plugins {
+			paths[i] = fmt.Sprintf("/plugins/%s", plugin.Name)
 		}
 		managedConfigs["plugin.path"] = strings.Join(paths, ",")
 	}

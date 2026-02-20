@@ -62,8 +62,8 @@ var _ = Describe("Cluster Resources", func() {
 
 		It("should add plugin volumes and mounts for multiple plugins", func() {
 			cluster := newCluster([]kcv1alpha1.Plugin{
-				{Image: "registry.example.com/plugin-a:1.0"},
-				{Image: "registry.example.com/plugin-b:2.0"},
+				{Name: "plugin-a", Image: "registry.example.com/plugin-a:1.0"},
+				{Name: "plugin-b", Image: "registry.example.com/plugin-b:2.0"},
 			})
 			dep := deploymentForCluster(cluster)
 
@@ -71,26 +71,26 @@ var _ = Describe("Cluster Resources", func() {
 			Expect(volumes).To(HaveLen(3)) // config + 2 plugins
 
 			Expect(*volumes[0].Name).To(Equal("config"))
-			Expect(*volumes[1].Name).To(Equal("plugin-0"))
+			Expect(*volumes[1].Name).To(Equal("plugin-plugin-a"))
 			Expect(*volumes[1].Image.Reference).To(Equal("registry.example.com/plugin-a:1.0"))
-			Expect(*volumes[2].Name).To(Equal("plugin-1"))
+			Expect(*volumes[2].Name).To(Equal("plugin-plugin-b"))
 			Expect(*volumes[2].Image.Reference).To(Equal("registry.example.com/plugin-b:2.0"))
 
 			mounts := dep.Spec.Template.Spec.Containers[0].VolumeMounts
 			Expect(mounts).To(HaveLen(3))
 			Expect(*mounts[0].Name).To(Equal("config"))
-			Expect(*mounts[1].Name).To(Equal("plugin-0"))
-			Expect(*mounts[1].MountPath).To(Equal("/plugins/0"))
+			Expect(*mounts[1].Name).To(Equal("plugin-plugin-a"))
+			Expect(*mounts[1].MountPath).To(Equal("/plugins/plugin-a"))
 			Expect(*mounts[1].ReadOnly).To(BeTrue())
-			Expect(*mounts[2].Name).To(Equal("plugin-1"))
-			Expect(*mounts[2].MountPath).To(Equal("/plugins/1"))
+			Expect(*mounts[2].Name).To(Equal("plugin-plugin-b"))
+			Expect(*mounts[2].MountPath).To(Equal("/plugins/plugin-b"))
 			Expect(*mounts[2].ReadOnly).To(BeTrue())
 		})
 
 		It("should propagate pullPolicy when specified", func() {
 			policy := corev1.PullAlways
 			cluster := newCluster([]kcv1alpha1.Plugin{
-				{Image: "registry.example.com/plugin:latest", PullPolicy: &policy},
+				{Name: "plugin", Image: "registry.example.com/plugin:latest", PullPolicy: &policy},
 			})
 			dep := deploymentForCluster(cluster)
 
@@ -101,7 +101,7 @@ var _ = Describe("Cluster Resources", func() {
 
 		It("should not set pullPolicy when not specified", func() {
 			cluster := newCluster([]kcv1alpha1.Plugin{
-				{Image: "registry.example.com/plugin:1.0"},
+				{Name: "plugin", Image: "registry.example.com/plugin:1.0"},
 			})
 			dep := deploymentForCluster(cluster)
 
@@ -140,7 +140,7 @@ var _ = Describe("Cluster Resources", func() {
 		It("should add both plugin and secret volumes together", func() {
 			cluster := newClusterWithSecrets(
 				[]kcv1alpha1.Plugin{
-					{Image: "registry.example.com/plugin-a:1.0"},
+					{Name: "plugin-a", Image: "registry.example.com/plugin-a:1.0"},
 				},
 				[]kcv1alpha1.SecretMount{
 					{Name: "my-keystore", SecretRef: corev1.LocalObjectReference{Name: "my-keystore-secret"}},
@@ -152,14 +152,14 @@ var _ = Describe("Cluster Resources", func() {
 			Expect(volumes).To(HaveLen(3)) // config + 1 plugin + 1 secret
 
 			Expect(*volumes[0].Name).To(Equal("config"))
-			Expect(*volumes[1].Name).To(Equal("plugin-0"))
+			Expect(*volumes[1].Name).To(Equal("plugin-plugin-a"))
 			Expect(*volumes[2].Name).To(Equal("secret-0"))
 
 			mounts := dep.Spec.Template.Spec.Containers[0].VolumeMounts
 			Expect(mounts).To(HaveLen(3))
 			Expect(*mounts[0].Name).To(Equal("config"))
-			Expect(*mounts[1].Name).To(Equal("plugin-0"))
-			Expect(*mounts[1].MountPath).To(Equal("/plugins/0"))
+			Expect(*mounts[1].Name).To(Equal("plugin-plugin-a"))
+			Expect(*mounts[1].MountPath).To(Equal("/plugins/plugin-a"))
 			Expect(*mounts[2].Name).To(Equal("secret-0"))
 			Expect(*mounts[2].MountPath).To(Equal("/secrets/my-keystore"))
 		})
@@ -365,22 +365,22 @@ var _ = Describe("Cluster Resources", func() {
 
 		It("should set plugin.path for a single plugin", func() {
 			cluster := newCluster([]kcv1alpha1.Plugin{
-				{Image: "registry.example.com/plugin:1.0"},
+				{Name: "my-plugin", Image: "registry.example.com/plugin:1.0"},
 			})
 			configs, err := kafkaConnectConfigsForCluster(cluster)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(configs).To(HaveKeyWithValue("plugin.path", "/plugins/0"))
+			Expect(configs).To(HaveKeyWithValue("plugin.path", "/plugins/my-plugin"))
 		})
 
 		It("should set plugin.path with comma-separated paths for multiple plugins", func() {
 			cluster := newCluster([]kcv1alpha1.Plugin{
-				{Image: "registry.example.com/plugin-a:1.0"},
-				{Image: "registry.example.com/plugin-b:2.0"},
-				{Image: "registry.example.com/plugin-c:3.0"},
+				{Name: "plugin-a", Image: "registry.example.com/plugin-a:1.0"},
+				{Name: "plugin-b", Image: "registry.example.com/plugin-b:2.0"},
+				{Name: "plugin-c", Image: "registry.example.com/plugin-c:3.0"},
 			})
 			configs, err := kafkaConnectConfigsForCluster(cluster)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(configs).To(HaveKeyWithValue("plugin.path", "/plugins/0,/plugins/1,/plugins/2"))
+			Expect(configs).To(HaveKeyWithValue("plugin.path", "/plugins/plugin-a,/plugins/plugin-b,/plugins/plugin-c"))
 		})
 
 		It("should return no error for valid user config", func() {
@@ -443,7 +443,7 @@ var _ = Describe("Cluster Resources", func() {
 						"plugin.path":       "/custom/plugins",
 					},
 					Plugins: []kcv1alpha1.Plugin{
-						{Image: "registry.example.com/plugin:1.0"},
+						{Name: "my-plugin", Image: "registry.example.com/plugin:1.0"},
 					},
 				},
 			}

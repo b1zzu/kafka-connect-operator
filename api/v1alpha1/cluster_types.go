@@ -45,6 +45,8 @@ type ClusterSpec struct {
 	// Each plugin image is mounted as a read-only volume in the Kafka Connect container.
 	// The operator automatically configures plugin.path to include all plugin mount directories.
 	// +optional
+	// +listType=map
+	// +listMapKey=name
 	Plugins []Plugin `json:"plugins,omitempty"`
 
 	// Secrets is a list of Kubernetes Secrets to mount into the Kafka Connect pods.
@@ -53,6 +55,8 @@ type ClusterSpec struct {
 	// control secret content. Kubernetes handles secret volume updates automatically
 	// via the kubelet's periodic sync.
 	// +optional
+	// +listType=map
+	// +listMapKey=name
 	Secrets []SecretMount `json:"secrets,omitempty"`
 
 	// NetworkPolicy configuration
@@ -85,6 +89,11 @@ type ClusterSpec struct {
 
 // Plugin defines a Kafka Connect plugin to be mounted from an OCI image.
 type Plugin struct {
+	// Name is the identifier for this plugin mount.
+	// The plugin will be mounted at /plugins/{name}.
+	// +kubebuilder:validation:MinLength=1
+	Name string `json:"name"`
+
 	// OCI image reference containing the plugin artifacts.
 	// +kubebuilder:validation:MinLength=1
 	Image string `json:"image"`

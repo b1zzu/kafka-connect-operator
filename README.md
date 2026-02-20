@@ -161,6 +161,14 @@ spec:
     offset.storage.topic: <string>
     status.storage.topic: <string>
 
+  # Plugins to mount from OCI images (optional)
+  # Each plugin image is mounted read-only at /plugins/{name}
+  # The operator automatically configures plugin.path
+  plugins:
+    - name: my-plugin
+      image: registry.example.com/my-plugin:1.0
+      pullPolicy: IfNotPresent  # optional (Always, Never, IfNotPresent)
+
   # Secrets to mount into the pods (optional)
   # Each secret is mounted read-only at /secrets/{name}
   secrets:
@@ -199,20 +207,6 @@ spec:
   podLabels:
     team: platform
 ```
-
-### Secrets
-
-Secrets listed in `spec.secrets` are mounted read-only at `/secrets/{name}`. Use the
-[FileConfigProvider](https://kafka.apache.org/41/configuration/configuration-providers/#fileconfigprovider)
-(enabled by default) to reference secret files in your connector or cluster config:
-
-```yaml
-config:
-  ssl.truststore.location: /secrets/my-keystore/truststore.jks
-  ssl.truststore.password: "${file:/secrets/my-keystore/truststore.password:password}"
-```
-
-Secret content changes do not trigger a cluster restart.
 
 ### Connector
 
@@ -257,6 +251,42 @@ spec:
   networkPolicy:
     enabled: false
 ```
+
+### Plugins
+
+Plugins listed in `spec.plugins` are mounted from OCI images as read-only volumes at `/plugins/{name}`.
+The operator automatically sets `plugin.path` in the Kafka Connect configuration to include all
+plugin mount directories. Do not set `plugin.path` manually when `spec.plugins` is defined.
+
+```yaml
+plugins:
+  - name: debezium-postgres
+    image: ghcr.io/example/debezium-postgres:2.5
+  - name: s3-sink
+    image: ghcr.io/example/s3-sink:1.0
+    pullPolicy: Always
+```
+
+Each plugin requires:
+- `name` - identifier used for the volume and mount path (`/plugins/{name}`)
+- `image` - OCI image reference containing the plugin artifacts
+
+Optional:
+- `pullPolicy` - one of `Always`, `Never`, `IfNotPresent` (defaults to `Always` for `:latest` tags, `IfNotPresent` otherwise)
+
+### Secrets
+
+Secrets listed in `spec.secrets` are mounted read-only at `/secrets/{name}`. Use the
+[FileConfigProvider](https://kafka.apache.org/41/configuration/configuration-providers/#fileconfigprovider)
+(enabled by default) to reference secret files in your connector or cluster config:
+
+```yaml
+config:
+  ssl.truststore.location: /secrets/my-keystore/truststore.jks
+  ssl.truststore.password: "${file:/secrets/my-keystore/truststore.password:password}"
+```
+
+Secret content changes do not trigger a cluster restart.
 
 ## Development
 
