@@ -79,14 +79,22 @@ func deploymentForCluster(cluster *kcv1alpha1.Cluster) *appsv1ac.DeploymentApply
 		"app.kubernetes.io/instance": cluster.Name,
 	}
 
+	// Pod labels: merge user-defined labels with internal labels (internal wins on conflict)
+	podLabels := make(map[string]string, len(cluster.Spec.PodLabels)+len(labels))
+	maps.Copy(podLabels, cluster.Spec.PodLabels)
+	maps.Copy(podLabels, labels)
+
 	configHash := ""
 	if cluster.Status.ConfigHash != nil {
 		configHash = *cluster.Status.ConfigHash
 	}
 
-	podAnnotations := map[string]string{
-		"config/hash": configHash,
-	}
+	// Pod annotations: merge user-defined annotations with internal annotations (internal wins on conflict)
+	podAnnotations := make(map[string]string, len(cluster.Spec.PodAnnotations)+1)
+	maps.Copy(podAnnotations, cluster.Spec.PodAnnotations)
+	podAnnotations["config/hash"] = configHash
+
+	deploymentAnnotation := cluster.Spec.DeploymentAnnotations
 
 	var replicas int32 = 1
 	if cluster.Spec.Replicas != nil {
@@ -115,13 +123,15 @@ func deploymentForCluster(cluster *kcv1alpha1.Cluster) *appsv1ac.DeploymentApply
 
 	return appsv1ac.Deployment(name, cluster.Namespace).
 		WithOwnerReferences(ownerReferenceForCluster(cluster)).
+		WithAnnotations(deploymentAnnotation).
 		WithSpec(appsv1ac.DeploymentSpec().
 			WithReplicas(replicas).
 			WithSelector(metav1ac.LabelSelector().WithMatchLabels(labels)).
 			WithTemplate(corev1ac.PodTemplateSpec().
-				WithLabels(labels).
+				WithLabels(podLabels).
 				WithAnnotations(podAnnotations).
 				WithSpec(corev1ac.PodSpec().
+					WithServiceAccountName(serviceAccountNameForCluster(cluster)).
 					WithSecurityContext(corev1ac.PodSecurityContext().
 						WithRunAsNonRoot(true)).
 					WithContainers(corev1ac.Container().
@@ -252,7 +262,10 @@ func serviceForCluster(cluster *kcv1alpha1.Cluster) *corev1ac.ServiceApplyConfig
 
 	name := fmt.Sprintf("%s-connect", cluster.Name)
 
+	serviceAnnotations := cluster.Spec.ServiceAnnotations
+
 	return corev1ac.Service(name, cluster.Namespace).
+		WithAnnotations(serviceAnnotations).
 		WithSpec(corev1ac.ServiceSpec().
 			WithSelector(labels).
 			WithPorts(corev1ac.ServicePort().
@@ -309,6 +322,20 @@ func networkPolicyForCluster(cluster *kcv1alpha1.Cluster, operatorNamespace stri
 					),
 			),
 		)
+}
+
+func serviceAccountNameForCluster(cluster *kcv1alpha1.Cluster) string {
+	return fmt.Sprintf("%s-connect", cluster.Name)
+}
+
+func serviceAccountForCluster(cluster *kcv1alpha1.Cluster) *corev1ac.ServiceAccountApplyConfiguration {
+	name := serviceAccountNameForCluster(cluster)
+
+	serviceAccountAnnotations := cluster.Spec.ServiceAccountAnnotations
+
+	return corev1ac.ServiceAccount(name, cluster.Namespace).
+		WithAnnotations(serviceAccountAnnotations).
+		WithOwnerReferences(ownerReferenceForCluster(cluster))
 }
 
 func ownerReferenceForCluster(cluster *kcv1alpha1.Cluster) *metav1ac.OwnerReferenceApplyConfiguration {

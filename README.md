@@ -172,6 +172,32 @@ spec:
   networkPolicy:
     # Set to false to disable automatic NetworkPolicy creation
     enabled: true
+
+  # Custom annotations for the Service (optional)
+  # Useful for ingress controllers and load balancer configuration.
+  serviceAnnotations:
+    service.beta.kubernetes.io/aws-load-balancer-type: nlb
+
+  # Custom annotations for the ServiceAccount (optional)
+  # The operator creates a dedicated ServiceAccount per Cluster.
+  # Use this for e.g. AWS IRSA role bindings.
+  serviceAccountAnnotations:
+    eks.amazonaws.com/role-arn: arn:aws:iam::123456789012:role/my-role
+
+  # Custom annotations for the Deployment (optional)
+  deploymentAnnotations:
+    prometheus.io/scrape: "true"
+
+  # Custom annotations for the Pods (optional)
+  # Merged with internal annotations; internal keys take precedence.
+  podAnnotations:
+    vault.hashicorp.com/agent-inject: "true"
+
+  # Custom labels for the Pods (optional)
+  # Applied only to the pod template, NOT to the Deployment selector.
+  # Merged with internal labels; internal keys take precedence.
+  podLabels:
+    team: platform
 ```
 
 ### Secrets
