@@ -101,7 +101,8 @@ var _ = Describe("Cluster Resources", func() {
 	Describe("kafkaConnectConfigsForCluster", func() {
 		It("should not set plugin.path when no plugins are specified", func() {
 			cluster := newCluster(nil)
-			configs := kafkaConnectConfigsForCluster(cluster)
+			configs, err := kafkaConnectConfigsForCluster(cluster)
+			Expect(err).NotTo(HaveOccurred())
 			Expect(configs).NotTo(HaveKey("plugin.path"))
 		})
 
@@ -109,7 +110,8 @@ var _ = Describe("Cluster Resources", func() {
 			cluster := newCluster([]kcv1alpha1.Plugin{
 				{Image: "registry.example.com/plugin:1.0"},
 			})
-			configs := kafkaConnectConfigsForCluster(cluster)
+			configs, err := kafkaConnectConfigsForCluster(cluster)
+			Expect(err).NotTo(HaveOccurred())
 			Expect(configs).To(HaveKeyWithValue("plugin.path", "/plugins/0"))
 		})
 
@@ -119,8 +121,78 @@ var _ = Describe("Cluster Resources", func() {
 				{Image: "registry.example.com/plugin-b:2.0"},
 				{Image: "registry.example.com/plugin-c:3.0"},
 			})
-			configs := kafkaConnectConfigsForCluster(cluster)
+			configs, err := kafkaConnectConfigsForCluster(cluster)
+			Expect(err).NotTo(HaveOccurred())
 			Expect(configs).To(HaveKeyWithValue("plugin.path", "/plugins/0,/plugins/1,/plugins/2"))
+		})
+
+		It("should return no error for valid user config", func() {
+			cluster := newCluster(nil)
+			configs, err := kafkaConnectConfigsForCluster(cluster)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(configs).To(HaveKey("bootstrap.servers"))
+			Expect(configs).To(HaveKey("listeners"))
+		})
+
+		It("should return error when a single managed key is set by user", func() {
+			cluster := &kcv1alpha1.Cluster{
+				Spec: kcv1alpha1.ClusterSpec{
+					Config: map[string]string{
+						"bootstrap.servers": "localhost:9092",
+						"listeners":         "http://:9999",
+					},
+				},
+			}
+			_, err := kafkaConnectConfigsForCluster(cluster)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("listeners"))
+		})
+
+		It("should return error listing all conflicting keys when multiple managed keys are set", func() {
+			cluster := &kcv1alpha1.Cluster{
+				Spec: kcv1alpha1.ClusterSpec{
+					Config: map[string]string{
+						"bootstrap.servers":    "localhost:9092",
+						"listeners":            "http://:9999",
+						"rest.advertised.port": "9999",
+					},
+				},
+			}
+			_, err := kafkaConnectConfigsForCluster(cluster)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("listeners"))
+			Expect(err.Error()).To(ContainSubstring("rest.advertised.port"))
+		})
+
+		It("should allow plugin.path in user config when no plugins are specified", func() {
+			cluster := &kcv1alpha1.Cluster{
+				Spec: kcv1alpha1.ClusterSpec{
+					Config: map[string]string{
+						"bootstrap.servers": "localhost:9092",
+						"plugin.path":       "/custom/plugins",
+					},
+				},
+			}
+			configs, err := kafkaConnectConfigsForCluster(cluster)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(configs).To(HaveKeyWithValue("plugin.path", "/custom/plugins"))
+		})
+
+		It("should reject plugin.path in user config when plugins are present", func() {
+			cluster := &kcv1alpha1.Cluster{
+				Spec: kcv1alpha1.ClusterSpec{
+					Config: map[string]string{
+						"bootstrap.servers": "localhost:9092",
+						"plugin.path":       "/custom/plugins",
+					},
+					Plugins: []kcv1alpha1.Plugin{
+						{Image: "registry.example.com/plugin:1.0"},
+					},
+				},
+			}
+			_, err := kafkaConnectConfigsForCluster(cluster)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("plugin.path"))
 		})
 	})
 })
