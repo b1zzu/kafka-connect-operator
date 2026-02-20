@@ -19,11 +19,14 @@ import (
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/intstr"
+	corev1ac "k8s.io/client-go/applyconfigurations/core/v1"
 
 	kcv1alpha1 "github.com/b1zzu/kafka-connect-operator/api/v1alpha1"
 )
 
 const testClusterName = "my-cluster"
+const jmxExporterVolName = "jmx-exporter"
 
 var _ = Describe("Cluster Resources", func() {
 
@@ -42,6 +45,15 @@ var _ = Describe("Cluster Resources", func() {
 				Config:  map[string]string{"bootstrap.servers": "localhost:9092"},
 				Plugins: plugins,
 				Secrets: secrets,
+			},
+		}
+	}
+
+	newClusterWithMetrics := func(metrics *kcv1alpha1.MetricsConfig) *kcv1alpha1.Cluster {
+		return &kcv1alpha1.Cluster{
+			Spec: kcv1alpha1.ClusterSpec{
+				Config:  map[string]string{"bootstrap.servers": "localhost:9092"},
+				Metrics: metrics,
 			},
 		}
 	}
@@ -291,6 +303,115 @@ var _ = Describe("Cluster Resources", func() {
 			Expect(dep.Spec.Template.Spec.ServiceAccountName).NotTo(BeNil())
 			Expect(*dep.Spec.Template.Spec.ServiceAccountName).To(Equal("my-cluster-connect"))
 		})
+
+		It("should not have JMX exporter volume/mount/env/port when metrics is nil", func() {
+			cluster := newCluster(nil)
+			dep := deploymentForCluster(cluster)
+
+			volumes := dep.Spec.Template.Spec.Volumes
+			for _, v := range volumes {
+				Expect(*v.Name).NotTo(Equal(jmxExporterVolName))
+			}
+
+			mounts := dep.Spec.Template.Spec.Containers[0].VolumeMounts
+			for _, m := range mounts {
+				Expect(*m.Name).NotTo(Equal(jmxExporterVolName))
+			}
+
+			envVars := dep.Spec.Template.Spec.Containers[0].Env
+			for _, e := range envVars {
+				Expect(*e.Name).NotTo(Equal("KAFKA_OPTS"))
+			}
+
+			ports := dep.Spec.Template.Spec.Containers[0].Ports
+			Expect(ports).To(HaveLen(1))
+			Expect(*ports[0].Name).To(Equal("http"))
+		})
+
+		It("should add JMX exporter volume, mount, env, and port when jmxExporter is set", func() {
+			cluster := newClusterWithMetrics(&kcv1alpha1.MetricsConfig{
+				JMXExporter: &kcv1alpha1.JMXExporterConfig{},
+			})
+			dep := deploymentForCluster(cluster)
+
+			// Volume
+			volumes := dep.Spec.Template.Spec.Volumes
+			var jmxVol *corev1ac.VolumeApplyConfiguration
+			for i := range volumes {
+				if *volumes[i].Name == jmxExporterVolName {
+					jmxVol = &volumes[i]
+				}
+			}
+			Expect(jmxVol).NotTo(BeNil())
+			Expect(*jmxVol.Image.Reference).To(Equal("ghcr.io/b1zzu/kafka-connect-operator/jmx-exporter:1.5.0"))
+
+			// Mount
+			mounts := dep.Spec.Template.Spec.Containers[0].VolumeMounts
+			var jmxMount *corev1ac.VolumeMountApplyConfiguration
+			for i := range mounts {
+				if *mounts[i].Name == jmxExporterVolName {
+					jmxMount = &mounts[i]
+				}
+			}
+			Expect(jmxMount).NotTo(BeNil())
+			Expect(*jmxMount.MountPath).To(Equal("/opt/jmx-exporter"))
+			Expect(*jmxMount.ReadOnly).To(BeTrue())
+
+			// Env
+			envVars := dep.Spec.Template.Spec.Containers[0].Env
+			var kafkaOpts *corev1ac.EnvVarApplyConfiguration
+			for i := range envVars {
+				if *envVars[i].Name == "KAFKA_OPTS" {
+					kafkaOpts = &envVars[i]
+				}
+			}
+			Expect(kafkaOpts).NotTo(BeNil())
+			Expect(*kafkaOpts.Value).To(ContainSubstring("jmx_prometheus_javaagent.jar=9404"))
+
+			// Port
+			ports := dep.Spec.Template.Spec.Containers[0].Ports
+			Expect(ports).To(HaveLen(2))
+			Expect(*ports[1].Name).To(Equal("metrics"))
+			Expect(*ports[1].ContainerPort).To(Equal(int32(9404)))
+		})
+
+		It("should use custom JMX exporter image when overridden", func() {
+			customImage := "custom-registry/jmx-exporter:1.5.0"
+			cluster := newClusterWithMetrics(&kcv1alpha1.MetricsConfig{
+				JMXExporter: &kcv1alpha1.JMXExporterConfig{
+					Image: &customImage,
+				},
+			})
+			dep := deploymentForCluster(cluster)
+
+			var jmxVol *corev1ac.VolumeApplyConfiguration
+			for i := range dep.Spec.Template.Spec.Volumes {
+				if *dep.Spec.Template.Spec.Volumes[i].Name == jmxExporterVolName {
+					jmxVol = &dep.Spec.Template.Spec.Volumes[i]
+				}
+			}
+			Expect(jmxVol).NotTo(BeNil())
+			Expect(*jmxVol.Image.Reference).To(Equal("custom-registry/jmx-exporter:1.5.0"))
+		})
+
+		It("should propagate JMX exporter pullPolicy when specified", func() {
+			policy := corev1.PullAlways
+			cluster := newClusterWithMetrics(&kcv1alpha1.MetricsConfig{
+				JMXExporter: &kcv1alpha1.JMXExporterConfig{
+					PullPolicy: &policy,
+				},
+			})
+			dep := deploymentForCluster(cluster)
+
+			var jmxVol *corev1ac.VolumeApplyConfiguration
+			for i := range dep.Spec.Template.Spec.Volumes {
+				if *dep.Spec.Template.Spec.Volumes[i].Name == jmxExporterVolName {
+					jmxVol = &dep.Spec.Template.Spec.Volumes[i]
+				}
+			}
+			Expect(jmxVol).NotTo(BeNil())
+			Expect(*jmxVol.Image.PullPolicy).To(Equal(corev1.PullAlways))
+		})
 	})
 
 	Describe("serviceAccountForCluster", func() {
@@ -458,6 +579,53 @@ var _ = Describe("Cluster Resources", func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(configs).To(HaveKeyWithValue("config.providers", "env,file"))
 			Expect(configs).To(HaveKeyWithValue("config.providers.file.class", "org.apache.kafka.common.config.provider.FileConfigProvider"))
+		})
+	})
+
+	Describe("configMapForCluster", func() {
+		It("should not have jmx-exporter-config.yaml key when metrics is nil", func() {
+			cluster := newCluster(nil)
+			cm, err := configMapForCluster(cluster)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(cm.Data).NotTo(HaveKey("jmx-exporter-config.yaml"))
+			Expect(cm.Data).To(HaveKey("connect.properties"))
+		})
+
+		It("should have jmx-exporter-config.yaml key when jmxExporter is configured", func() {
+			cluster := newClusterWithMetrics(&kcv1alpha1.MetricsConfig{
+				JMXExporter: &kcv1alpha1.JMXExporterConfig{},
+			})
+			cm, err := configMapForCluster(cluster)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(cm.Data).To(HaveKey("jmx-exporter-config.yaml"))
+			Expect(cm.Data["jmx-exporter-config.yaml"]).To(ContainSubstring("rules:"))
+			Expect(cm.Data).To(HaveKey("connect.properties"))
+		})
+	})
+
+	Describe("networkPolicyForCluster", func() {
+		It("should have 2 ingress rules when metrics is nil", func() {
+			cluster := newCluster(nil)
+			cluster.Name = testClusterName
+			np := networkPolicyForCluster(cluster, "kafka-connect-operator")
+
+			Expect(np.Spec.Ingress).To(HaveLen(2))
+		})
+
+		It("should have 3 ingress rules with open TCP 9404 when jmxExporter is configured", func() {
+			cluster := newClusterWithMetrics(&kcv1alpha1.MetricsConfig{
+				JMXExporter: &kcv1alpha1.JMXExporterConfig{},
+			})
+			cluster.Name = testClusterName
+			np := networkPolicyForCluster(cluster, "kafka-connect-operator")
+
+			Expect(np.Spec.Ingress).To(HaveLen(3))
+
+			// Third rule should have no From selector (open) and port 9404
+			metricsRule := np.Spec.Ingress[2]
+			Expect(metricsRule.From).To(BeEmpty())
+			Expect(metricsRule.Ports).To(HaveLen(1))
+			Expect(*metricsRule.Ports[0].Port).To(Equal(intstr.FromInt(9404)))
 		})
 	})
 })

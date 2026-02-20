@@ -125,6 +125,11 @@ var _ = Describe("Manager", Ordered, func() {
 		cmd = exec.Command("kubectl", "delete", "pod", "curl-metrics", "-n", namespace)
 		_, _ = utils.Run(cmd)
 
+		By("cleaning up the curl pod for jmx metrics")
+		cmd = exec.Command("kubectl", "delete", "pod", "curl-jmx-metrics",
+			"-n", "default", "--ignore-not-found")
+		_, _ = utils.Run(cmd)
+
 		By("undeploying the controller-manager")
 		cmd = exec.Command("make", "undeploy")
 		_, _ = utils.Run(cmd)
@@ -381,6 +386,36 @@ var _ = Describe("Manager", Ordered, func() {
 			output, err := utils.Run(cmd)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(output).To(Equal("Running"), "Unexpected Connector condition reason")
+		})
+
+		It("should expose JMX Exporter metrics on the Connect pod", func() {
+			By("getting the Kafka Connect pod IP")
+			var connectPodIP string
+			getConnectPodIP := func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "pods",
+					"-l", "app.kubernetes.io/name=kafka-connect,app.kubernetes.io/instance=my-cluster",
+					"-n", "default",
+					"-o", "jsonpath={.items[0].status.podIP}")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).NotTo(BeEmpty())
+				connectPodIP = output
+			}
+			Eventually(getConnectPodIP).Should(Succeed())
+
+			By("curling the metrics endpoint on the Connect pod")
+			verifyMetrics := func(g Gomega) {
+				cmd := exec.Command("kubectl", "run", "curl-jmx-metrics",
+					"--restart=Never", "--rm", "-i",
+					"--image=curlimages/curl:latest",
+					"-n", "default",
+					"--", "curl", "-sf", fmt.Sprintf("http://%s:9404/metrics", connectPodIP))
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred(), "Failed to curl metrics endpoint")
+				g.Expect(output).To(ContainSubstring("# TYPE"),
+					"Expected Prometheus metrics output")
+			}
+			Eventually(verifyMetrics, 3*time.Minute, 10*time.Second).Should(Succeed())
 		})
 	})
 })
