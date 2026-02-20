@@ -133,6 +133,16 @@ docker-build-jmx-exporter: ## Build JMX Exporter OCI image.
 docker-push-jmx-exporter: ## Push JMX Exporter OCI image.
 	$(CONTAINER_TOOL) push ${JMX_EXPORTER_IMG}
 
+MSK_IAM_AUTH_IMG ?= ghcr.io/b1zzu/kafka-connect-operator/msk-iam-auth:2.3.5
+
+.PHONY: docker-build-msk-iam-auth
+docker-build-msk-iam-auth: ## Build MSK IAM Auth OCI image.
+	$(CONTAINER_TOOL) build -t ${MSK_IAM_AUTH_IMG} msk-iam-auth
+
+.PHONY: docker-push-msk-iam-auth
+docker-push-msk-iam-auth: ## Push MSK IAM Auth OCI image.
+	$(CONTAINER_TOOL) push ${MSK_IAM_AUTH_IMG}
+
 # PLATFORMS defines the target platforms for the manager image be built to provide support to multiple
 # architectures. (i.e. make docker-buildx IMG=myregistry/mypoperator:0.0.1). To use this option you need to:
 # - be able to use docker buildx. More info: https://docs.docker.com/build/buildx/

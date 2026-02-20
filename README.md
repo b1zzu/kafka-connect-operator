@@ -174,7 +174,7 @@ spec:
   # The operator automatically sets the CLASSPATH environment variable
   libraries:
     - name: msk-iam-auth
-      image: ghcr.io/example/aws-msk-iam-auth:2.3.0
+      image: ghcr.io/b1zzu/kafka-connect-operator/msk-iam-auth:2.3.5
       pullPolicy: IfNotPresent  # optional (Always, Never, IfNotPresent)
 
   # Secrets to mount into the pods (optional)
@@ -296,8 +296,11 @@ such as authentication providers or custom SASL mechanisms.
 ```yaml
 libraries:
   - name: msk-iam-auth
-    image: ghcr.io/example/aws-msk-iam-auth:2.3.0
+    image: ghcr.io/b1zzu/kafka-connect-operator/msk-iam-auth:2.3.5
 ```
+
+The project provides pre-built library images for common use cases (see [Authentication](#authentication)).
+You can also use any OCI image containing JAR files.
 
 Each library requires:
 - `name` - identifier used for the volume and mount path (`/libraries/{name}`)
@@ -325,8 +328,9 @@ Secret content changes do not trigger a cluster restart.
 ### AWS MSK IAM
 
 The [aws-msk-iam-auth](https://github.com/aws/aws-msk-iam-auth) library enables Kafka Connect
-to authenticate with Amazon MSK using IAM. It just needs its JAR on the classpath -- use
-`spec.libraries` to mount it and `spec.config` for the standard Kafka Connect SASL properties.
+to authenticate with Amazon MSK using IAM. The project provides a pre-built image at
+`ghcr.io/b1zzu/kafka-connect-operator/msk-iam-auth` that is kept up-to-date automatically.
+Use `spec.libraries` to mount it and `spec.config` for the standard Kafka Connect SASL properties.
 
 **IRSA-based authentication (recommended on EKS):**
 
@@ -338,7 +342,7 @@ metadata:
 spec:
   libraries:
     - name: msk-iam-auth
-      image: ghcr.io/example/aws-msk-iam-auth:2.3.0
+      image: ghcr.io/b1zzu/kafka-connect-operator/msk-iam-auth:2.3.5
 
   serviceAccountAnnotations:
     eks.amazonaws.com/role-arn: "arn:aws:iam::123456789012:role/my-role"

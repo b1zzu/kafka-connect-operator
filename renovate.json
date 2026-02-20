@@ -51,6 +51,26 @@
         "\"(?<depName>ghcr\\.io\\/b1zzu\\/kafka-connect-operator\\/jmx-exporter):(?<currentValue>[^\"]+)\""
       ],
       "datasourceTemplate": "docker"
+    },
+    {
+      "customType": "regex",
+      "description": "Update MSK IAM Auth version in msk-iam-auth Dockerfile",
+      "fileMatch": ["^msk-iam-auth/Dockerfile$"],
+      "matchStrings": [
+        "ARG MSK_IAM_AUTH_VERSION=(?<currentValue>\\S+)"
+      ],
+      "depNameTemplate": "aws/aws-msk-iam-auth",
+      "datasourceTemplate": "github-releases",
+      "extractVersionTemplate": "^v(?<version>.*)$"
+    },
+    {
+      "customType": "regex",
+      "description": "Update default MSK IAM Auth image in Go source files",
+      "fileMatch": ["\\.go$"],
+      "matchStrings": [
+        "\"(?<depName>ghcr\\.io\\/b1zzu\\/kafka-connect-operator\\/msk-iam-auth):(?<currentValue>[^\"]+)\""
+      ],
+      "datasourceTemplate": "docker"
     }
   ],
   "packageRules": [
@@ -73,6 +93,11 @@
       "description": "Group all jmx-exporter Dockerfile updates",
       "matchFileNames": ["jmx-exporter/Dockerfile"],
       "groupName": "jmx-exporter dockerfile"
+    },
+    {
+      "description": "Group all msk-iam-auth Dockerfile updates",
+      "matchFileNames": ["msk-iam-auth/Dockerfile"],
+      "groupName": "msk-iam-auth dockerfile"
     }
   ]
 }
