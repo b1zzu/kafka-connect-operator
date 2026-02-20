@@ -4,6 +4,9 @@ metadata:
   labels:
     app.kubernetes.io/name: kafka-connect-operator
     app.kubernetes.io/managed-by: kustomize
+  # annotations:
+  #   # Control connector state: running (default), paused, or stopped
+  #   kafka-connect.b1zzu.net/state: running
   name: my-connector
 spec:
   cluster:

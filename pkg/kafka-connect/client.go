@@ -31,8 +31,9 @@ type Client struct {
 }
 
 type Connector struct {
-	Name   string            `json:"name"`
-	Config map[string]string `json:"config"`
+	Name         string            `json:"name"`
+	Config       map[string]string `json:"config"`
+	InitialState string            `json:"initial_state,omitempty"`
 }
 
 type ConnectorStatus struct {
@@ -215,6 +216,72 @@ func (c *Client) DeleteConnector(ctx context.Context, name string) error {
 
 		rb, _ := io.ReadAll(res.Body)
 		return fmt.Errorf("failed to delete connector with status: %s; body: %s", res.Status, string(rb))
+	}
+
+	return nil
+}
+
+func (c *Client) PauseConnector(ctx context.Context, name string) error {
+	url := fmt.Sprintf("%s/connectors/%s/pause", c.endpoint, name)
+
+	req, err := http.NewRequestWithContext(ctx, "PUT", url, nil)
+	if err != nil {
+		return err
+	}
+
+	res, err := c.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to pause connector: %w", err)
+	}
+	defer func() { _ = res.Body.Close() }()
+
+	if res.StatusCode != 202 {
+		rb, _ := io.ReadAll(res.Body)
+		return fmt.Errorf("failed to pause connector with status: %s; body: %s", res.Status, string(rb))
+	}
+
+	return nil
+}
+
+func (c *Client) ResumeConnector(ctx context.Context, name string) error {
+	url := fmt.Sprintf("%s/connectors/%s/resume", c.endpoint, name)
+
+	req, err := http.NewRequestWithContext(ctx, "PUT", url, nil)
+	if err != nil {
+		return err
+	}
+
+	res, err := c.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to resume connector: %w", err)
+	}
+	defer func() { _ = res.Body.Close() }()
+
+	if res.StatusCode != 202 {
+		rb, _ := io.ReadAll(res.Body)
+		return fmt.Errorf("failed to resume connector with status: %s; body: %s", res.Status, string(rb))
+	}
+
+	return nil
+}
+
+func (c *Client) StopConnector(ctx context.Context, name string) error {
+	url := fmt.Sprintf("%s/connectors/%s/stop", c.endpoint, name)
+
+	req, err := http.NewRequestWithContext(ctx, "PUT", url, nil)
+	if err != nil {
+		return err
+	}
+
+	res, err := c.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to stop connector: %w", err)
+	}
+	defer func() { _ = res.Body.Close() }()
+
+	if res.StatusCode != 202 && res.StatusCode != 204 {
+		rb, _ := io.ReadAll(res.Body)
+		return fmt.Errorf("failed to stop connector with status: %s; body: %s", res.Status, string(rb))
 	}
 
 	return nil

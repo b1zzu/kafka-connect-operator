@@ -243,6 +243,10 @@ apiVersion: kafka-connect.b1zzu.net/v1alpha1
 kind: Connector
 metadata:
   name: NAME
+  annotations:
+    # Control connector state (optional, defaults to running)
+    # Values: running, paused, stopped
+    kafka-connect.b1zzu.net/state: running
 spec:
   # Reference to the Kafka Connect cluster (required)
   # Note: it must be in the same namespace
@@ -259,6 +263,44 @@ spec:
 
     # ...
 
+```
+
+**Annotations:**
+
+| Annotation | Values | Default | Description |
+|---|---|---|---|
+| `kafka-connect.b1zzu.net/state` | `running`, `paused`, `stopped` | `running` | Control the connector state |
+
+- `running` — connector is running normally
+- `paused` — connector and tasks are paused
+- `stopped` — connector is stopped and all tasks are shut down (offsets are retained)
+
+When a connector is created with state `paused` or `stopped`, the operator passes `initial_state` to the Kafka Connect API so the connector never starts running. This is useful for offset migration workflows where you need to configure offsets before the connector starts.
+
+**Examples:**
+
+Pause a connector:
+
+```bash
+kubectl annotate connector my-connector kafka-connect.b1zzu.net/state=paused
+```
+
+Stop a connector:
+
+```bash
+kubectl annotate connector my-connector kafka-connect.b1zzu.net/state=stopped --overwrite
+```
+
+Resume a connector:
+
+```bash
+kubectl annotate connector my-connector kafka-connect.b1zzu.net/state=running --overwrite
+```
+
+Remove the annotation to resume (defaults to running):
+
+```bash
+kubectl annotate connector my-connector kafka-connect.b1zzu.net/state-
 ```
 
 ### Network Security
