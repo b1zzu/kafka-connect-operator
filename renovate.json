@@ -1,0 +1,37 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "Update default Apache Kafka image in Go source files",
+      "fileMatch": ["\\.go$"],
+      "matchStrings": [
+        "\"(?<depName>docker\\.io\\/apache\\/kafka):(?<currentValue>[^\"]+)\""
+      ],
+      "datasourceTemplate": "docker"
+    },
+    {
+      "customType": "regex",
+      "description": "Update connect-file plugin version in plugins Dockerfile",
+      "fileMatch": ["^plugins/Dockerfile$"],
+      "matchStrings": [
+        "ARG CONNECT_FILE_VERSION=(?<currentValue>\\S+)"
+      ],
+      "depNameTemplate": "org.apache.kafka:connect-file",
+      "datasourceTemplate": "maven",
+      "registryUrlTemplate": "https://repo1.maven.org/maven2"
+    },
+    {
+      "customType": "regex",
+      "description": "Update connect-mirror plugin version in plugins Dockerfile",
+      "fileMatch": ["^plugins/Dockerfile$"],
+      "matchStrings": [
+        "ARG CONNECT_MIRROR_VERSION=(?<currentValue>\\S+)"
+      ],
+      "depNameTemplate": "org.apache.kafka:connect-mirror",
+      "datasourceTemplate": "maven",
+      "registryUrlTemplate": "https://repo1.maven.org/maven2"
+    }
+  ]
+}
