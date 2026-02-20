@@ -18,6 +18,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	corev1ac "k8s.io/client-go/applyconfigurations/core/v1"
@@ -566,6 +567,114 @@ var _ = Describe("Cluster Resources", func() {
 			}
 			Expect(classpathEnv).NotTo(BeNil())
 			Expect(*classpathEnv.Value).To(Equal("/libraries/lib-a/*"))
+		})
+
+		It("should use default resources when spec.resources is nil", func() {
+			cluster := newCluster(nil)
+			dep := deploymentForCluster(cluster)
+
+			res := dep.Spec.Template.Spec.Containers[0].Resources
+			Expect(res).NotTo(BeNil())
+			Expect(*res.Requests).To(HaveKeyWithValue(corev1.ResourceCPU, resource.MustParse("250m")))
+			Expect(*res.Requests).To(HaveKeyWithValue(corev1.ResourceMemory, resource.MustParse("1Gi")))
+			Expect(*res.Limits).To(HaveKeyWithValue(corev1.ResourceCPU, resource.MustParse("1000m")))
+			Expect(*res.Limits).To(HaveKeyWithValue(corev1.ResourceMemory, resource.MustParse("4Gi")))
+		})
+
+		It("should use custom resources when spec.resources is set", func() {
+			cluster := newCluster(nil)
+			cluster.Spec.Resources = &corev1.ResourceRequirements{
+				Requests: corev1.ResourceList{
+					corev1.ResourceCPU:    resource.MustParse("500m"),
+					corev1.ResourceMemory: resource.MustParse("2Gi"),
+				},
+				Limits: corev1.ResourceList{
+					corev1.ResourceCPU:    resource.MustParse("2000m"),
+					corev1.ResourceMemory: resource.MustParse("8Gi"),
+				},
+			}
+			dep := deploymentForCluster(cluster)
+
+			res := dep.Spec.Template.Spec.Containers[0].Resources
+			Expect(res).NotTo(BeNil())
+			Expect(*res.Requests).To(HaveKeyWithValue(corev1.ResourceCPU, resource.MustParse("500m")))
+			Expect(*res.Requests).To(HaveKeyWithValue(corev1.ResourceMemory, resource.MustParse("2Gi")))
+			Expect(*res.Limits).To(HaveKeyWithValue(corev1.ResourceCPU, resource.MustParse("2000m")))
+			Expect(*res.Limits).To(HaveKeyWithValue(corev1.ResourceMemory, resource.MustParse("8Gi")))
+		})
+
+		It("should handle partial resources (requests only, no limits)", func() {
+			cluster := newCluster(nil)
+			cluster.Spec.Resources = &corev1.ResourceRequirements{
+				Requests: corev1.ResourceList{
+					corev1.ResourceCPU:    resource.MustParse("100m"),
+					corev1.ResourceMemory: resource.MustParse("512Mi"),
+				},
+			}
+			dep := deploymentForCluster(cluster)
+
+			res := dep.Spec.Template.Spec.Containers[0].Resources
+			Expect(res).NotTo(BeNil())
+			Expect(*res.Requests).To(HaveKeyWithValue(corev1.ResourceCPU, resource.MustParse("100m")))
+			Expect(*res.Requests).To(HaveKeyWithValue(corev1.ResourceMemory, resource.MustParse("512Mi")))
+			Expect(res.Limits).To(BeNil())
+		})
+
+		It("should not have topology spread constraints when not specified", func() {
+			cluster := newCluster(nil)
+			dep := deploymentForCluster(cluster)
+
+			Expect(dep.Spec.Template.Spec.TopologySpreadConstraints).To(BeEmpty())
+		})
+
+		It("should apply a single topology spread constraint", func() {
+			cluster := newCluster(nil)
+			cluster.Spec.TopologySpreadConstraints = []corev1.TopologySpreadConstraint{
+				{
+					MaxSkew:           1,
+					TopologyKey:       "topology.kubernetes.io/zone",
+					WhenUnsatisfiable: corev1.DoNotSchedule,
+					LabelSelector: &metav1.LabelSelector{
+						MatchLabels: map[string]string{
+							"app.kubernetes.io/name": "kafka-connect",
+						},
+					},
+				},
+			}
+			dep := deploymentForCluster(cluster)
+
+			tscs := dep.Spec.Template.Spec.TopologySpreadConstraints
+			Expect(tscs).To(HaveLen(1))
+			Expect(*tscs[0].MaxSkew).To(Equal(int32(1)))
+			Expect(*tscs[0].TopologyKey).To(Equal("topology.kubernetes.io/zone"))
+			Expect(*tscs[0].WhenUnsatisfiable).To(Equal(corev1.DoNotSchedule))
+			Expect(tscs[0].LabelSelector.MatchLabels).To(HaveKeyWithValue("app.kubernetes.io/name", "kafka-connect"))
+		})
+
+		It("should apply multiple topology spread constraints", func() {
+			cluster := newCluster(nil)
+			cluster.Spec.TopologySpreadConstraints = []corev1.TopologySpreadConstraint{
+				{
+					MaxSkew:           1,
+					TopologyKey:       "topology.kubernetes.io/zone",
+					WhenUnsatisfiable: corev1.DoNotSchedule,
+				},
+				{
+					MaxSkew:           2,
+					TopologyKey:       "kubernetes.io/hostname",
+					WhenUnsatisfiable: corev1.ScheduleAnyway,
+				},
+			}
+			dep := deploymentForCluster(cluster)
+
+			tscs := dep.Spec.Template.Spec.TopologySpreadConstraints
+			Expect(tscs).To(HaveLen(2))
+			Expect(*tscs[0].MaxSkew).To(Equal(int32(1)))
+			Expect(*tscs[0].TopologyKey).To(Equal("topology.kubernetes.io/zone"))
+			Expect(*tscs[0].WhenUnsatisfiable).To(Equal(corev1.DoNotSchedule))
+			Expect(*tscs[1].MaxSkew).To(Equal(int32(2)))
+			Expect(*tscs[1].TopologyKey).To(Equal("kubernetes.io/hostname"))
+			Expect(*tscs[1].WhenUnsatisfiable).To(Equal(corev1.ScheduleAnyway))
 		})
 	})
 

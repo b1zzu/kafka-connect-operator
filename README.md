@@ -214,6 +214,26 @@ spec:
   # Merged with internal labels; internal keys take precedence.
   podLabels:
     team: platform
+
+  # CPU/memory requests and limits for the Kafka Connect container (optional)
+  # Defaults to requests: {cpu: 250m, memory: 1Gi}, limits: {cpu: 1000m, memory: 4Gi}
+  resources:
+    requests:
+      cpu: 250m
+      memory: 1Gi
+    limits:
+      cpu: 1000m
+      memory: 4Gi
+
+  # Topology spread constraints for pod scheduling (optional)
+  # If labelSelector is not defined, Kubernetes uses the same selector as the deployment.
+  topologySpreadConstraints:
+    - maxSkew: 1
+      topologyKey: topology.kubernetes.io/zone
+      whenUnsatisfiable: DoNotSchedule
+      labelSelector:
+        matchLabels:
+          app.kubernetes.io/name: kafka-connect
 ```
 
 ### Connector
