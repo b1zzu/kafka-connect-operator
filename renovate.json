@@ -32,6 +32,25 @@
       "depNameTemplate": "org.apache.kafka:connect-mirror",
       "datasourceTemplate": "maven",
       "registryUrlTemplate": "https://repo1.maven.org/maven2"
+    },
+    {
+      "customType": "regex",
+      "description": "Update JMX Exporter version in jmx-exporter Dockerfile",
+      "fileMatch": ["^jmx-exporter/Dockerfile$"],
+      "matchStrings": [
+        "ARG JMX_EXPORTER_VERSION=(?<currentValue>\\S+)"
+      ],
+      "depNameTemplate": "prometheus/jmx_exporter",
+      "datasourceTemplate": "github-releases"
+    },
+    {
+      "customType": "regex",
+      "description": "Update default JMX Exporter image in Go source files",
+      "fileMatch": ["\\.go$"],
+      "matchStrings": [
+        "\"(?<depName>ghcr\\.io\\/b1zzu\\/kafka-connect-operator\\/jmx-exporter):(?<currentValue>[^\"]+)\""
+      ],
+      "datasourceTemplate": "docker"
     }
   ],
   "packageRules": [
@@ -49,6 +68,11 @@
       "description": "Group all plugins Dockerfile updates",
       "matchFileNames": ["plugins/Dockerfile"],
       "groupName": "plugins dockerfile"
+    },
+    {
+      "description": "Group all jmx-exporter Dockerfile updates",
+      "matchFileNames": ["jmx-exporter/Dockerfile"],
+      "groupName": "jmx-exporter dockerfile"
     }
   ]
 }

@@ -123,6 +123,16 @@ docker-build: ## Build docker image with the manager.
 docker-push: ## Push docker image with the manager.
 	$(CONTAINER_TOOL) push ${IMG}
 
+JMX_EXPORTER_IMG ?= ghcr.io/b1zzu/kafka-connect-operator/jmx-exporter:1.5.0
+
+.PHONY: docker-build-jmx-exporter
+docker-build-jmx-exporter: ## Build JMX Exporter OCI image.
+	$(CONTAINER_TOOL) build -t ${JMX_EXPORTER_IMG} jmx-exporter
+
+.PHONY: docker-push-jmx-exporter
+docker-push-jmx-exporter: ## Push JMX Exporter OCI image.
+	$(CONTAINER_TOOL) push ${JMX_EXPORTER_IMG}
+
 # PLATFORMS defines the target platforms for the manager image be built to provide support to multiple
 # architectures. (i.e. make docker-buildx IMG=myregistry/mypoperator:0.0.1). To use this option you need to:
 # - be able to use docker buildx. More info: https://docs.docker.com/build/buildx/
