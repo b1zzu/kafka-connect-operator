@@ -288,6 +288,64 @@ config:
 
 Secret content changes do not trigger a cluster restart.
 
+## Monitoring
+
+Prometheus metrics collection is opt-in via `spec.metrics.jmxExporter`. When enabled, the operator attaches the [Prometheus JMX Exporter](https://github.com/prometheus/jmx_exporter) Java agent to the Kafka Connect process. Metrics are exposed on port `9404` at `/metrics`.
+
+**Enable metrics:**
+
+```yaml
+apiVersion: kafka-connect.b1zzu.net/v1alpha1
+kind: Cluster
+metadata:
+  name: my-cluster
+spec:
+  metrics:
+    jmxExporter: {}
+  config:
+    bootstrap.servers: my-cluster-kafka-bootstrap:9092
+    # ...
+```
+
+**Use a custom JMX Exporter image:**
+
+```yaml
+spec:
+  metrics:
+    jmxExporter:
+      image: custom-registry/jmx-exporter:1.5.0
+      pullPolicy: Always
+```
+
+**Prometheus pod annotations:**
+
+```yaml
+spec:
+  metrics:
+    jmxExporter: {}
+  podAnnotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "9404"
+    prometheus.io/path: "/metrics"
+```
+
+**Prometheus Operator PodMonitor:**
+
+```yaml
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: my-cluster-connect
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: kafka-connect
+      app.kubernetes.io/instance: my-cluster
+  podMetricsEndpoints:
+    - port: metrics
+      path: /metrics
+```
+
 ## Development
 
 ### My Workspace

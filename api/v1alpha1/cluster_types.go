@@ -63,6 +63,11 @@ type ClusterSpec struct {
 	// +optional
 	NetworkPolicy *NetworkPolicyConfig `json:"networkPolicy,omitempty"`
 
+	// Metrics configuration for enabling Prometheus metrics collection.
+	// When not set, metrics collection is disabled.
+	// +optional
+	Metrics *MetricsConfig `json:"metrics,omitempty"`
+
 	// ServiceAnnotations defines custom annotations for the Service
 	// +optional
 	ServiceAnnotations map[string]string `json:"serviceAnnotations,omitempty"`
@@ -123,6 +128,27 @@ type NetworkPolicyConfig struct {
 	// +optional
 	// +kubebuilder:default:=true
 	Enabled *bool `json:"enabled,omitempty"`
+}
+
+// MetricsConfig defines the metrics configuration for the Kafka Connect cluster.
+type MetricsConfig struct {
+	// JMXExporter configures Prometheus metrics using the JMX Exporter Java agent.
+	// +optional
+	JMXExporter *JMXExporterConfig `json:"jmxExporter,omitempty"`
+	// Future: StrimziReporter *StrimziReporterConfig `json:"strimziReporter,omitempty"`
+}
+
+// JMXExporterConfig configures the Prometheus JMX Exporter Java agent.
+type JMXExporterConfig struct {
+	// Image is the OCI image containing the JMX Exporter Java agent JAR.
+	// +optional
+	// +kubebuilder:default="ghcr.io/b1zzu/kafka-connect-operator/jmx-exporter:1.5.0"
+	Image *string `json:"image,omitempty"`
+
+	// Pull policy for the JMX Exporter image.
+	// +optional
+	// +kubebuilder:validation:Enum=Always;Never;IfNotPresent
+	PullPolicy *corev1.PullPolicy `json:"pullPolicy,omitempty"`
 }
 
 // ClusterStatus defines the observed state of Cluster.

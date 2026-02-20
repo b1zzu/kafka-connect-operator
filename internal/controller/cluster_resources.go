@@ -74,6 +74,29 @@ func deploymentForCluster(cluster *kcv1alpha1.Cluster) *appsv1ac.DeploymentApply
 			WithReadOnly(true))
 	}
 
+	// Build JMX exporter volume and mount (conditional)
+	var jmxVolumes []*corev1ac.VolumeApplyConfiguration
+	var jmxMounts []*corev1ac.VolumeMountApplyConfiguration
+	if cluster.Spec.Metrics != nil && cluster.Spec.Metrics.JMXExporter != nil {
+		jmxImage := "ghcr.io/b1zzu/kafka-connect-operator/jmx-exporter:1.5.0"
+		if cluster.Spec.Metrics.JMXExporter.Image != nil {
+			jmxImage = *cluster.Spec.Metrics.JMXExporter.Image
+		}
+
+		imgVolSrc := corev1ac.ImageVolumeSource().WithReference(jmxImage)
+		if cluster.Spec.Metrics.JMXExporter.PullPolicy != nil {
+			imgVolSrc = imgVolSrc.WithPullPolicy(*cluster.Spec.Metrics.JMXExporter.PullPolicy)
+		}
+
+		jmxVolumes = append(jmxVolumes, corev1ac.Volume().
+			WithName("jmx-exporter").
+			WithImage(imgVolSrc))
+		jmxMounts = append(jmxMounts, corev1ac.VolumeMount().
+			WithName("jmx-exporter").
+			WithMountPath("/opt/jmx-exporter").
+			WithReadOnly(true))
+	}
+
 	labels := map[string]string{
 		"app.kubernetes.io/name":     "kafka-connect",
 		"app.kubernetes.io/instance": cluster.Name,
@@ -112,6 +135,7 @@ func deploymentForCluster(cluster *kcv1alpha1.Cluster) *appsv1ac.DeploymentApply
 				WithName(configMapNameForCluster(cluster))),
 	}, pluginVolumes...)
 	volumes = append(volumes, secretVolumes...)
+	volumes = append(volumes, jmxVolumes...)
 
 	volumeMounts := append([]*corev1ac.VolumeMountApplyConfiguration{
 		corev1ac.VolumeMount().
@@ -120,6 +144,31 @@ func deploymentForCluster(cluster *kcv1alpha1.Cluster) *appsv1ac.DeploymentApply
 			WithReadOnly(true),
 	}, pluginMounts...)
 	volumeMounts = append(volumeMounts, secretMounts...)
+	volumeMounts = append(volumeMounts, jmxMounts...)
+
+	// Build env vars
+	envVars := []*corev1ac.EnvVarApplyConfiguration{
+		corev1ac.EnvVar().
+			WithName("CONNECT_REST_ADVERTISED_HOST_NAME").
+			WithValueFrom(corev1ac.EnvVarSource().WithFieldRef(corev1ac.ObjectFieldSelector().WithFieldPath("status.podIP"))),
+	}
+	if cluster.Spec.Metrics != nil && cluster.Spec.Metrics.JMXExporter != nil {
+		envVars = append(envVars, corev1ac.EnvVar().
+			WithName("KAFKA_OPTS").
+			WithValue("-javaagent:/opt/jmx-exporter/jmx_prometheus_javaagent.jar=9404:/config/jmx-exporter-config.yaml"))
+	}
+
+	// Build ports
+	ports := []*corev1ac.ContainerPortApplyConfiguration{
+		corev1ac.ContainerPort().
+			WithContainerPort(8083).
+			WithName("http"),
+	}
+	if cluster.Spec.Metrics != nil && cluster.Spec.Metrics.JMXExporter != nil {
+		ports = append(ports, corev1ac.ContainerPort().
+			WithContainerPort(9404).
+			WithName("metrics"))
+	}
 
 	return appsv1ac.Deployment(name, cluster.Namespace).
 		WithOwnerReferences(ownerReferenceForCluster(cluster)).
@@ -139,12 +188,8 @@ func deploymentForCluster(cluster *kcv1alpha1.Cluster) *appsv1ac.DeploymentApply
 						WithImage(image).
 						WithImagePullPolicy(corev1.PullIfNotPresent).
 						WithCommand("/opt/kafka/bin/connect-distributed.sh", "/config/connect.properties").
-						WithEnv(corev1ac.EnvVar().
-							WithName("CONNECT_REST_ADVERTISED_HOST_NAME").
-							WithValueFrom(corev1ac.EnvVarSource().WithFieldRef(corev1ac.ObjectFieldSelector().WithFieldPath("status.podIP")))).
-						WithPorts(corev1ac.ContainerPort().
-							WithContainerPort(8083).
-							WithName("http")).
+						WithEnv(envVars...).
+						WithPorts(ports...).
 						WithResources(corev1ac.ResourceRequirements().
 							WithRequests(corev1.ResourceList{ // Request and limits are based on standard cloud ratio 1CPU 4GB
 								corev1.ResourceCPU:    resource.MustParse("250m"),
@@ -248,9 +293,14 @@ func configMapForCluster(cluster *kcv1alpha1.Cluster) (*corev1ac.ConfigMapApplyC
 		fmt.Fprintf(configsBuilder, "%s=%s\n", k, configs[k])
 	}
 
+	data := map[string]string{"connect.properties": configsBuilder.String()}
+	if cluster.Spec.Metrics != nil && cluster.Spec.Metrics.JMXExporter != nil {
+		data["jmx-exporter-config.yaml"] = "rules:\n- pattern: \".*\"\n"
+	}
+
 	name := configMapNameForCluster(cluster)
 	return corev1ac.ConfigMap(name, cluster.Namespace).
-		WithData(map[string]string{"connect.properties": configsBuilder.String()}).
+		WithData(data).
 		WithOwnerReferences(ownerReferenceForCluster(cluster)), nil
 }
 
@@ -291,36 +341,48 @@ func networkPolicyForCluster(cluster *kcv1alpha1.Cluster, operatorNamespace stri
 
 	name := fmt.Sprintf("%s-connect", cluster.Name)
 
+	ingressRules := []*netv1ac.NetworkPolicyIngressRuleApplyConfiguration{
+		// Rule 1: Allow operator access
+		netv1ac.NetworkPolicyIngressRule().
+			WithFrom(
+				netv1ac.NetworkPolicyPeer().
+					WithNamespaceSelector(metav1ac.LabelSelector().WithMatchLabels(operatorNamespaceLabels)).
+					WithPodSelector(metav1ac.LabelSelector().WithMatchLabels(operatorPodLabels)),
+			).
+			WithPorts(
+				netv1ac.NetworkPolicyPort().
+					WithProtocol(corev1.ProtocolTCP).
+					WithPort(intstr.FromInt(8083)),
+			),
+		// Rule 2: Allow inter-pod communication (distributed mode)
+		netv1ac.NetworkPolicyIngressRule().
+			WithFrom(
+				netv1ac.NetworkPolicyPeer().
+					WithPodSelector(metav1ac.LabelSelector().WithMatchLabels(podLabels)),
+			).
+			WithPorts(
+				netv1ac.NetworkPolicyPort().
+					WithProtocol(corev1.ProtocolTCP).
+					WithPort(intstr.FromInt(8083)),
+			),
+	}
+
+	// Rule 3: Allow Prometheus scraping on metrics port (open to all)
+	if cluster.Spec.Metrics != nil && cluster.Spec.Metrics.JMXExporter != nil {
+		ingressRules = append(ingressRules, netv1ac.NetworkPolicyIngressRule().
+			WithPorts(
+				netv1ac.NetworkPolicyPort().
+					WithProtocol(corev1.ProtocolTCP).
+					WithPort(intstr.FromInt(9404)),
+			))
+	}
+
 	return netv1ac.NetworkPolicy(name, cluster.Namespace).
 		WithOwnerReferences(ownerReferenceForCluster(cluster)).
 		WithSpec(netv1ac.NetworkPolicySpec().
 			WithPodSelector(metav1ac.LabelSelector().WithMatchLabels(podLabels)).
 			WithPolicyTypes("Ingress").
-			WithIngress(
-				// Rule 1: Allow operator access
-				netv1ac.NetworkPolicyIngressRule().
-					WithFrom(
-						netv1ac.NetworkPolicyPeer().
-							WithNamespaceSelector(metav1ac.LabelSelector().WithMatchLabels(operatorNamespaceLabels)).
-							WithPodSelector(metav1ac.LabelSelector().WithMatchLabels(operatorPodLabels)),
-					).
-					WithPorts(
-						netv1ac.NetworkPolicyPort().
-							WithProtocol(corev1.ProtocolTCP).
-							WithPort(intstr.FromInt(8083)),
-					),
-				// Rule 2: Allow inter-pod communication (distributed mode)
-				netv1ac.NetworkPolicyIngressRule().
-					WithFrom(
-						netv1ac.NetworkPolicyPeer().
-							WithPodSelector(metav1ac.LabelSelector().WithMatchLabels(podLabels)),
-					).
-					WithPorts(
-						netv1ac.NetworkPolicyPort().
-							WithProtocol(corev1.ProtocolTCP).
-							WithPort(intstr.FromInt(8083)),
-					),
-			),
+			WithIngress(ingressRules...),
 		)
 }
 

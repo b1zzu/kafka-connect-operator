@@ -34,6 +34,8 @@ var (
 	managerImage = "example.com/kafka-connect-operator:v0.0.1"
 	// pluginsImage is the sample-plugins image to be built and loaded for testing.
 	pluginsImage = "ghcr.io/b1zzu/kafka-connect-operator/sample-plugins:latest"
+	// jmxExporterImage is the jmx-exporter image to be built and loaded for testing.
+	jmxExporterImage = "ghcr.io/b1zzu/kafka-connect-operator/jmx-exporter:1.5.0"
 	// shouldCleanupCertManager tracks whether CertManager was installed by this suite.
 	shouldCleanupCertManager = false
 )
@@ -73,6 +75,15 @@ var _ = BeforeSuite(func() {
 	By("loading the sample-plugins image on Kind")
 	err = utils.LoadImageToKindClusterWithName(pluginsImage)
 	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to load the sample-plugins image into Kind")
+
+	By("building the jmx-exporter image")
+	cmd = exec.Command(containerTool, "build", "-t", jmxExporterImage, "jmx-exporter")
+	_, err = utils.Run(cmd)
+	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to build the jmx-exporter image")
+
+	By("loading the jmx-exporter image on Kind")
+	err = utils.LoadImageToKindClusterWithName(jmxExporterImage)
+	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to load the jmx-exporter image into Kind")
 
 	setupCertManager()
 })

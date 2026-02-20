@@ -12,6 +12,9 @@ spec:
     - name: sample-plugins
       image: ghcr.io/b1zzu/kafka-connect-operator/sample-plugins:latest
 
+  metrics:
+    jmxExporter: {}
+
   # secrets:
   #   - name: my-keystore
   #     secretRef:
