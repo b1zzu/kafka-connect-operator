@@ -18,9 +18,12 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	kcv1alpha1 "github.com/b1zzu/kafka-connect-operator/api/v1alpha1"
 )
+
+const testClusterName = "my-cluster"
 
 var _ = Describe("Cluster Resources", func() {
 
@@ -172,6 +175,183 @@ var _ = Describe("Cluster Resources", func() {
 			mounts := dep.Spec.Template.Spec.Containers[0].VolumeMounts
 			Expect(mounts).To(HaveLen(1))
 			Expect(*mounts[0].Name).To(Equal("config"))
+		})
+
+		It("should have only config/hash annotation when no user pod annotations", func() {
+			cluster := newCluster(nil)
+			dep := deploymentForCluster(cluster)
+
+			annotations := dep.Spec.Template.Annotations
+			Expect(annotations).To(HaveLen(1))
+			Expect(annotations).To(HaveKeyWithValue("config/hash", ""))
+		})
+
+		It("should merge user pod annotations with config/hash", func() {
+			cluster := newCluster(nil)
+			cluster.Spec.PodAnnotations = map[string]string{
+				"vault.hashicorp.com/agent-inject": "true",
+			}
+			dep := deploymentForCluster(cluster)
+
+			annotations := dep.Spec.Template.Annotations
+			Expect(annotations).To(HaveLen(2))
+			Expect(annotations).To(HaveKeyWithValue("vault.hashicorp.com/agent-inject", "true"))
+			Expect(annotations).To(HaveKeyWithValue("config/hash", ""))
+		})
+
+		It("should let internal config/hash take precedence over user collision", func() {
+			hash := "abc123"
+			cluster := newCluster(nil)
+			cluster.Status.ConfigHash = &hash
+			cluster.Spec.PodAnnotations = map[string]string{
+				"config/hash": "user-value",
+			}
+			dep := deploymentForCluster(cluster)
+
+			annotations := dep.Spec.Template.Annotations
+			Expect(annotations).To(HaveKeyWithValue("config/hash", "abc123"))
+		})
+
+		It("should have only internal labels when no user pod labels", func() {
+			cluster := newCluster(nil)
+			cluster.Name = testClusterName
+			dep := deploymentForCluster(cluster)
+
+			labels := dep.Spec.Template.Labels
+			Expect(labels).To(HaveLen(2))
+			Expect(labels).To(HaveKeyWithValue("app.kubernetes.io/name", "kafka-connect"))
+			Expect(labels).To(HaveKeyWithValue("app.kubernetes.io/instance", testClusterName))
+		})
+
+		It("should merge user pod labels with internal labels", func() {
+			cluster := newCluster(nil)
+			cluster.Name = testClusterName
+			cluster.Spec.PodLabels = map[string]string{
+				"team": "platform",
+			}
+			dep := deploymentForCluster(cluster)
+
+			labels := dep.Spec.Template.Labels
+			Expect(labels).To(HaveLen(3))
+			Expect(labels).To(HaveKeyWithValue("app.kubernetes.io/name", "kafka-connect"))
+			Expect(labels).To(HaveKeyWithValue("app.kubernetes.io/instance", testClusterName))
+			Expect(labels).To(HaveKeyWithValue("team", "platform"))
+		})
+
+		It("should let internal labels take precedence over user collision", func() {
+			cluster := newCluster(nil)
+			cluster.Name = testClusterName
+			cluster.Spec.PodLabels = map[string]string{
+				"app.kubernetes.io/name": "custom-name",
+			}
+			dep := deploymentForCluster(cluster)
+
+			labels := dep.Spec.Template.Labels
+			Expect(labels).To(HaveKeyWithValue("app.kubernetes.io/name", "kafka-connect"))
+		})
+
+		It("should use only internal labels for selector (not user labels)", func() {
+			cluster := newCluster(nil)
+			cluster.Name = testClusterName
+			cluster.Spec.PodLabels = map[string]string{
+				"team": "platform",
+			}
+			dep := deploymentForCluster(cluster)
+
+			selectorLabels := dep.Spec.Selector.MatchLabels
+			Expect(selectorLabels).To(HaveLen(2))
+			Expect(selectorLabels).To(HaveKeyWithValue("app.kubernetes.io/name", "kafka-connect"))
+			Expect(selectorLabels).To(HaveKeyWithValue("app.kubernetes.io/instance", testClusterName))
+			Expect(selectorLabels).NotTo(HaveKey("team"))
+		})
+
+		It("should apply deployment annotations when specified", func() {
+			cluster := newCluster(nil)
+			cluster.Name = testClusterName
+			cluster.Spec.DeploymentAnnotations = map[string]string{
+				"prometheus.io/scrape": "true",
+			}
+			dep := deploymentForCluster(cluster)
+
+			Expect(dep.Annotations).To(HaveKeyWithValue("prometheus.io/scrape", "true"))
+		})
+
+		It("should not have deployment annotations when none specified", func() {
+			cluster := newCluster(nil)
+			dep := deploymentForCluster(cluster)
+
+			Expect(dep.Annotations).To(BeEmpty())
+		})
+
+		It("should set serviceAccountName on PodSpec", func() {
+			cluster := newCluster(nil)
+			cluster.Name = testClusterName
+			dep := deploymentForCluster(cluster)
+
+			Expect(dep.Spec.Template.Spec.ServiceAccountName).NotTo(BeNil())
+			Expect(*dep.Spec.Template.Spec.ServiceAccountName).To(Equal("my-cluster-connect"))
+		})
+	})
+
+	Describe("serviceAccountForCluster", func() {
+		It("should create SA with correct name", func() {
+			cluster := &kcv1alpha1.Cluster{
+				ObjectMeta: metav1.ObjectMeta{Name: testClusterName, Namespace: "default"},
+				Spec: kcv1alpha1.ClusterSpec{
+					Config: map[string]string{"bootstrap.servers": "localhost:9092"},
+				},
+			}
+			sa := serviceAccountForCluster(cluster)
+
+			Expect(*sa.Name).To(Equal("my-cluster-connect"))
+			Expect(*sa.Namespace).To(Equal("default"))
+		})
+
+		It("should have user-defined annotations when specified", func() {
+			cluster := &kcv1alpha1.Cluster{
+				ObjectMeta: metav1.ObjectMeta{Name: testClusterName, Namespace: "default"},
+				Spec: kcv1alpha1.ClusterSpec{
+					Config: map[string]string{"bootstrap.servers": "localhost:9092"},
+					ServiceAccountAnnotations: map[string]string{
+						"eks.amazonaws.com/role-arn": "arn:aws:iam::123456789012:role/my-role",
+					},
+				},
+			}
+			sa := serviceAccountForCluster(cluster)
+
+			Expect(sa.Annotations).To(HaveKeyWithValue("eks.amazonaws.com/role-arn", "arn:aws:iam::123456789012:role/my-role"))
+		})
+
+		It("should have no annotations when none specified", func() {
+			cluster := &kcv1alpha1.Cluster{
+				ObjectMeta: metav1.ObjectMeta{Name: testClusterName, Namespace: "default"},
+				Spec: kcv1alpha1.ClusterSpec{
+					Config: map[string]string{"bootstrap.servers": "localhost:9092"},
+				},
+			}
+			sa := serviceAccountForCluster(cluster)
+
+			Expect(sa.Annotations).To(BeEmpty())
+		})
+	})
+
+	Describe("serviceForCluster", func() {
+		It("should apply service annotations when specified", func() {
+			cluster := newCluster(nil)
+			cluster.Name = testClusterName
+			cluster.Spec.ServiceAnnotations = map[string]string{
+				"service.beta.kubernetes.io/aws-load-balancer-type": "nlb",
+			}
+			svc := serviceForCluster(cluster)
+
+			Expect(svc.Annotations).To(HaveKeyWithValue("service.beta.kubernetes.io/aws-load-balancer-type", "nlb"))
+		})
+
+		It("should not have annotations when none specified", func() {
+			cluster := newCluster(nil)
+			svc := serviceForCluster(cluster)
+
+			Expect(svc.Annotations).To(BeEmpty())
 		})
 	})
 

@@ -65,6 +65,7 @@ type ClusterReconciler struct {
 // +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch
 // +kubebuilder:rbac:groups=networking.k8s.io,resources=networkpolicies,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=core,resources=serviceaccounts,verbs=get;list;watch;create;update;patch;delete
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -103,6 +104,11 @@ func (r *ClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, err
 	}
 
+	cluster, err = r.reconcileServiceAccount(ctx, cluster)
+	if err != nil || cluster == nil {
+		return ctrl.Result{}, err
+	}
+
 	cluster, err = r.reconcileConfigMap(ctx, cluster)
 	if err != nil || cluster == nil {
 		return ctrl.Result{}, err
@@ -123,6 +129,7 @@ func (r *ClusterReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		For(&kcv1alpha1.Cluster{}).
 		Owns(&appsv1.Deployment{}).
 		Owns(&corev1.ConfigMap{}).
+		Owns(&corev1.ServiceAccount{}).
 		Owns(&netv1.NetworkPolicy{}).
 		Named("cluster").
 		Complete(r)
@@ -329,6 +336,33 @@ func (r *ClusterReconciler) reconcileNetworkPolicy(ctx context.Context, cluster 
 			return nil, fmt.Errorf("failed to update Cluster status after failed to apply NetworkPolicy: %w", err)
 		}
 		return nil, fmt.Errorf("failed to apply NetworkPolicy: %w", err)
+	}
+
+	// Refetch the cluster after Server-Side Apply
+	cluster, err = r.getCluster(ctx, types.NamespacedName{Name: cluster.Name, Namespace: cluster.Namespace})
+	if err != nil || cluster == nil {
+		return cluster, err
+	}
+
+	return cluster, nil
+}
+
+func (r *ClusterReconciler) reconcileServiceAccount(ctx context.Context, cluster *kcv1alpha1.Cluster) (*kcv1alpha1.Cluster, error) {
+	serviceAccountA := serviceAccountForCluster(cluster)
+
+	err := r.serverSideApply(ctx, serviceAccountA)
+	if err != nil {
+
+		err := r.updateStatusCondition(ctx, cluster, metav1.Condition{
+			Type:    typeAvailableCluster,
+			Status:  metav1.ConditionFalse,
+			Reason:  "Error",
+			Message: fmt.Sprintf("Failed to apply ServiceAccount: %s", err),
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to update Cluster status after failed to apply ServiceAccount: %w", err)
+		}
+		return nil, fmt.Errorf("failed to apply ServiceAccount: %w", err)
 	}
 
 	// Refetch the cluster after Server-Side Apply

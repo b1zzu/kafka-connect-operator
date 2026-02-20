@@ -58,6 +58,29 @@ type ClusterSpec struct {
 	// NetworkPolicy configuration
 	// +optional
 	NetworkPolicy *NetworkPolicyConfig `json:"networkPolicy,omitempty"`
+
+	// ServiceAnnotations defines custom annotations for the Service
+	// +optional
+	ServiceAnnotations map[string]string `json:"serviceAnnotations,omitempty"`
+
+	// ServiceAccountAnnotations defines custom annotations for the ServiceAccount
+	// +optional
+	ServiceAccountAnnotations map[string]string `json:"serviceAccountAnnotations,omitempty"`
+
+	// DeploymentAnnotations defines custom annotations for the Deployment
+	// +optional
+	DeploymentAnnotations map[string]string `json:"deploymentAnnotations,omitempty"`
+
+	// PodAnnotations defines custom annotations for the Pods.
+	// Merged with internal annotations; internal keys take precedence.
+	// +optional
+	PodAnnotations map[string]string `json:"podAnnotations,omitempty"`
+
+	// PodLabels defines custom labels for the Pods.
+	// Applied only to the pod template metadata, NOT to the Deployment selector.
+	// Merged with internal labels; internal keys take precedence.
+	// +optional
+	PodLabels map[string]string `json:"podLabels,omitempty"`
 }
 
 // Plugin defines a Kafka Connect plugin to be mounted from an OCI image.
