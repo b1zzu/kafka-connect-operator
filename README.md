@@ -169,6 +169,14 @@ spec:
       image: registry.example.com/my-plugin:1.0
       pullPolicy: IfNotPresent  # optional (Always, Never, IfNotPresent)
 
+  # Libraries to mount on the shared classpath from OCI images (optional)
+  # Each library image is mounted read-only at /libraries/{name}
+  # The operator automatically sets the CLASSPATH environment variable
+  libraries:
+    - name: msk-iam-auth
+      image: ghcr.io/example/aws-msk-iam-auth:2.3.0
+      pullPolicy: IfNotPresent  # optional (Always, Never, IfNotPresent)
+
   # Secrets to mount into the pods (optional)
   # Each secret is mounted read-only at /secrets/{name}
   secrets:
@@ -274,6 +282,30 @@ Each plugin requires:
 Optional:
 - `pullPolicy` - one of `Always`, `Never`, `IfNotPresent` (defaults to `Always` for `:latest` tags, `IfNotPresent` otherwise)
 
+### Libraries
+
+Libraries listed in `spec.libraries` are mounted from OCI images as read-only volumes at `/libraries/{name}`.
+The operator automatically sets the `CLASSPATH` environment variable to include all library mount
+directories (using Java wildcard syntax `/libraries/{name}/*`). The `kafka-run-class.sh` script
+respects a pre-existing `CLASSPATH` and prepends it to Kafka's own classpath.
+
+Unlike plugins (which use isolated classloaders via `plugin.path`), libraries are loaded on the
+shared classpath. Use libraries for JARs that must be visible to the Kafka Connect framework itself,
+such as authentication providers or custom SASL mechanisms.
+
+```yaml
+libraries:
+  - name: msk-iam-auth
+    image: ghcr.io/example/aws-msk-iam-auth:2.3.0
+```
+
+Each library requires:
+- `name` - identifier used for the volume and mount path (`/libraries/{name}`)
+- `image` - OCI image reference containing the library artifacts
+
+Optional:
+- `pullPolicy` - one of `Always`, `Never`, `IfNotPresent` (defaults to `Always` for `:latest` tags, `IfNotPresent` otherwise)
+
 ### Secrets
 
 Secrets listed in `spec.secrets` are mounted read-only at `/secrets/{name}`. Use the
@@ -287,6 +319,45 @@ config:
 ```
 
 Secret content changes do not trigger a cluster restart.
+
+## Authentication
+
+### AWS MSK IAM
+
+The [aws-msk-iam-auth](https://github.com/aws/aws-msk-iam-auth) library enables Kafka Connect
+to authenticate with Amazon MSK using IAM. It just needs its JAR on the classpath -- use
+`spec.libraries` to mount it and `spec.config` for the standard Kafka Connect SASL properties.
+
+**IRSA-based authentication (recommended on EKS):**
+
+```yaml
+apiVersion: kafka-connect.b1zzu.net/v1alpha1
+kind: Cluster
+metadata:
+  name: my-cluster
+spec:
+  libraries:
+    - name: msk-iam-auth
+      image: ghcr.io/example/aws-msk-iam-auth:2.3.0
+
+  serviceAccountAnnotations:
+    eks.amazonaws.com/role-arn: "arn:aws:iam::123456789012:role/my-role"
+
+  config:
+    bootstrap.servers: b-1.my-msk-cluster.kafka.us-east-1.amazonaws.com:9098
+    security.protocol: SASL_SSL
+    sasl.mechanism: AWS_MSK_IAM
+    sasl.jaas.config: "software.amazon.msk.auth.iam.IAMLoginModule required;"
+    sasl.client.callback.handler.class: "software.amazon.msk.auth.iam.IAMClientCallbackHandler"
+    # ...
+```
+
+The operator creates a dedicated ServiceAccount per Cluster. The `serviceAccountAnnotations` field
+binds it to an IAM role via IRSA so that pods automatically receive temporary credentials.
+
+The same SASL properties apply to connectors that connect to MSK-backed source or target clusters
+(e.g. MirrorMaker). Set the prefixed variants (`producer.override.sasl.*`, `consumer.override.sasl.*`,
+or connector-specific properties) in the Connector's `spec.config` as needed.
 
 ## Monitoring
 

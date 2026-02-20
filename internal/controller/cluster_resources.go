@@ -57,6 +57,27 @@ func deploymentForCluster(cluster *kcv1alpha1.Cluster) *appsv1ac.DeploymentApply
 			WithReadOnly(true))
 	}
 
+	// Build library volumes and volume mounts from OCI image references
+	libraryVolumes := make([]*corev1ac.VolumeApplyConfiguration, 0, len(cluster.Spec.Libraries))
+	libraryMounts := make([]*corev1ac.VolumeMountApplyConfiguration, 0, len(cluster.Spec.Libraries))
+	for _, library := range cluster.Spec.Libraries {
+		volName := fmt.Sprintf("library-%s", library.Name)
+		mountPath := fmt.Sprintf("/libraries/%s", library.Name)
+
+		imgVolSrc := corev1ac.ImageVolumeSource().WithReference(library.Image)
+		if library.PullPolicy != nil {
+			imgVolSrc = imgVolSrc.WithPullPolicy(*library.PullPolicy)
+		}
+
+		libraryVolumes = append(libraryVolumes, corev1ac.Volume().
+			WithName(volName).
+			WithImage(imgVolSrc))
+		libraryMounts = append(libraryMounts, corev1ac.VolumeMount().
+			WithName(volName).
+			WithMountPath(mountPath).
+			WithReadOnly(true))
+	}
+
 	// Build secret volumes and volume mounts
 	secretVolumes := make([]*corev1ac.VolumeApplyConfiguration, 0, len(cluster.Spec.Secrets))
 	secretMounts := make([]*corev1ac.VolumeMountApplyConfiguration, 0, len(cluster.Spec.Secrets))
@@ -134,6 +155,7 @@ func deploymentForCluster(cluster *kcv1alpha1.Cluster) *appsv1ac.DeploymentApply
 			WithConfigMap(corev1ac.ConfigMapVolumeSource().
 				WithName(configMapNameForCluster(cluster))),
 	}, pluginVolumes...)
+	volumes = append(volumes, libraryVolumes...)
 	volumes = append(volumes, secretVolumes...)
 	volumes = append(volumes, jmxVolumes...)
 
@@ -143,6 +165,7 @@ func deploymentForCluster(cluster *kcv1alpha1.Cluster) *appsv1ac.DeploymentApply
 			WithMountPath("/config").
 			WithReadOnly(true),
 	}, pluginMounts...)
+	volumeMounts = append(volumeMounts, libraryMounts...)
 	volumeMounts = append(volumeMounts, secretMounts...)
 	volumeMounts = append(volumeMounts, jmxMounts...)
 
@@ -156,6 +179,15 @@ func deploymentForCluster(cluster *kcv1alpha1.Cluster) *appsv1ac.DeploymentApply
 		envVars = append(envVars, corev1ac.EnvVar().
 			WithName("KAFKA_OPTS").
 			WithValue("-javaagent:/opt/jmx-exporter/jmx_prometheus_javaagent.jar=9404:/config/jmx-exporter-config.yaml"))
+	}
+	if len(cluster.Spec.Libraries) > 0 {
+		classpathEntries := make([]string, len(cluster.Spec.Libraries))
+		for i, library := range cluster.Spec.Libraries {
+			classpathEntries[i] = fmt.Sprintf("/libraries/%s/*", library.Name)
+		}
+		envVars = append(envVars, corev1ac.EnvVar().
+			WithName("CLASSPATH").
+			WithValue(strings.Join(classpathEntries, ":")))
 	}
 
 	// Build ports

@@ -55,6 +55,43 @@ spec:
                 description: Image used to deploy Kafka Connect, it should be based
                   on docker.io/apache/kafka
                 type: string
+              libraries:
+                description: |-
+                  Libraries is a list of shared classpath libraries to mount from OCI images.
+                  Each library image is mounted as a read-only volume at /libraries/{name} and
+                  added to the CLASSPATH environment variable. Unlike plugins (which use isolated
+                  classloaders via plugin.path), libraries are loaded on the shared classpath.
+                items:
+                  description: Library defines a shared classpath library to be mounted
+                    from an OCI image.
+                  properties:
+                    image:
+                      description: OCI image reference containing the library artifacts.
+                      minLength: 1
+                      type: string
+                    name:
+                      description: |-
+                        Name is the identifier for this library mount.
+                        The library will be mounted at /libraries/{name}.
+                      minLength: 1
+                      type: string
+                    pullPolicy:
+                      description: |-
+                        Pull policy for the OCI image.
+                        Defaults to Always if :latest tag is specified, or IfNotPresent otherwise.
+                      enum:
+                      - Always
+                      - Never
+                      - IfNotPresent
+                      type: string
+                  required:
+                  - image
+                  - name
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - name
+                x-kubernetes-list-type: map
               metrics:
                 description: |-
                   Metrics configuration for enabling Prometheus metrics collection.

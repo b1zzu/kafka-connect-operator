@@ -12,6 +12,10 @@ spec:
     - name: sample-plugins
       image: ghcr.io/b1zzu/kafka-connect-operator/sample-plugins:latest
 
+  # libraries:
+  #   - name: msk-iam-auth
+  #     image: ghcr.io/example/aws-msk-iam-auth:2.3.0
+
   metrics:
     jmxExporter: {}
 

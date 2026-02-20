@@ -27,6 +27,7 @@ import (
 
 const testClusterName = "my-cluster"
 const jmxExporterVolName = "jmx-exporter"
+const classpathEnvName = "CLASSPATH"
 
 var _ = Describe("Cluster Resources", func() {
 
@@ -54,6 +55,15 @@ var _ = Describe("Cluster Resources", func() {
 			Spec: kcv1alpha1.ClusterSpec{
 				Config:  map[string]string{"bootstrap.servers": "localhost:9092"},
 				Metrics: metrics,
+			},
+		}
+	}
+
+	newClusterWithLibraries := func(libraries []kcv1alpha1.Library) *kcv1alpha1.Cluster {
+		return &kcv1alpha1.Cluster{
+			Spec: kcv1alpha1.ClusterSpec{
+				Config:    map[string]string{"bootstrap.servers": "localhost:9092"},
+				Libraries: libraries,
 			},
 		}
 	}
@@ -411,6 +421,151 @@ var _ = Describe("Cluster Resources", func() {
 			}
 			Expect(jmxVol).NotTo(BeNil())
 			Expect(*jmxVol.Image.PullPolicy).To(Equal(corev1.PullAlways))
+		})
+
+		It("should not have library volumes or CLASSPATH env when no libraries are specified", func() {
+			cluster := newClusterWithLibraries(nil)
+			dep := deploymentForCluster(cluster)
+
+			volumes := dep.Spec.Template.Spec.Volumes
+			Expect(volumes).To(HaveLen(1))
+			Expect(*volumes[0].Name).To(Equal("config"))
+
+			mounts := dep.Spec.Template.Spec.Containers[0].VolumeMounts
+			Expect(mounts).To(HaveLen(1))
+			Expect(*mounts[0].Name).To(Equal("config"))
+
+			envVars := dep.Spec.Template.Spec.Containers[0].Env
+			for _, env := range envVars {
+				Expect(*env.Name).NotTo(Equal(classpathEnvName))
+			}
+		})
+
+		It("should add a single library volume, mount, and CLASSPATH env", func() {
+			cluster := newClusterWithLibraries([]kcv1alpha1.Library{
+				{Name: "msk-iam-auth", Image: "ghcr.io/example/aws-msk-iam-auth:2.3.0"},
+			})
+			dep := deploymentForCluster(cluster)
+
+			volumes := dep.Spec.Template.Spec.Volumes
+			Expect(volumes).To(HaveLen(2)) // config + 1 library
+			Expect(*volumes[1].Name).To(Equal("library-msk-iam-auth"))
+			Expect(*volumes[1].Image.Reference).To(Equal("ghcr.io/example/aws-msk-iam-auth:2.3.0"))
+
+			mounts := dep.Spec.Template.Spec.Containers[0].VolumeMounts
+			Expect(mounts).To(HaveLen(2))
+			Expect(*mounts[1].Name).To(Equal("library-msk-iam-auth"))
+			Expect(*mounts[1].MountPath).To(Equal("/libraries/msk-iam-auth"))
+			Expect(*mounts[1].ReadOnly).To(BeTrue())
+
+			envVars := dep.Spec.Template.Spec.Containers[0].Env
+			var classpathEnv *corev1ac.EnvVarApplyConfiguration
+			for i := range envVars {
+				if *envVars[i].Name == classpathEnvName {
+					classpathEnv = &envVars[i]
+					break
+				}
+			}
+			Expect(classpathEnv).NotTo(BeNil())
+			Expect(*classpathEnv.Value).To(Equal("/libraries/msk-iam-auth/*"))
+		})
+
+		It("should build colon-separated CLASSPATH for multiple libraries", func() {
+			cluster := newClusterWithLibraries([]kcv1alpha1.Library{
+				{Name: "lib-a", Image: "registry.example.com/lib-a:1.0"},
+				{Name: "lib-b", Image: "registry.example.com/lib-b:2.0"},
+			})
+			dep := deploymentForCluster(cluster)
+
+			volumes := dep.Spec.Template.Spec.Volumes
+			Expect(volumes).To(HaveLen(3)) // config + 2 libraries
+			Expect(*volumes[1].Name).To(Equal("library-lib-a"))
+			Expect(*volumes[2].Name).To(Equal("library-lib-b"))
+
+			mounts := dep.Spec.Template.Spec.Containers[0].VolumeMounts
+			Expect(mounts).To(HaveLen(3))
+			Expect(*mounts[1].MountPath).To(Equal("/libraries/lib-a"))
+			Expect(*mounts[2].MountPath).To(Equal("/libraries/lib-b"))
+
+			envVars := dep.Spec.Template.Spec.Containers[0].Env
+			var classpathEnv *corev1ac.EnvVarApplyConfiguration
+			for i := range envVars {
+				if *envVars[i].Name == classpathEnvName {
+					classpathEnv = &envVars[i]
+					break
+				}
+			}
+			Expect(classpathEnv).NotTo(BeNil())
+			Expect(*classpathEnv.Value).To(Equal("/libraries/lib-a/*:/libraries/lib-b/*"))
+		})
+
+		It("should propagate library pullPolicy when specified", func() {
+			policy := corev1.PullAlways
+			cluster := newClusterWithLibraries([]kcv1alpha1.Library{
+				{Name: "lib", Image: "registry.example.com/lib:latest", PullPolicy: &policy},
+			})
+			dep := deploymentForCluster(cluster)
+
+			volumes := dep.Spec.Template.Spec.Volumes
+			Expect(volumes).To(HaveLen(2))
+			Expect(*volumes[1].Image.PullPolicy).To(Equal(corev1.PullAlways))
+		})
+
+		It("should not set library pullPolicy when not specified", func() {
+			cluster := newClusterWithLibraries([]kcv1alpha1.Library{
+				{Name: "lib", Image: "registry.example.com/lib:1.0"},
+			})
+			dep := deploymentForCluster(cluster)
+
+			volumes := dep.Spec.Template.Spec.Volumes
+			Expect(volumes).To(HaveLen(2))
+			Expect(volumes[1].Image.PullPolicy).To(BeNil())
+		})
+
+		It("should add libraries together with plugins and secrets", func() {
+			cluster := &kcv1alpha1.Cluster{
+				Spec: kcv1alpha1.ClusterSpec{
+					Config: map[string]string{"bootstrap.servers": "localhost:9092"},
+					Plugins: []kcv1alpha1.Plugin{
+						{Name: "plugin-a", Image: "registry.example.com/plugin-a:1.0"},
+					},
+					Libraries: []kcv1alpha1.Library{
+						{Name: "lib-a", Image: "registry.example.com/lib-a:1.0"},
+					},
+					Secrets: []kcv1alpha1.SecretMount{
+						{Name: "my-keystore", SecretRef: corev1.LocalObjectReference{Name: "my-keystore-secret"}},
+					},
+				},
+			}
+			dep := deploymentForCluster(cluster)
+
+			volumes := dep.Spec.Template.Spec.Volumes
+			Expect(volumes).To(HaveLen(4)) // config + 1 plugin + 1 library + 1 secret
+			Expect(*volumes[0].Name).To(Equal("config"))
+			Expect(*volumes[1].Name).To(Equal("plugin-plugin-a"))
+			Expect(*volumes[2].Name).To(Equal("library-lib-a"))
+			Expect(*volumes[3].Name).To(Equal("secret-0"))
+
+			mounts := dep.Spec.Template.Spec.Containers[0].VolumeMounts
+			Expect(mounts).To(HaveLen(4))
+			Expect(*mounts[0].Name).To(Equal("config"))
+			Expect(*mounts[1].Name).To(Equal("plugin-plugin-a"))
+			Expect(*mounts[1].MountPath).To(Equal("/plugins/plugin-a"))
+			Expect(*mounts[2].Name).To(Equal("library-lib-a"))
+			Expect(*mounts[2].MountPath).To(Equal("/libraries/lib-a"))
+			Expect(*mounts[3].Name).To(Equal("secret-0"))
+			Expect(*mounts[3].MountPath).To(Equal("/secrets/my-keystore"))
+
+			envVars := dep.Spec.Template.Spec.Containers[0].Env
+			var classpathEnv *corev1ac.EnvVarApplyConfiguration
+			for i := range envVars {
+				if *envVars[i].Name == classpathEnvName {
+					classpathEnv = &envVars[i]
+					break
+				}
+			}
+			Expect(classpathEnv).NotTo(BeNil())
+			Expect(*classpathEnv.Value).To(Equal("/libraries/lib-a/*"))
 		})
 	})
 

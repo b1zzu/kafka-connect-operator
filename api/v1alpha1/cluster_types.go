@@ -49,6 +49,15 @@ type ClusterSpec struct {
 	// +listMapKey=name
 	Plugins []Plugin `json:"plugins,omitempty"`
 
+	// Libraries is a list of shared classpath libraries to mount from OCI images.
+	// Each library image is mounted as a read-only volume at /libraries/{name} and
+	// added to the CLASSPATH environment variable. Unlike plugins (which use isolated
+	// classloaders via plugin.path), libraries are loaded on the shared classpath.
+	// +optional
+	// +listType=map
+	// +listMapKey=name
+	Libraries []Library `json:"libraries,omitempty"`
+
 	// Secrets is a list of Kubernetes Secrets to mount into the Kafka Connect pods.
 	// Each Secret is mounted read-only at /secrets/{name}.
 	// Secret content changes do not trigger pod restarts because the operator does not
@@ -100,6 +109,24 @@ type Plugin struct {
 	Name string `json:"name"`
 
 	// OCI image reference containing the plugin artifacts.
+	// +kubebuilder:validation:MinLength=1
+	Image string `json:"image"`
+
+	// Pull policy for the OCI image.
+	// Defaults to Always if :latest tag is specified, or IfNotPresent otherwise.
+	// +optional
+	// +kubebuilder:validation:Enum=Always;Never;IfNotPresent
+	PullPolicy *corev1.PullPolicy `json:"pullPolicy,omitempty"`
+}
+
+// Library defines a shared classpath library to be mounted from an OCI image.
+type Library struct {
+	// Name is the identifier for this library mount.
+	// The library will be mounted at /libraries/{name}.
+	// +kubebuilder:validation:MinLength=1
+	Name string `json:"name"`
+
+	// OCI image reference containing the library artifacts.
 	// +kubebuilder:validation:MinLength=1
 	Image string `json:"image"`
 
