@@ -161,11 +161,32 @@ spec:
     offset.storage.topic: <string>
     status.storage.topic: <string>
 
+  # Secrets to mount into the pods (optional)
+  # Each secret is mounted read-only at /secrets/{name}
+  secrets:
+    - name: my-keystore
+      secretRef:
+        name: my-keystore
+
   # Network policy configuration (optional)
   networkPolicy:
     # Set to false to disable automatic NetworkPolicy creation
     enabled: true
 ```
+
+### Secrets
+
+Secrets listed in `spec.secrets` are mounted read-only at `/secrets/{name}`. Use the
+[FileConfigProvider](https://kafka.apache.org/41/configuration/configuration-providers/#fileconfigprovider)
+(enabled by default) to reference secret files in your connector or cluster config:
+
+```yaml
+config:
+  ssl.truststore.location: /secrets/my-keystore/truststore.jks
+  ssl.truststore.password: "${file:/secrets/my-keystore/truststore.password:password}"
+```
+
+Secret content changes do not trigger a cluster restart.
 
 ### Connector
 

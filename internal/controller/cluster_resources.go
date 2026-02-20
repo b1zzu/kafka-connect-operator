@@ -57,6 +57,23 @@ func deploymentForCluster(cluster *kcv1alpha1.Cluster) *appsv1ac.DeploymentApply
 			WithReadOnly(true))
 	}
 
+	// Build secret volumes and volume mounts
+	secretVolumes := make([]*corev1ac.VolumeApplyConfiguration, 0, len(cluster.Spec.Secrets))
+	secretMounts := make([]*corev1ac.VolumeMountApplyConfiguration, 0, len(cluster.Spec.Secrets))
+	for i, secret := range cluster.Spec.Secrets {
+		volName := fmt.Sprintf("secret-%d", i)
+		mountPath := fmt.Sprintf("/secrets/%s", secret.Name)
+
+		secretVolumes = append(secretVolumes, corev1ac.Volume().
+			WithName(volName).
+			WithSecret(corev1ac.SecretVolumeSource().
+				WithSecretName(secret.SecretRef.Name)))
+		secretMounts = append(secretMounts, corev1ac.VolumeMount().
+			WithName(volName).
+			WithMountPath(mountPath).
+			WithReadOnly(true))
+	}
+
 	labels := map[string]string{
 		"app.kubernetes.io/name":     "kafka-connect",
 		"app.kubernetes.io/instance": cluster.Name,
@@ -86,6 +103,7 @@ func deploymentForCluster(cluster *kcv1alpha1.Cluster) *appsv1ac.DeploymentApply
 			WithConfigMap(corev1ac.ConfigMapVolumeSource().
 				WithName(configMapNameForCluster(cluster))),
 	}, pluginVolumes...)
+	volumes = append(volumes, secretVolumes...)
 
 	volumeMounts := append([]*corev1ac.VolumeMountApplyConfiguration{
 		corev1ac.VolumeMount().
@@ -93,6 +111,7 @@ func deploymentForCluster(cluster *kcv1alpha1.Cluster) *appsv1ac.DeploymentApply
 			WithMountPath("/config").
 			WithReadOnly(true),
 	}, pluginMounts...)
+	volumeMounts = append(volumeMounts, secretMounts...)
 
 	return appsv1ac.Deployment(name, cluster.Namespace).
 		WithOwnerReferences(ownerReferenceForCluster(cluster)).
@@ -164,9 +183,10 @@ func kafkaConnectConfigsForCluster(cluster *kcv1alpha1.Cluster) (map[string]stri
 		"rest.advertised.listener":                     "http",
 		"rest.advertised.port":                         "8083",
 		"rest.extension.classes":                       "", // cluster is secured using network policies
-		"config.providers":                             "env",
+		"config.providers":                             "env,file",
 		"config.providers.env.class":                   "org.apache.kafka.common.config.provider.EnvVarConfigProvider",
 		"config.providers.env.param.allowlist.pattern": "^CONNECT_.*",
+		"config.providers.file.class":                  "org.apache.kafka.common.config.provider.FileConfigProvider",
 	}
 
 	// Auto-configure plugin.path when plugins are present
@@ -194,8 +214,6 @@ func kafkaConnectConfigsForCluster(cluster *kcv1alpha1.Cluster) (map[string]stri
 	configs := make(map[string]string, len(cluster.Spec.Config)+len(managedConfigs))
 	maps.Copy(configs, cluster.Spec.Config)
 	maps.Copy(configs, managedConfigs)
-
-	// TODO: File config providers
 
 	return configs, nil
 }
