@@ -52,6 +52,12 @@ spec:
                   type: string
                 description: 'Kafka Connect configs: https://kafka.apache.org/41/configuration/kafka-connect-configs/'
                 type: object
+              deploymentAnnotations:
+                additionalProperties:
+                  type: string
+                description: DeploymentAnnotations defines custom annotations for
+                  the Deployment
+                type: object
               image:
                 default: docker.io/apache/kafka:4.2.0
                 description: Image used to deploy Kafka Connect, it should be based
@@ -93,6 +99,21 @@ spec:
                   - image
                   type: object
                 type: array
+              podAnnotations:
+                additionalProperties:
+                  type: string
+                description: |-
+                  PodAnnotations defines custom annotations for the Pods.
+                  Merged with internal annotations; internal keys take precedence.
+                type: object
+              podLabels:
+                additionalProperties:
+                  type: string
+                description: |-
+                  PodLabels defines custom labels for the Pods.
+                  Applied only to the pod template metadata, NOT to the Deployment selector.
+                  Merged with internal labels; internal keys take precedence.
+                type: object
               replicas:
                 description: Number of Kafka Connect replicas to run
                 format: int32
@@ -135,6 +156,18 @@ spec:
                   - secretRef
                   type: object
                 type: array
+              serviceAccountAnnotations:
+                additionalProperties:
+                  type: string
+                description: ServiceAccountAnnotations defines custom annotations
+                  for the ServiceAccount
+                type: object
+              serviceAnnotations:
+                additionalProperties:
+                  type: string
+                description: ServiceAnnotations defines custom annotations for the
+                  Service
+                type: object
             type: object
           status:
             description: status defines the observed state of Cluster
@@ -575,6 +608,18 @@ rules:
   - list
   - watch
 - apiGroups:
+  - ""
+  resources:
+  - serviceaccounts
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
   - apps
   resources:
   - deployments
@@ -758,7 +803,7 @@ spec:
         - --health-probe-bind-address=:8081
         command:
         - /manager
-        image: ghcr.io/b1zzu/kafka-connect-operator:d66bc12-46
+        image: ghcr.io/b1zzu/kafka-connect-operator:54739a4-48
         livenessProbe:
           httpGet:
             path: /healthz
