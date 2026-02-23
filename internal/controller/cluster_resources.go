@@ -173,6 +173,9 @@ func deploymentForCluster(cluster *kcv1alpha1.Cluster) *appsv1ac.DeploymentApply
 		corev1ac.EnvVar().
 			WithName("CONNECT_REST_ADVERTISED_HOST_NAME").
 			WithValueFrom(corev1ac.EnvVarSource().WithFieldRef(corev1ac.ObjectFieldSelector().WithFieldPath("status.podIP"))),
+		corev1ac.EnvVar().
+			WithName("KAFKA_HEAP_OPTS").
+			WithValue("-XX:MaxRAMPercentage=75.0"),
 	}
 	if cluster.Spec.Metrics != nil && cluster.Spec.Metrics.JMXExporter != nil {
 		envVars = append(envVars, corev1ac.EnvVar().

@@ -315,6 +315,21 @@ var _ = Describe("Cluster Resources", func() {
 			Expect(*dep.Spec.Template.Spec.ServiceAccountName).To(Equal("my-cluster-connect"))
 		})
 
+		It("should set KAFKA_HEAP_OPTS with MaxRAMPercentage", func() {
+			cluster := newCluster(nil)
+			dep := deploymentForCluster(cluster)
+
+			envVars := dep.Spec.Template.Spec.Containers[0].Env
+			var heapOpts *corev1ac.EnvVarApplyConfiguration
+			for i := range envVars {
+				if *envVars[i].Name == "KAFKA_HEAP_OPTS" {
+					heapOpts = &envVars[i]
+				}
+			}
+			Expect(heapOpts).NotTo(BeNil())
+			Expect(*heapOpts.Value).To(Equal("-XX:MaxRAMPercentage=75.0"))
+		})
+
 		It("should not have JMX exporter volume/mount/env/port when metrics is nil", func() {
 			cluster := newCluster(nil)
 			dep := deploymentForCluster(cluster)
