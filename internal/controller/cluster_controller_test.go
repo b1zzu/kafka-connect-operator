@@ -19,64 +19,273 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
+	netv1 "k8s.io/api/networking/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/types"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
+	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kafkaconnectv1alpha1 "github.com/b1zzu/kafka-connect-operator/api/v1alpha1"
 )
 
+// gvkFixClient wraps a client.Client to populate TypeMeta after Get calls.
+// The controller-runtime typed client strips TypeMeta during deserialization
+// of typed objects. In production, the manager's cached client preserves GVK
+// through informer watch events, but the plain client.New used in envtest
+// does not. This wrapper restores GVK from the scheme after every Get so
+// that ownerReferenceForCluster (which reads GVK from the object) works.
+type gvkFixClient struct {
+	client.Client
+	scheme *runtime.Scheme
+}
+
+func (c *gvkFixClient) Get(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+	if err := c.Client.Get(ctx, key, obj, opts...); err != nil {
+		return err
+	}
+	gvks, _, err := c.scheme.ObjectKinds(obj)
+	if err == nil && len(gvks) > 0 {
+		obj.GetObjectKind().SetGroupVersionKind(gvks[0])
+	}
+	return nil
+}
+
 var _ = Describe("Cluster Controller", func() {
-	Context("When reconciling a resource", func() {
-		const resourceName = "test-resource"
 
-		ctx := context.Background()
-
-		typeNamespacedName := types.NamespacedName{
-			Name:      resourceName,
-			Namespace: "default", // TODO(user):Modify as needed
+	newReconciler := func() *ClusterReconciler {
+		return &ClusterReconciler{
+			Client: &gvkFixClient{Client: k8sClient, scheme: k8sClient.Scheme()},
+			Scheme: k8sClient.Scheme(),
 		}
-		cluster := &kafkaconnectv1alpha1.Cluster{}
+	}
+
+	createCluster := func(ctx context.Context, name string, spec kafkaconnectv1alpha1.ClusterSpec) {
+		cluster := &kafkaconnectv1alpha1.Cluster{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      name,
+				Namespace: "default",
+			},
+			Spec: spec,
+		}
+		Expect(k8sClient.Create(ctx, cluster)).To(Succeed())
+	}
+
+	nameFor := func(name string) types.NamespacedName {
+		return types.NamespacedName{Name: name, Namespace: "default"}
+	}
+
+	reconcileN := func(ctx context.Context, r *ClusterReconciler, nn types.NamespacedName, n int) {
+		for i := 0; i < n; i++ {
+			result, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result).To(Equal(ctrl.Result{}))
+		}
+	}
+
+	Context("When the Cluster resource does not exist", func() {
+		It("should return no error and no requeue", func() {
+			r := newReconciler()
+			nn := nameFor("nonexistent-cluster")
+
+			result, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result).To(Equal(ctrl.Result{}))
+		})
+	})
+
+	Context("When reconciling for the first time", func() {
+		const name = "cluster-init"
 
 		BeforeEach(func() {
-			By("creating the custom resource for the Kind Cluster")
-			err := k8sClient.Get(ctx, typeNamespacedName, cluster)
-			if err != nil && errors.IsNotFound(err) {
-				resource := &kafkaconnectv1alpha1.Cluster{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      resourceName,
-						Namespace: "default",
-					},
-					// TODO(user): Specify other spec details if needed.
-				}
-				Expect(k8sClient.Create(ctx, resource)).To(Succeed())
-			}
+			createCluster(ctx, name, kafkaconnectv1alpha1.ClusterSpec{
+				Config: map[string]string{
+					"bootstrap.servers": "kafka:9092",
+					"group.id":          "test-group",
+				},
+			})
 		})
 
 		AfterEach(func() {
-			// TODO(user): Cleanup logic after each test, like removing the resource instance.
-			resource := &kafkaconnectv1alpha1.Cluster{}
-			err := k8sClient.Get(ctx, typeNamespacedName, resource)
-			Expect(err).NotTo(HaveOccurred())
-
-			By("Cleanup the specific resource instance Cluster")
-			Expect(k8sClient.Delete(ctx, resource)).To(Succeed())
+			cluster := &kafkaconnectv1alpha1.Cluster{}
+			Expect(k8sClient.Get(ctx, nameFor(name), cluster)).To(Succeed())
+			Expect(k8sClient.Delete(ctx, cluster)).To(Succeed())
 		})
-		It("should successfully reconcile the resource", func() {
-			By("Reconciling the created resource")
-			controllerReconciler := &ClusterReconciler{
-				Client: k8sClient,
-				Scheme: k8sClient.Scheme(),
-			}
 
-			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
-				NamespacedName: typeNamespacedName,
+		It("should initialize status conditions", func() {
+			r := newReconciler()
+			nn := nameFor(name)
+
+			// First reconcile: initializes conditions and returns nil cluster to trigger re-reconcile
+			reconcileN(ctx, r, nn, 1)
+
+			cluster := &kafkaconnectv1alpha1.Cluster{}
+			Expect(k8sClient.Get(ctx, nn, cluster)).To(Succeed())
+
+			Expect(cluster.Status.Conditions).To(HaveLen(1))
+			cond := meta.FindStatusCondition(cluster.Status.Conditions, "Available")
+			Expect(cond).NotTo(BeNil())
+			Expect(cond.Status).To(Equal(metav1.ConditionUnknown))
+			Expect(cond.Reason).To(Equal("Reconciling"))
+
+			// Service should not exist yet (reconciliation stopped after condition init)
+			svc := &corev1.Service{}
+			err := k8sClient.Get(ctx, types.NamespacedName{Name: name + "-connect", Namespace: "default"}, svc)
+			Expect(errors.IsNotFound(err)).To(BeTrue())
+		})
+	})
+
+	Context("When reconciling a valid Cluster", func() {
+		const name = "cluster-happy"
+
+		BeforeEach(func() {
+			createCluster(ctx, name, kafkaconnectv1alpha1.ClusterSpec{
+				Config: map[string]string{
+					"bootstrap.servers": "kafka:9092",
+					"group.id":          "happy-group",
+				},
 			})
-			Expect(err).NotTo(HaveOccurred())
-			// TODO(user): Add more specific assertions depending on your controller's reconciliation logic.
-			// Example: If you expect a certain status condition after reconciliation, verify it here.
+		})
+
+		AfterEach(func() {
+			cluster := &kafkaconnectv1alpha1.Cluster{}
+			Expect(k8sClient.Get(ctx, nameFor(name), cluster)).To(Succeed())
+			Expect(k8sClient.Delete(ctx, cluster)).To(Succeed())
+		})
+
+		It("should create all sub-resources", func() {
+			r := newReconciler()
+			nn := nameFor(name)
+
+			// 3 reconcile calls: 1) init conditions, 2) configHash update, 3) full pass
+			reconcileN(ctx, r, nn, 3)
+
+			By("checking the Service")
+			svc := &corev1.Service{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: name + "-connect", Namespace: "default"}, svc)).To(Succeed())
+			Expect(svc.Spec.Ports).To(HaveLen(1))
+			Expect(svc.Spec.Ports[0].Port).To(Equal(int32(8083)))
+
+			By("checking the NetworkPolicy")
+			np := &netv1.NetworkPolicy{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: name + "-connect", Namespace: "default"}, np)).To(Succeed())
+
+			By("checking the ServiceAccount")
+			sa := &corev1.ServiceAccount{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: name + "-connect", Namespace: "default"}, sa)).To(Succeed())
+
+			By("checking the ConfigMap")
+			cm := &corev1.ConfigMap{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: name + "-connect-config", Namespace: "default"}, cm)).To(Succeed())
+			Expect(cm.Data).To(HaveKey("connect.properties"))
+			Expect(cm.Data["connect.properties"]).To(ContainSubstring("bootstrap.servers"))
+
+			By("checking the Deployment")
+			dep := &appsv1.Deployment{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: name + "-connect", Namespace: "default"}, dep)).To(Succeed())
+
+			By("checking the Cluster status configHash")
+			cluster := &kafkaconnectv1alpha1.Cluster{}
+			Expect(k8sClient.Get(ctx, nn, cluster)).To(Succeed())
+			Expect(cluster.Status.ConfigHash).NotTo(BeNil())
+		})
+	})
+
+	Context("When the Cluster config contains a managed key", func() {
+		const name = "cluster-invalid"
+
+		BeforeEach(func() {
+			createCluster(ctx, name, kafkaconnectv1alpha1.ClusterSpec{
+				Config: map[string]string{
+					"bootstrap.servers": "kafka:9092",
+					"group.id":          "invalid-group",
+					"listeners":         "http://:9999",
+				},
+			})
+		})
+
+		AfterEach(func() {
+			cluster := &kafkaconnectv1alpha1.Cluster{}
+			Expect(k8sClient.Get(ctx, nameFor(name), cluster)).To(Succeed())
+			Expect(k8sClient.Delete(ctx, cluster)).To(Succeed())
+		})
+
+		It("should set Available=False with InvalidConfig reason and not create a Deployment", func() {
+			r := newReconciler()
+			nn := nameFor(name)
+
+			// 1) init conditions, 2) hits config validation error
+			reconcileN(ctx, r, nn, 2)
+
+			cluster := &kafkaconnectv1alpha1.Cluster{}
+			Expect(k8sClient.Get(ctx, nn, cluster)).To(Succeed())
+
+			cond := meta.FindStatusCondition(cluster.Status.Conditions, "Available")
+			Expect(cond).NotTo(BeNil())
+			Expect(cond.Status).To(Equal(metav1.ConditionFalse))
+			Expect(cond.Reason).To(Equal("InvalidConfig"))
+			Expect(cond.Message).To(ContainSubstring("listeners"))
+
+			// Deployment should not have been created
+			dep := &appsv1.Deployment{}
+			err := k8sClient.Get(ctx, types.NamespacedName{Name: name + "-connect", Namespace: "default"}, dep)
+			Expect(errors.IsNotFound(err)).To(BeTrue())
+		})
+	})
+
+	Context("When NetworkPolicy is disabled", func() {
+		const name = "cluster-no-np"
+
+		BeforeEach(func() {
+			enabled := false
+			createCluster(ctx, name, kafkaconnectv1alpha1.ClusterSpec{
+				Config: map[string]string{
+					"bootstrap.servers": "kafka:9092",
+					"group.id":          "no-np-group",
+				},
+				NetworkPolicy: &kafkaconnectv1alpha1.NetworkPolicyConfig{
+					Enabled: &enabled,
+				},
+			})
+		})
+
+		AfterEach(func() {
+			cluster := &kafkaconnectv1alpha1.Cluster{}
+			Expect(k8sClient.Get(ctx, nameFor(name), cluster)).To(Succeed())
+			Expect(k8sClient.Delete(ctx, cluster)).To(Succeed())
+		})
+
+		It("should skip NetworkPolicy but create all other sub-resources", func() {
+			r := newReconciler()
+			nn := nameFor(name)
+
+			reconcileN(ctx, r, nn, 3)
+
+			By("checking that NetworkPolicy does NOT exist")
+			np := &netv1.NetworkPolicy{}
+			err := k8sClient.Get(ctx, types.NamespacedName{Name: name + "-connect", Namespace: "default"}, np)
+			Expect(errors.IsNotFound(err)).To(BeTrue())
+
+			By("checking the Service exists")
+			svc := &corev1.Service{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: name + "-connect", Namespace: "default"}, svc)).To(Succeed())
+
+			By("checking the ServiceAccount exists")
+			sa := &corev1.ServiceAccount{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: name + "-connect", Namespace: "default"}, sa)).To(Succeed())
+
+			By("checking the ConfigMap exists")
+			cm := &corev1.ConfigMap{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: name + "-connect-config", Namespace: "default"}, cm)).To(Succeed())
+
+			By("checking the Deployment exists")
+			dep := &appsv1.Deployment{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: name + "-connect", Namespace: "default"}, dep)).To(Succeed())
 		})
 	})
 })
