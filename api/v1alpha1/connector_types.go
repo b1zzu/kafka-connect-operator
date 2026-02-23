@@ -22,6 +22,16 @@ import (
 // EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
 // NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
 
+// ConnectorState represents the desired state of a connector.
+// +kubebuilder:validation:Enum=running;paused;stopped
+type ConnectorState string
+
+const (
+	ConnectorStateRunning ConnectorState = "running"
+	ConnectorStatePaused  ConnectorState = "paused"
+	ConnectorStateStopped ConnectorState = "stopped"
+)
+
 // ConnectorSpec defines the desired state of Connector
 type ConnectorSpec struct {
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
@@ -38,6 +48,11 @@ type ConnectorSpec struct {
 	// MirrorMaker: https://kafka.apache.org/41/configuration/mirrormaker-configs/
 	// +optional
 	Config map[string]string `json:"config"`
+
+	// The desired state of the connector: running, paused, or stopped.
+	// +kubebuilder:default=running
+	// +optional
+	State ConnectorState `json:"state,omitempty"`
 }
 
 // ConnectorStatus defines the observed state of Connector.

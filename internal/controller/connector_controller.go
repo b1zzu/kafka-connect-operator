@@ -34,13 +34,8 @@ import (
 )
 
 const (
-	typeRunningConnector     = "Running"
-	connectorFinalizer       = "kafka-connect.b1zzu.net/connector"
-	connectorStateAnnotation = "kafka-connect.b1zzu.net/state"
-
-	connectorStateRunning = "running"
-	connectorStatePaused  = "paused"
-	connectorStateStopped = "stopped"
+	typeRunningConnector = "Running"
+	connectorFinalizer   = "kafka-connect.b1zzu.net/connector"
 
 	connectorStatusFailed = "FAILED"
 )
@@ -115,23 +110,11 @@ func (r *ConnectorReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Complete(r)
 }
 
-func getDesiredConnectorState(connector *kcv1alpha1.Connector) (string, error) {
-	annotations := connector.GetAnnotations()
-	if annotations == nil {
-		return connectorStateRunning, nil
+func getDesiredConnectorState(connector *kcv1alpha1.Connector) kcv1alpha1.ConnectorState {
+	if connector.Spec.State == "" {
+		return kcv1alpha1.ConnectorStateRunning
 	}
-
-	state, ok := annotations[connectorStateAnnotation]
-	if !ok {
-		return connectorStateRunning, nil
-	}
-
-	switch state {
-	case connectorStateRunning, connectorStatePaused, connectorStateStopped:
-		return state, nil
-	default:
-		return "", fmt.Errorf("invalid connector state annotation value: %q, must be one of: running, paused, stopped", state)
-	}
+	return connector.Spec.State
 }
 
 func (r *ConnectorReconciler) getConnector(ctx context.Context, key client.ObjectKey) (*kcv1alpha1.Connector, error) {
@@ -196,10 +179,7 @@ func (r *ConnectorReconciler) reconcileConnector(ctx context.Context, connector 
 	if existingConnector == nil {
 		log.Info("Creating connector")
 
-		desiredState, err := getDesiredConnectorState(connector)
-		if err != nil {
-			return nil, r.updateStatusConditionAndReturnError(ctx, connector, err, "invalid connector state annotation")
-		}
+		desiredState := getDesiredConnectorState(connector)
 
 		// Create the connector
 		newConnector := &kafkaconnect.Connector{
@@ -208,9 +188,9 @@ func (r *ConnectorReconciler) reconcileConnector(ctx context.Context, connector 
 		}
 
 		switch desiredState {
-		case connectorStatePaused:
+		case kcv1alpha1.ConnectorStatePaused:
 			newConnector.InitialState = "PAUSED"
-		case connectorStateStopped:
+		case kcv1alpha1.ConnectorStateStopped:
 			newConnector.InitialState = "STOPPED"
 		}
 
@@ -274,10 +254,7 @@ func (r *ConnectorReconciler) reconcileConnector(ctx context.Context, connector 
 func (r *ConnectorReconciler) reconcileConnectorState(ctx context.Context, connector *kcv1alpha1.Connector) (*kcv1alpha1.Connector, error) {
 	log := logf.FromContext(ctx)
 
-	desiredState, err := getDesiredConnectorState(connector)
-	if err != nil {
-		return nil, r.updateStatusConditionAndReturnError(ctx, connector, err, "invalid connector state annotation")
-	}
+	desiredState := getDesiredConnectorState(connector)
 
 	kafkaConnect := r.newKafkaConnectClient(connector)
 
@@ -286,7 +263,7 @@ func (r *ConnectorReconciler) reconcileConnectorState(ctx context.Context, conne
 		return nil, r.updateStatusConditionAndReturnError(ctx, connector, err, "failed to get connector status")
 	}
 
-	actualState := strings.ToLower(status.Connector.State)
+	actualState := kcv1alpha1.ConnectorState(strings.ToLower(status.Connector.State))
 
 	if actualState == desiredState {
 		return connector, nil
@@ -294,7 +271,7 @@ func (r *ConnectorReconciler) reconcileConnectorState(ctx context.Context, conne
 
 	// Skip state reconciliation if the connector is in an unrecoverable or unknown state
 	switch actualState {
-	case connectorStateRunning, connectorStatePaused, connectorStateStopped:
+	case kcv1alpha1.ConnectorStateRunning, kcv1alpha1.ConnectorStatePaused, kcv1alpha1.ConnectorStateStopped:
 		// known states, proceed with reconciliation
 	default:
 		log.Info("Skipping connector state reconciliation, connector is in unreconcilable state", "actual", actualState, "desired", desiredState)
@@ -304,14 +281,14 @@ func (r *ConnectorReconciler) reconcileConnectorState(ctx context.Context, conne
 	log.Info("Reconciling connector state", "actual", actualState, "desired", desiredState)
 
 	switch desiredState {
-	case connectorStateRunning:
+	case kcv1alpha1.ConnectorStateRunning:
 		log.Info("Resuming connector")
 		err = kafkaConnect.ResumeConnector(ctx, connector.Name)
 		if err != nil {
 			return nil, r.updateStatusConditionAndReturnError(ctx, connector, err, "failed to resume connector")
 		}
-	case connectorStatePaused:
-		if actualState == connectorStateStopped {
+	case kcv1alpha1.ConnectorStatePaused:
+		if actualState == kcv1alpha1.ConnectorStateStopped {
 			// Cannot pause a stopped connector directly; resume first, then requeue to pause
 			log.Info("Resuming connector before pausing")
 			err = kafkaConnect.ResumeConnector(ctx, connector.Name)
@@ -325,7 +302,7 @@ func (r *ConnectorReconciler) reconcileConnectorState(ctx context.Context, conne
 				return nil, r.updateStatusConditionAndReturnError(ctx, connector, err, "failed to pause connector")
 			}
 		}
-	case connectorStateStopped:
+	case kcv1alpha1.ConnectorStateStopped:
 		log.Info("Stopping connector")
 		err = kafkaConnect.StopConnector(ctx, connector.Name)
 		if err != nil {
@@ -364,12 +341,9 @@ func (r *ConnectorReconciler) reconcileConnectorStatus(ctx context.Context, conn
 	}
 
 	// Restart failed connectors/tasks when desired state is running
-	desiredState, err := getDesiredConnectorState(connector)
-	if err != nil {
-		return nil, r.updateStatusConditionAndReturnError(ctx, connector, err, "invalid connector state annotation")
-	}
+	desiredState := getDesiredConnectorState(connector)
 
-	if desiredState == connectorStateRunning {
+	if desiredState == kcv1alpha1.ConnectorStateRunning {
 		if status.Connector.State == connectorStatusFailed {
 			log.Info("Restarting failed connector")
 			if err := kafkaConnect.RestartConnector(ctx, connector.Name); err != nil {

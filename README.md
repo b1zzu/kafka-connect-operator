@@ -167,7 +167,7 @@ spec:
   plugins:
     - name: my-plugin
       image: registry.example.com/my-plugin:1.0
-      pullPolicy: IfNotPresent  # optional (Always, Never, IfNotPresent)
+      pullPolicy: IfNotPresent # optional (Always, Never, IfNotPresent)
 
   # Libraries to mount on the shared classpath from OCI images (optional)
   # Each library image is mounted read-only at /libraries/{name}
@@ -175,7 +175,7 @@ spec:
   libraries:
     - name: msk-iam-auth
       image: ghcr.io/b1zzu/kafka-connect-operator/msk-iam-auth:2.3.5
-      pullPolicy: IfNotPresent  # optional (Always, Never, IfNotPresent)
+      pullPolicy: IfNotPresent # optional (Always, Never, IfNotPresent)
 
   # Secrets to mount into the pods (optional)
   # Each secret is mounted read-only at /secrets/{name}
@@ -243,15 +243,15 @@ apiVersion: kafka-connect.b1zzu.net/v1alpha1
 kind: Connector
 metadata:
   name: NAME
-  annotations:
-    # Control connector state (optional, defaults to running)
-    # Values: running, paused, stopped
-    kafka-connect.b1zzu.net/state: running
 spec:
   # Reference to the Kafka Connect cluster (required)
   # Note: it must be in the same namespace
   cluster:
     name: NAME
+
+  # Desired connector state (optional, defaults to running)
+  # Values: running, paused, stopped
+  state: running
 
   # Connector configuration
   # Source connectors: https://kafka.apache.org/41/configuration/kafka-connect-configs/#source-connector-configs
@@ -262,46 +262,19 @@ spec:
     connector.class: <string>
 
     # ...
-
 ```
 
-**Annotations:**
+**Spec Fields:**
 
-| Annotation | Values | Default | Description |
-|---|---|---|---|
-| `kafka-connect.b1zzu.net/state` | `running`, `paused`, `stopped` | `running` | Control the connector state |
+| Field   | Values                         | Default   | Description                 |
+| ------- | ------------------------------ | --------- | --------------------------- |
+| `state` | `running`, `paused`, `stopped` | `running` | Control the connector state |
 
 - `running` — connector is running normally
 - `paused` — connector and tasks are paused
 - `stopped` — connector is stopped and all tasks are shut down (offsets are retained)
 
 When a connector is created with state `paused` or `stopped`, the operator passes `initial_state` to the Kafka Connect API so the connector never starts running. This is useful for offset migration workflows where you need to configure offsets before the connector starts.
-
-**Examples:**
-
-Pause a connector:
-
-```bash
-kubectl annotate connector my-connector kafka-connect.b1zzu.net/state=paused
-```
-
-Stop a connector:
-
-```bash
-kubectl annotate connector my-connector kafka-connect.b1zzu.net/state=stopped --overwrite
-```
-
-Resume a connector:
-
-```bash
-kubectl annotate connector my-connector kafka-connect.b1zzu.net/state=running --overwrite
-```
-
-Remove the annotation to resume (defaults to running):
-
-```bash
-kubectl annotate connector my-connector kafka-connect.b1zzu.net/state-
-```
 
 ### Network Security
 
@@ -338,10 +311,12 @@ plugins:
 ```
 
 Each plugin requires:
+
 - `name` - identifier used for the volume and mount path (`/plugins/{name}`)
 - `image` - OCI image reference containing the plugin artifacts
 
 Optional:
+
 - `pullPolicy` - one of `Always`, `Never`, `IfNotPresent` (defaults to `Always` for `:latest` tags, `IfNotPresent` otherwise)
 
 ### Libraries
@@ -365,10 +340,12 @@ The project provides pre-built library images for common use cases (see [Authent
 You can also use any OCI image containing JAR files.
 
 Each library requires:
+
 - `name` - identifier used for the volume and mount path (`/libraries/{name}`)
 - `image` - OCI image reference containing the library artifacts
 
 Optional:
+
 - `pullPolicy` - one of `Always`, `Never`, `IfNotPresent` (defaults to `Always` for `:latest` tags, `IfNotPresent` otherwise)
 
 ### Secrets
