@@ -52,6 +52,7 @@ type ConnectorStatusTask struct {
 	ID       int    `json:"id"`
 	State    string `json:"state"`
 	WorkerID string `json:"worker_id"`
+	Trace    string `json:"trace,omitempty"`
 }
 
 // NewClient create a a http client to interact with kafka connect.

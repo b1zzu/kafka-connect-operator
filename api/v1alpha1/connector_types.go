@@ -57,12 +57,6 @@ type ConnectorSpec struct {
 
 // ConnectorStatus defines the observed state of Connector.
 type ConnectorStatus struct {
-	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
-
-	// For Kubernetes API conventions, see:
-	// https://github.com/kubernetes/community/blob/master/contributors/devel/sig-architecture/api-conventions.md#typical-status-properties
-
 	// conditions represent the current state of the Connector resource.
 	// Each condition has a unique type and reflects the status of a specific aspect of the resource.
 	//
@@ -76,10 +70,43 @@ type ConnectorStatus struct {
 	// +listMapKey=type
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
+
+	// connector represents the state of the connector as reported by Kafka Connect.
+	// +optional
+	Connector *ConnectorStateStatus `json:"connector,omitempty"`
+
+	// tasks represents the state of individual connector tasks as reported by Kafka Connect.
+	// +optional
+	Tasks []TaskStateStatus `json:"tasks,omitempty"`
+}
+
+// ConnectorStateStatus represents the state of the connector as reported by Kafka Connect.
+type ConnectorStateStatus struct {
+	// state is the current state of the connector (e.g., RUNNING, PAUSED, FAILED, STOPPED, UNASSIGNED).
+	State string `json:"state"`
+	// workerID is the Kafka Connect worker that the connector is assigned to.
+	WorkerID string `json:"workerID"`
+	// trace contains the error trace if the connector is in FAILED state.
+	// +optional
+	Trace string `json:"trace,omitempty"`
+}
+
+// TaskStateStatus represents the state of a connector task as reported by Kafka Connect.
+type TaskStateStatus struct {
+	// id is the task identifier.
+	ID int `json:"id"`
+	// state is the current state of the task (e.g., RUNNING, FAILED).
+	State string `json:"state"`
+	// workerID is the Kafka Connect worker that the task is assigned to.
+	WorkerID string `json:"workerID"`
+	// trace contains the error trace if the task is in FAILED state.
+	// +optional
+	Trace string `json:"trace,omitempty"`
 }
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
+// +kubebuilder:printcolumn:name="State",type=string,JSONPath=".status.connector.state"
 
 // Connector is the Schema for the connectors API
 type Connector struct {

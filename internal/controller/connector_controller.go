@@ -17,6 +17,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"strings"
 	"time"
 
@@ -332,8 +333,6 @@ func (r *ConnectorReconciler) reconcileConnectorState(ctx context.Context, conne
 func (r *ConnectorReconciler) reconcileConnectorStatus(ctx context.Context, connector *kcv1alpha1.Connector) (*kcv1alpha1.Connector, error) {
 	log := logf.FromContext(ctx)
 
-	// TODO: Add current configuration and running tasks to the resource status
-
 	// Create Kafka Connect client
 	kafkaConnect := r.newKafkaConnectClient(connector)
 
@@ -373,26 +372,36 @@ func (r *ConnectorReconciler) reconcileConnectorStatus(ctx context.Context, conn
 		}
 	}
 
-	// Map Kafka Connect status to Kubernetes condition
-	newCondition := mapConnectorStatusToCondition(status)
+	// Save current status before applying changes
+	previousStatus := connector.Status.DeepCopy()
 
-	// Get current condition
-	currentCondition := meta.FindStatusCondition(connector.Status.Conditions, typeRunningConnector)
+	// Populate connector and task status from Kafka Connect
+	connector.Status.Connector = &kcv1alpha1.ConnectorStateStatus{
+		State:    status.Connector.State,
+		WorkerID: status.Connector.WorkerID,
+		Trace:    status.Connector.Trace,
+	}
 
-	// Only update if condition has changed
-	if currentCondition == nil ||
-		currentCondition.Status != newCondition.Status ||
-		currentCondition.Reason != newCondition.Reason ||
-		currentCondition.Message != newCondition.Message {
-
-		log.Info("Updating condition", "condition", newCondition)
-
-		err := r.updateStatusCondition(ctx, connector, newCondition)
-		if err != nil {
-			return nil, fmt.Errorf("failed to update status condition: %w", err)
+	connector.Status.Tasks = make([]kcv1alpha1.TaskStateStatus, len(status.Tasks))
+	for i, task := range status.Tasks {
+		connector.Status.Tasks[i] = kcv1alpha1.TaskStateStatus{
+			ID:       task.ID,
+			State:    task.State,
+			WorkerID: task.WorkerID,
+			Trace:    task.Trace,
 		}
+	}
 
-		// Return nil to restart reconciliation with updated status
+	// Set condition
+	newCondition := mapConnectorStatusToCondition(status)
+	meta.SetStatusCondition(&connector.Status.Conditions, newCondition)
+
+	// Only persist if status has drifted
+	if !reflect.DeepEqual(*previousStatus, connector.Status) {
+		log.Info("Updating connector status")
+		if err := r.Status().Update(ctx, connector); err != nil {
+			return nil, fmt.Errorf("failed to update connector status: %w", err)
+		}
 		return nil, nil
 	}
 
