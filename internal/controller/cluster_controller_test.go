@@ -81,7 +81,7 @@ var _ = Describe("Cluster Controller", func() {
 	}
 
 	reconcileN := func(ctx context.Context, r *ClusterReconciler, nn types.NamespacedName, n int) {
-		for i := 0; i < n; i++ {
+		for range n {
 			result, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
 			Expect(err).NotTo(HaveOccurred())
 			Expect(result).To(Equal(ctrl.Result{}))
