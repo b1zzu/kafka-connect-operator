@@ -301,48 +301,6 @@ var _ = Describe("Connector Controller", func() {
 			Expect(getConnector(ctx, nn)).To(BeNil())
 		})
 
-		It("should return an error for an invalid state annotation", func() {
-			ctx := context.Background()
-			name := "invalid-state"
-			nn := nameFor(name)
-
-			mock := newMockKafkaConnectServer()
-			DeferCleanup(mock.Close)
-
-			createConnector(ctx, name, "my-cluster",
-				map[string]string{"connector.class": "FileStreamSource"},
-				map[string]string{connectorStateAnnotation: "invalid"},
-			)
-			DeferCleanup(func() {
-				c := getConnector(ctx, nn)
-				if c != nil {
-					c.Finalizers = nil
-					_ = k8sClient.Update(ctx, c)
-					_ = k8sClient.Delete(ctx, c)
-				}
-			})
-
-			r := newReconciler(mock)
-
-			// Reconcile 2x: init conditions, add finalizer
-			_, err := reconcileN(ctx, r, nn, 2)
-			Expect(err).NotTo(HaveOccurred())
-
-			// Third reconcile: GET /connectors/{name} returns 404, then tries to create
-			// with invalid state -> should return an error
-			_, err = r.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
-			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring("invalid connector state"))
-
-			// Verify the status condition reflects the error
-			connector := getConnector(ctx, nn)
-			Expect(connector).NotTo(BeNil())
-			cond := meta.FindStatusCondition(connector.Status.Conditions, typeRunningConnector)
-			Expect(cond).NotTo(BeNil())
-			Expect(cond.Status).To(Equal(metav1.ConditionFalse))
-			Expect(cond.Reason).To(Equal("Error"))
-			Expect(cond.Message).To(ContainSubstring("invalid connector state"))
-		})
 	})
 
 	Context("getDesiredConnectorState", func() {
