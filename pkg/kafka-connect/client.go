@@ -286,3 +286,47 @@ func (c *Client) StopConnector(ctx context.Context, name string) error {
 
 	return nil
 }
+
+func (c *Client) RestartConnector(ctx context.Context, name string) error {
+	url := fmt.Sprintf("%s/connectors/%s/restart", c.endpoint, name)
+
+	req, err := http.NewRequestWithContext(ctx, "POST", url, nil)
+	if err != nil {
+		return err
+	}
+
+	res, err := c.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to restart connector: %w", err)
+	}
+	defer func() { _ = res.Body.Close() }()
+
+	if res.StatusCode != 200 && res.StatusCode != 204 {
+		rb, _ := io.ReadAll(res.Body)
+		return fmt.Errorf("failed to restart connector with status: %s; body: %s", res.Status, string(rb))
+	}
+
+	return nil
+}
+
+func (c *Client) RestartTask(ctx context.Context, name string, taskID int) error {
+	url := fmt.Sprintf("%s/connectors/%s/tasks/%d/restart", c.endpoint, name, taskID)
+
+	req, err := http.NewRequestWithContext(ctx, "POST", url, nil)
+	if err != nil {
+		return err
+	}
+
+	res, err := c.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to restart task: %w", err)
+	}
+	defer func() { _ = res.Body.Close() }()
+
+	if res.StatusCode != 200 && res.StatusCode != 204 {
+		rb, _ := io.ReadAll(res.Body)
+		return fmt.Errorf("failed to restart task with status: %s; body: %s", res.Status, string(rb))
+	}
+
+	return nil
+}

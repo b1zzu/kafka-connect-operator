@@ -41,6 +41,8 @@ const (
 	connectorStateRunning = "running"
 	connectorStatePaused  = "paused"
 	connectorStateStopped = "stopped"
+
+	connectorStatusFailed = "FAILED"
 )
 
 // ConnectorReconciler reconciles a Connector object
@@ -94,7 +96,7 @@ func (r *ConnectorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		return ctrl.Result{}, err
 	}
 
-	// Step 6: Sync status from Kafka Connect
+	// Step 6: Sync status from Kafka Connect and restart failed connectors/tasks
 	connector, err = r.reconcileConnectorStatus(ctx, connector)
 	if err != nil || connector == nil {
 		return ctrl.Result{}, err
@@ -361,6 +363,39 @@ func (r *ConnectorReconciler) reconcileConnectorStatus(ctx context.Context, conn
 		return nil, r.updateStatusConditionAndReturnError(ctx, connector, err, "failed to get connector status")
 	}
 
+	// Restart failed connectors/tasks when desired state is running
+	desiredState, err := getDesiredConnectorState(connector)
+	if err != nil {
+		return nil, r.updateStatusConditionAndReturnError(ctx, connector, err, "invalid connector state annotation")
+	}
+
+	if desiredState == connectorStateRunning {
+		if status.Connector.State == connectorStatusFailed {
+			log.Info("Restarting failed connector")
+			if err := kafkaConnect.RestartConnector(ctx, connector.Name); err != nil {
+				return nil, r.updateStatusConditionAndReturnError(ctx, connector, err, "failed to restart connector")
+			}
+			return nil, fmt.Errorf("connector %s is in FAILED state, restarted and requeueing", connector.Name)
+		}
+
+		var failedTaskIDs []int
+		for _, task := range status.Tasks {
+			if task.State == connectorStatusFailed {
+				failedTaskIDs = append(failedTaskIDs, task.ID)
+			}
+		}
+
+		if len(failedTaskIDs) > 0 {
+			log.Info("Restarting failed tasks", "taskIDs", failedTaskIDs)
+			for _, taskID := range failedTaskIDs {
+				if err := kafkaConnect.RestartTask(ctx, connector.Name, taskID); err != nil {
+					return nil, r.updateStatusConditionAndReturnError(ctx, connector, err, fmt.Sprintf("failed to restart task %d", taskID))
+				}
+			}
+			return nil, fmt.Errorf("connector %s has %d failed task(s), restarted and requeueing", connector.Name, len(failedTaskIDs))
+		}
+	}
+
 	// Map Kafka Connect status to Kubernetes condition
 	newCondition := mapConnectorStatusToCondition(status)
 
@@ -485,7 +520,7 @@ func connectorConfigsEqual(actual, desired map[string]string) bool {
 func countFailedTasks(tasks []kafkaconnect.ConnectorStatusTask) int {
 	count := 0
 	for _, task := range tasks {
-		if task.State == "FAILED" {
+		if task.State == connectorStatusFailed {
 			count++
 		}
 	}
@@ -517,7 +552,7 @@ func mapConnectorStatusToCondition(status *kafkaconnect.ConnectorStatus) metav1.
 		condition.Status = metav1.ConditionFalse
 		condition.Reason = "Stopped"
 		condition.Message = "Connector is stopped"
-	case "FAILED":
+	case connectorStatusFailed:
 		condition.Status = metav1.ConditionFalse
 		condition.Reason = "Failed"
 		condition.Message = fmt.Sprintf("Connector failed with trace: %s", strings.ReplaceAll(status.Connector.Trace, "\n\t", "\n"))
