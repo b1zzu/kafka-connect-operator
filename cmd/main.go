@@ -207,8 +207,9 @@ func main() {
 		os.Exit(1)
 	}
 	if err := (&controller.ConnectorReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+		Client:                    mgr.GetClient(),
+		Scheme:                    mgr.GetScheme(),
+		NewKafkaConnectClientFunc: controller.NewDefaultKafkaConnectClientFunc,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Connector")
 		os.Exit(1)

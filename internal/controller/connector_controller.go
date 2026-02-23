@@ -44,6 +44,9 @@ const (
 type ConnectorReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
+
+	// NewKafkaConnectClientFunc creates a Kafka Connect client for the given connector.
+	NewKafkaConnectClientFunc func(connector *kcv1alpha1.Connector) *kafkaconnect.Client
 }
 
 // +kubebuilder:rbac:groups=kafka-connect.b1zzu.net,resources=connectors,verbs=get;list;watch;create;update;patch;delete
@@ -473,6 +476,12 @@ func (r *ConnectorReconciler) updateStatusCondition(
 }
 
 func (r *ConnectorReconciler) newKafkaConnectClient(connector *kcv1alpha1.Connector) *kafkaconnect.Client {
+	return r.NewKafkaConnectClientFunc(connector)
+}
+
+// NewDefaultKafkaConnectClientFunc returns a factory that creates Kafka Connect
+// clients using the in-cluster service endpoint.
+func NewDefaultKafkaConnectClientFunc(connector *kcv1alpha1.Connector) *kafkaconnect.Client {
 	endpoint := fmt.Sprintf("http://%s-connect.%s:8083", connector.Spec.ClusterRef.Name, connector.Namespace)
 	return kafkaconnect.NewClient(endpoint)
 }
