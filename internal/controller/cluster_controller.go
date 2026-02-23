@@ -24,6 +24,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	netv1 "k8s.io/api/networking/v1"
+	policyv1 "k8s.io/api/policy/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -68,6 +69,7 @@ type ClusterReconciler struct {
 // +kubebuilder:rbac:groups=core,resources=services,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=networking.k8s.io,resources=networkpolicies,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=core,resources=serviceaccounts,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=policy,resources=poddisruptionbudgets,verbs=get;list;watch;create;update;patch;delete
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -111,6 +113,11 @@ func (r *ClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, err
 	}
 
+	cluster, err = r.reconcilePodDisruptionBudget(ctx, cluster)
+	if err != nil || cluster == nil {
+		return ctrl.Result{}, err
+	}
+
 	cluster, err = r.reconcileConfigMap(ctx, cluster)
 	if err != nil || cluster == nil {
 		return ctrl.Result{}, err
@@ -133,6 +140,7 @@ func (r *ClusterReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Owns(&corev1.ConfigMap{}).
 		Owns(&corev1.ServiceAccount{}).
 		Owns(&netv1.NetworkPolicy{}).
+		Owns(&policyv1.PodDisruptionBudget{}).
 		Named("cluster").
 		Complete(r)
 }
@@ -365,6 +373,33 @@ func (r *ClusterReconciler) reconcileServiceAccount(ctx context.Context, cluster
 			return nil, fmt.Errorf("failed to update Cluster status after failed to apply ServiceAccount: %w", err)
 		}
 		return nil, fmt.Errorf("failed to apply ServiceAccount: %w", err)
+	}
+
+	// Refetch the cluster after Server-Side Apply
+	cluster, err = r.getCluster(ctx, types.NamespacedName{Name: cluster.Name, Namespace: cluster.Namespace})
+	if err != nil || cluster == nil {
+		return cluster, err
+	}
+
+	return cluster, nil
+}
+
+func (r *ClusterReconciler) reconcilePodDisruptionBudget(ctx context.Context, cluster *kcv1alpha1.Cluster) (*kcv1alpha1.Cluster, error) {
+	pdbA := podDisruptionBudgetForCluster(cluster)
+
+	err := r.serverSideApply(ctx, pdbA)
+	if err != nil {
+
+		err := r.updateStatusCondition(ctx, cluster, metav1.Condition{
+			Type:    typeAvailableCluster,
+			Status:  metav1.ConditionFalse,
+			Reason:  "Error",
+			Message: fmt.Sprintf("Failed to apply PodDisruptionBudget: %s", err),
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to update Cluster status after failed to apply PodDisruptionBudget: %w", err)
+		}
+		return nil, fmt.Errorf("failed to apply PodDisruptionBudget: %w", err)
 	}
 
 	// Refetch the cluster after Server-Side Apply

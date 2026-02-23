@@ -17,6 +17,7 @@ package v1alpha1
 import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/intstr"
 )
 
 // NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
@@ -110,6 +111,13 @@ type ClusterSpec struct {
 	// When not set, defaults to requests: {cpu: 250m, memory: 1Gi}, limits: {cpu: 1000m, memory: 4Gi}.
 	// +optional
 	Resources *corev1.ResourceRequirements `json:"resources,omitempty"`
+
+	// MaxUnavailable specifies the maximum number of pods that can be unavailable
+	// during voluntary disruptions. Used in the PodDisruptionBudget.
+	// Can be an absolute number (e.g. 1) or a percentage (e.g. "25%").
+	// Defaults to 1 when not set.
+	// +optional
+	MaxUnavailable *intstr.IntOrString `json:"maxUnavailable,omitempty"`
 }
 
 // Plugin defines a Kafka Connect plugin to be mounted from an OCI image.

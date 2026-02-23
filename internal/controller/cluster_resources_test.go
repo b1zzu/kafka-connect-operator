@@ -882,6 +882,76 @@ var _ = Describe("Cluster Resources", func() {
 		})
 	})
 
+	Describe("podDisruptionBudgetForCluster", func() {
+		It("should default maxUnavailable to 1 when not specified", func() {
+			cluster := &kcv1alpha1.Cluster{
+				ObjectMeta: metav1.ObjectMeta{Name: testClusterName, Namespace: "default"},
+				Spec: kcv1alpha1.ClusterSpec{
+					Config: map[string]string{"bootstrap.servers": "localhost:9092"},
+				},
+			}
+			pdb := podDisruptionBudgetForCluster(cluster)
+
+			Expect(*pdb.Spec.MaxUnavailable).To(Equal(intstr.FromInt(1)))
+		})
+
+		It("should use custom maxUnavailable when specified", func() {
+			maxUnavailable := intstr.FromString("25%")
+			cluster := &kcv1alpha1.Cluster{
+				ObjectMeta: metav1.ObjectMeta{Name: testClusterName, Namespace: "default"},
+				Spec: kcv1alpha1.ClusterSpec{
+					Config:         map[string]string{"bootstrap.servers": "localhost:9092"},
+					MaxUnavailable: &maxUnavailable,
+				},
+			}
+			pdb := podDisruptionBudgetForCluster(cluster)
+
+			Expect(*pdb.Spec.MaxUnavailable).To(Equal(intstr.FromString("25%")))
+		})
+
+		It("should have correct label selector matching Deployment selector", func() {
+			cluster := &kcv1alpha1.Cluster{
+				ObjectMeta: metav1.ObjectMeta{Name: testClusterName, Namespace: "default"},
+				Spec: kcv1alpha1.ClusterSpec{
+					Config: map[string]string{"bootstrap.servers": "localhost:9092"},
+				},
+			}
+			pdb := podDisruptionBudgetForCluster(cluster)
+
+			Expect(pdb.Spec.Selector.MatchLabels).To(HaveLen(2))
+			Expect(pdb.Spec.Selector.MatchLabels).To(HaveKeyWithValue("app.kubernetes.io/name", "kafka-connect"))
+			Expect(pdb.Spec.Selector.MatchLabels).To(HaveKeyWithValue("app.kubernetes.io/instance", testClusterName))
+		})
+
+		It("should have correct name and namespace", func() {
+			cluster := &kcv1alpha1.Cluster{
+				ObjectMeta: metav1.ObjectMeta{Name: testClusterName, Namespace: "default"},
+				Spec: kcv1alpha1.ClusterSpec{
+					Config: map[string]string{"bootstrap.servers": "localhost:9092"},
+				},
+			}
+			pdb := podDisruptionBudgetForCluster(cluster)
+
+			Expect(*pdb.Name).To(Equal("my-cluster-connect"))
+			Expect(*pdb.Namespace).To(Equal("default"))
+		})
+
+		It("should have owner reference set", func() {
+			cluster := &kcv1alpha1.Cluster{
+				ObjectMeta: metav1.ObjectMeta{Name: testClusterName, Namespace: "default"},
+				Spec: kcv1alpha1.ClusterSpec{
+					Config: map[string]string{"bootstrap.servers": "localhost:9092"},
+				},
+			}
+			pdb := podDisruptionBudgetForCluster(cluster)
+
+			Expect(pdb.OwnerReferences).To(HaveLen(1))
+			Expect(*pdb.OwnerReferences[0].Name).To(Equal(testClusterName))
+			Expect(*pdb.OwnerReferences[0].Controller).To(BeTrue())
+			Expect(*pdb.OwnerReferences[0].BlockOwnerDeletion).To(BeTrue())
+		})
+	})
+
 	Describe("networkPolicyForCluster", func() {
 		It("should have 2 ingress rules when metrics is nil", func() {
 			cluster := newCluster(nil)
