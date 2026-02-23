@@ -170,6 +170,41 @@ var _ = Describe("Connector Controller", func() {
 	})
 
 	Context("mapConnectorStatusToCondition", func() {
+		It("should map RUNNING state to Running condition", func() {
+			status := &kafkaconnect.ConnectorStatus{
+				Name: "test",
+				Connector: kafkaconnect.ConnectorStatusConnector{
+					State:    "RUNNING",
+					WorkerID: "worker-1",
+				},
+				Tasks: []kafkaconnect.ConnectorStatusTask{
+					{ID: 0, State: "RUNNING", WorkerID: "worker-1"},
+				},
+			}
+			condition := mapConnectorStatusToCondition(status)
+			Expect(condition.Status).To(Equal(metav1.ConditionTrue))
+			Expect(condition.Reason).To(Equal("Running"))
+			Expect(condition.Message).To(Equal("Connector is running with 1 task(s)"))
+		})
+
+		It("should map RUNNING state with failed tasks to Failed condition", func() {
+			status := &kafkaconnect.ConnectorStatus{
+				Name: "test",
+				Connector: kafkaconnect.ConnectorStatusConnector{
+					State:    "RUNNING",
+					WorkerID: "worker-1",
+				},
+				Tasks: []kafkaconnect.ConnectorStatusTask{
+					{ID: 0, State: "RUNNING", WorkerID: "worker-1"},
+					{ID: 1, State: "FAILED", WorkerID: "worker-2", Trace: "some error"},
+				},
+			}
+			condition := mapConnectorStatusToCondition(status)
+			Expect(condition.Status).To(Equal(metav1.ConditionFalse))
+			Expect(condition.Reason).To(Equal("Failed"))
+			Expect(condition.Message).To(ContainSubstring("1 failed task(s) out of 2"))
+		})
+
 		It("should map STOPPED state to Stopped condition", func() {
 			status := &kafkaconnect.ConnectorStatus{
 				Name: "test",
@@ -196,6 +231,81 @@ var _ = Describe("Connector Controller", func() {
 			Expect(condition.Status).To(Equal(metav1.ConditionFalse))
 			Expect(condition.Reason).To(Equal("Paused"))
 			Expect(condition.Message).To(Equal("Connector is paused"))
+		})
+
+		It("should map FAILED state to Failed condition with trace", func() {
+			status := &kafkaconnect.ConnectorStatus{
+				Name: "test",
+				Connector: kafkaconnect.ConnectorStatusConnector{
+					State:    "FAILED",
+					WorkerID: "worker-1",
+					Trace:    "org.apache.kafka.connect.errors.ConnectException: error",
+				},
+			}
+			condition := mapConnectorStatusToCondition(status)
+			Expect(condition.Status).To(Equal(metav1.ConditionFalse))
+			Expect(condition.Reason).To(Equal("Failed"))
+			Expect(condition.Message).To(ContainSubstring("Connector failed with trace"))
+		})
+
+		It("should map unknown state to Unknown condition", func() {
+			status := &kafkaconnect.ConnectorStatus{
+				Name: "test",
+				Connector: kafkaconnect.ConnectorStatusConnector{
+					State:    "UNASSIGNED",
+					WorkerID: "",
+				},
+			}
+			condition := mapConnectorStatusToCondition(status)
+			Expect(condition.Status).To(Equal(metav1.ConditionUnknown))
+			Expect(condition.Reason).To(Equal("Unknown"))
+			Expect(condition.Message).To(ContainSubstring("UNASSIGNED"))
+		})
+	})
+
+	Context("status field population", func() {
+		It("should correctly map Kafka Connect status to API status types", func() {
+			kcStatus := &kafkaconnect.ConnectorStatus{
+				Name: "test-connector",
+				Connector: kafkaconnect.ConnectorStatusConnector{
+					State:    "RUNNING",
+					WorkerID: "worker-1:8083",
+				},
+				Tasks: []kafkaconnect.ConnectorStatusTask{
+					{ID: 0, State: "RUNNING", WorkerID: "worker-1:8083"},
+					{ID: 1, State: "FAILED", WorkerID: "worker-2:8083", Trace: "some stack trace"},
+				},
+			}
+
+			connectorStatus := &kafkaconnectv1alpha1.ConnectorStateStatus{
+				State:    kcStatus.Connector.State,
+				WorkerID: kcStatus.Connector.WorkerID,
+				Trace:    kcStatus.Connector.Trace,
+			}
+
+			tasks := make([]kafkaconnectv1alpha1.TaskStateStatus, len(kcStatus.Tasks))
+			for i, task := range kcStatus.Tasks {
+				tasks[i] = kafkaconnectv1alpha1.TaskStateStatus{
+					ID:       task.ID,
+					State:    task.State,
+					WorkerID: task.WorkerID,
+					Trace:    task.Trace,
+				}
+			}
+
+			Expect(connectorStatus.State).To(Equal("RUNNING"))
+			Expect(connectorStatus.WorkerID).To(Equal("worker-1:8083"))
+			Expect(connectorStatus.Trace).To(BeEmpty())
+
+			Expect(tasks).To(HaveLen(2))
+			Expect(tasks[0].ID).To(Equal(0))
+			Expect(tasks[0].State).To(Equal("RUNNING"))
+			Expect(tasks[0].WorkerID).To(Equal("worker-1:8083"))
+			Expect(tasks[0].Trace).To(BeEmpty())
+			Expect(tasks[1].ID).To(Equal(1))
+			Expect(tasks[1].State).To(Equal("FAILED"))
+			Expect(tasks[1].WorkerID).To(Equal("worker-2:8083"))
+			Expect(tasks[1].Trace).To(Equal("some stack trace"))
 		})
 	})
 })

@@ -14,7 +14,11 @@ spec:
     singular: connector
   scope: Namespaced
   versions:
-  - name: v1alpha1
+  - additionalPrinterColumns:
+    - jsonPath: .status.connector.state
+      name: State
+      type: string
+    name: v1alpha1
     schema:
       openAPIV3Schema:
         description: Connector is the Schema for the connectors API
@@ -137,6 +141,54 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
+              connector:
+                description: connector represents the state of the connector as reported
+                  by Kafka Connect.
+                properties:
+                  state:
+                    description: state is the current state of the connector (e.g.,
+                      RUNNING, PAUSED, FAILED, STOPPED, UNASSIGNED).
+                    type: string
+                  trace:
+                    description: trace contains the error trace if the connector is
+                      in FAILED state.
+                    type: string
+                  workerID:
+                    description: workerID is the Kafka Connect worker that the connector
+                      is assigned to.
+                    type: string
+                required:
+                - state
+                - workerID
+                type: object
+              tasks:
+                description: tasks represents the state of individual connector tasks
+                  as reported by Kafka Connect.
+                items:
+                  description: TaskStateStatus represents the state of a connector
+                    task as reported by Kafka Connect.
+                  properties:
+                    id:
+                      description: id is the task identifier.
+                      type: integer
+                    state:
+                      description: state is the current state of the task (e.g., RUNNING,
+                        FAILED).
+                      type: string
+                    trace:
+                      description: trace contains the error trace if the task is in
+                        FAILED state.
+                      type: string
+                    workerID:
+                      description: workerID is the Kafka Connect worker that the task
+                        is assigned to.
+                      type: string
+                  required:
+                  - id
+                  - state
+                  - workerID
+                  type: object
+                type: array
             type: object
         required:
         - spec
