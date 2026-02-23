@@ -1007,6 +1007,16 @@ spec:
                 x-kubernetes-list-map-keys:
                 - name
                 x-kubernetes-list-type: map
+              maxUnavailable:
+                anyOf:
+                - type: integer
+                - type: string
+                description: |-
+                  MaxUnavailable specifies the maximum number of pods that can be unavailable
+                  during voluntary disruptions. Used in the PodDisruptionBudget.
+                  Can be an absolute number (e.g. 1) or a percentage (e.g. "25%").
+                  Defaults to 1 when not set.
+                x-kubernetes-int-or-string: true
               metrics:
                 description: |-
                   Metrics configuration for enabling Prometheus metrics collection.

@@ -29,6 +29,7 @@ import (
 	corev1ac "k8s.io/client-go/applyconfigurations/core/v1"
 	metav1ac "k8s.io/client-go/applyconfigurations/meta/v1"
 	netv1ac "k8s.io/client-go/applyconfigurations/networking/v1"
+	policyv1ac "k8s.io/client-go/applyconfigurations/policy/v1"
 )
 
 func deploymentForCluster(cluster *kcv1alpha1.Cluster) *appsv1ac.DeploymentApplyConfiguration {
@@ -119,10 +120,7 @@ func deploymentForCluster(cluster *kcv1alpha1.Cluster) *appsv1ac.DeploymentApply
 			WithReadOnly(true))
 	}
 
-	labels := map[string]string{
-		"app.kubernetes.io/name":     "kafka-connect",
-		"app.kubernetes.io/instance": cluster.Name,
-	}
+	labels := selectorLabelsForCluster(cluster)
 
 	// Pod labels: merge user-defined labels with internal labels (internal wins on conflict)
 	podLabels := make(map[string]string, len(cluster.Spec.PodLabels)+len(labels))
@@ -350,10 +348,7 @@ func configMapForCluster(cluster *kcv1alpha1.Cluster) (*corev1ac.ConfigMapApplyC
 }
 
 func serviceForCluster(cluster *kcv1alpha1.Cluster) *corev1ac.ServiceApplyConfiguration {
-	labels := map[string]string{
-		"app.kubernetes.io/name":     "kafka-connect",
-		"app.kubernetes.io/instance": cluster.Name,
-	}
+	labels := selectorLabelsForCluster(cluster)
 
 	name := fmt.Sprintf("%s-connect", cluster.Name)
 
@@ -370,10 +365,7 @@ func serviceForCluster(cluster *kcv1alpha1.Cluster) *corev1ac.ServiceApplyConfig
 }
 
 func networkPolicyForCluster(cluster *kcv1alpha1.Cluster, operatorNamespace string) *netv1ac.NetworkPolicyApplyConfiguration {
-	podLabels := map[string]string{
-		"app.kubernetes.io/name":     "kafka-connect",
-		"app.kubernetes.io/instance": cluster.Name,
-	}
+	podLabels := selectorLabelsForCluster(cluster)
 
 	operatorPodLabels := map[string]string{
 		"control-plane":          "controller-manager",
@@ -443,6 +435,30 @@ func serviceAccountForCluster(cluster *kcv1alpha1.Cluster) *corev1ac.ServiceAcco
 	return corev1ac.ServiceAccount(name, cluster.Namespace).
 		WithAnnotations(serviceAccountAnnotations).
 		WithOwnerReferences(ownerReferenceForCluster(cluster))
+}
+
+func podDisruptionBudgetForCluster(cluster *kcv1alpha1.Cluster) *policyv1ac.PodDisruptionBudgetApplyConfiguration {
+	labels := selectorLabelsForCluster(cluster)
+
+	maxUnavailable := intstr.FromInt(1)
+	if cluster.Spec.MaxUnavailable != nil {
+		maxUnavailable = *cluster.Spec.MaxUnavailable
+	}
+
+	name := fmt.Sprintf("%s-connect", cluster.Name)
+
+	return policyv1ac.PodDisruptionBudget(name, cluster.Namespace).
+		WithOwnerReferences(ownerReferenceForCluster(cluster)).
+		WithSpec(policyv1ac.PodDisruptionBudgetSpec().
+			WithMaxUnavailable(maxUnavailable).
+			WithSelector(metav1ac.LabelSelector().WithMatchLabels(labels)))
+}
+
+func selectorLabelsForCluster(cluster *kcv1alpha1.Cluster) map[string]string {
+	return map[string]string{
+		"app.kubernetes.io/name":     "kafka-connect",
+		"app.kubernetes.io/instance": cluster.Name,
+	}
 }
 
 func ownerReferenceForCluster(cluster *kcv1alpha1.Cluster) *metav1ac.OwnerReferenceApplyConfiguration {
