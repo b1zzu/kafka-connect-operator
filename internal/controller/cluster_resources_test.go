@@ -691,6 +691,133 @@ var _ = Describe("Cluster Resources", func() {
 			Expect(*tscs[1].TopologyKey).To(Equal("kubernetes.io/hostname"))
 			Expect(*tscs[1].WhenUnsatisfiable).To(Equal(corev1.ScheduleAnyway))
 		})
+
+		It("should not have affinity when not specified", func() {
+			cluster := newCluster(nil)
+			dep := deploymentForCluster(cluster)
+
+			Expect(dep.Spec.Template.Spec.Affinity).To(BeNil())
+		})
+
+		It("should apply node affinity with required scheduling", func() {
+			cluster := newCluster(nil)
+			cluster.Spec.Affinity = &corev1.Affinity{
+				NodeAffinity: &corev1.NodeAffinity{
+					RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{
+						NodeSelectorTerms: []corev1.NodeSelectorTerm{
+							{
+								MatchExpressions: []corev1.NodeSelectorRequirement{
+									{
+										Key:      "topology.kubernetes.io/zone",
+										Operator: corev1.NodeSelectorOpIn,
+										Values:   []string{"us-east-1a", "us-east-1b"},
+									},
+								},
+							},
+						},
+					},
+				},
+			}
+			dep := deploymentForCluster(cluster)
+
+			affinity := dep.Spec.Template.Spec.Affinity
+			Expect(affinity).NotTo(BeNil())
+			Expect(affinity.NodeAffinity).NotTo(BeNil())
+			req := affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution
+			Expect(req).NotTo(BeNil())
+			Expect(req.NodeSelectorTerms).To(HaveLen(1))
+			Expect(req.NodeSelectorTerms[0].MatchExpressions).To(HaveLen(1))
+			expr := req.NodeSelectorTerms[0].MatchExpressions[0]
+			Expect(*expr.Key).To(Equal("topology.kubernetes.io/zone"))
+			Expect(*expr.Operator).To(Equal(corev1.NodeSelectorOpIn))
+			Expect(expr.Values).To(ConsistOf("us-east-1a", "us-east-1b"))
+		})
+
+		It("should apply preferred pod anti-affinity", func() {
+			cluster := newCluster(nil)
+			cluster.Spec.Affinity = &corev1.Affinity{
+				PodAntiAffinity: &corev1.PodAntiAffinity{
+					PreferredDuringSchedulingIgnoredDuringExecution: []corev1.WeightedPodAffinityTerm{
+						{
+							Weight: 100,
+							PodAffinityTerm: corev1.PodAffinityTerm{
+								TopologyKey: "kubernetes.io/hostname",
+								LabelSelector: &metav1.LabelSelector{
+									MatchLabels: map[string]string{
+										"app.kubernetes.io/name": "kafka-connect",
+									},
+								},
+							},
+						},
+					},
+				},
+			}
+			dep := deploymentForCluster(cluster)
+
+			affinity := dep.Spec.Template.Spec.Affinity
+			Expect(affinity).NotTo(BeNil())
+			Expect(affinity.PodAntiAffinity).NotTo(BeNil())
+			prefs := affinity.PodAntiAffinity.PreferredDuringSchedulingIgnoredDuringExecution
+			Expect(prefs).To(HaveLen(1))
+			Expect(*prefs[0].Weight).To(Equal(int32(100)))
+			Expect(*prefs[0].PodAffinityTerm.TopologyKey).To(Equal("kubernetes.io/hostname"))
+			Expect(prefs[0].PodAffinityTerm.LabelSelector.MatchLabels).To(HaveKeyWithValue("app.kubernetes.io/name", "kafka-connect"))
+		})
+
+		It("should not have tolerations when not specified", func() {
+			cluster := newCluster(nil)
+			dep := deploymentForCluster(cluster)
+
+			Expect(dep.Spec.Template.Spec.Tolerations).To(BeEmpty())
+		})
+
+		It("should apply a single toleration", func() {
+			cluster := newCluster(nil)
+			cluster.Spec.Tolerations = []corev1.Toleration{
+				{
+					Key:      "dedicated",
+					Operator: corev1.TolerationOpEqual,
+					Value:    "kafka-connect",
+					Effect:   corev1.TaintEffectNoSchedule,
+				},
+			}
+			dep := deploymentForCluster(cluster)
+
+			tols := dep.Spec.Template.Spec.Tolerations
+			Expect(tols).To(HaveLen(1))
+			Expect(*tols[0].Key).To(Equal("dedicated"))
+			Expect(*tols[0].Operator).To(Equal(corev1.TolerationOpEqual))
+			Expect(*tols[0].Value).To(Equal("kafka-connect"))
+			Expect(*tols[0].Effect).To(Equal(corev1.TaintEffectNoSchedule))
+		})
+
+		It("should apply multiple tolerations", func() {
+			cluster := newCluster(nil)
+			cluster.Spec.Tolerations = []corev1.Toleration{
+				{
+					Key:      "dedicated",
+					Operator: corev1.TolerationOpEqual,
+					Value:    "kafka-connect",
+					Effect:   corev1.TaintEffectNoSchedule,
+				},
+				{
+					Key:      "node.kubernetes.io/not-ready",
+					Operator: corev1.TolerationOpExists,
+					Effect:   corev1.TaintEffectNoExecute,
+				},
+			}
+			dep := deploymentForCluster(cluster)
+
+			tols := dep.Spec.Template.Spec.Tolerations
+			Expect(tols).To(HaveLen(2))
+			Expect(*tols[0].Key).To(Equal("dedicated"))
+			Expect(*tols[0].Operator).To(Equal(corev1.TolerationOpEqual))
+			Expect(*tols[0].Value).To(Equal("kafka-connect"))
+			Expect(*tols[0].Effect).To(Equal(corev1.TaintEffectNoSchedule))
+			Expect(*tols[1].Key).To(Equal("node.kubernetes.io/not-ready"))
+			Expect(*tols[1].Operator).To(Equal(corev1.TolerationOpExists))
+			Expect(*tols[1].Effect).To(Equal(corev1.TaintEffectNoExecute))
+		})
 	})
 
 	Describe("serviceAccountForCluster", func() {
