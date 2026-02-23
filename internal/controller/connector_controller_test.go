@@ -81,91 +81,57 @@ var _ = Describe("Connector Controller", func() {
 	})
 
 	Context("getDesiredConnectorState", func() {
-		It("should return running when annotation is absent", func() {
+		It("should return running when state is not specified", func() {
 			connector := &kafkaconnectv1alpha1.Connector{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test",
 					Namespace: "default",
 				},
 			}
-			state, err := getDesiredConnectorState(connector)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(state).To(Equal("running"))
+			state := getDesiredConnectorState(connector)
+			Expect(state).To(Equal(kafkaconnectv1alpha1.ConnectorStateRunning))
 		})
 
-		It("should return running when annotations map exists but state annotation is absent", func() {
+		It("should return running when state is running", func() {
 			connector := &kafkaconnectv1alpha1.Connector{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test",
 					Namespace: "default",
-					Annotations: map[string]string{
-						"other-annotation": "value",
-					},
+				},
+				Spec: kafkaconnectv1alpha1.ConnectorSpec{
+					State: kafkaconnectv1alpha1.ConnectorStateRunning,
 				},
 			}
-			state, err := getDesiredConnectorState(connector)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(state).To(Equal("running"))
+			state := getDesiredConnectorState(connector)
+			Expect(state).To(Equal(kafkaconnectv1alpha1.ConnectorStateRunning))
 		})
 
-		It("should return paused when annotation is paused", func() {
+		It("should return paused when state is paused", func() {
 			connector := &kafkaconnectv1alpha1.Connector{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test",
 					Namespace: "default",
-					Annotations: map[string]string{
-						connectorStateAnnotation: "paused",
-					},
+				},
+				Spec: kafkaconnectv1alpha1.ConnectorSpec{
+					State: kafkaconnectv1alpha1.ConnectorStatePaused,
 				},
 			}
-			state, err := getDesiredConnectorState(connector)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(state).To(Equal("paused"))
+			state := getDesiredConnectorState(connector)
+			Expect(state).To(Equal(kafkaconnectv1alpha1.ConnectorStatePaused))
 		})
 
-		It("should return stopped when annotation is stopped", func() {
+		It("should return stopped when state is stopped", func() {
 			connector := &kafkaconnectv1alpha1.Connector{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test",
 					Namespace: "default",
-					Annotations: map[string]string{
-						connectorStateAnnotation: "stopped",
-					},
+				},
+				Spec: kafkaconnectv1alpha1.ConnectorSpec{
+					State: kafkaconnectv1alpha1.ConnectorStateStopped,
 				},
 			}
-			state, err := getDesiredConnectorState(connector)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(state).To(Equal("stopped"))
-		})
-
-		It("should return running when annotation is running", func() {
-			connector := &kafkaconnectv1alpha1.Connector{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test",
-					Namespace: "default",
-					Annotations: map[string]string{
-						connectorStateAnnotation: "running",
-					},
-				},
-			}
-			state, err := getDesiredConnectorState(connector)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(state).To(Equal("running"))
-		})
-
-		It("should return error for invalid annotation value", func() {
-			connector := &kafkaconnectv1alpha1.Connector{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test",
-					Namespace: "default",
-					Annotations: map[string]string{
-						connectorStateAnnotation: "invalid",
-					},
-				},
-			}
-			_, err := getDesiredConnectorState(connector)
-			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring("invalid connector state annotation value"))
+			state := getDesiredConnectorState(connector)
+			Expect(state).To(Equal(kafkaconnectv1alpha1.ConnectorStateStopped))
 		})
 	})
 

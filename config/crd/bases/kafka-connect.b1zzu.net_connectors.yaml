@@ -62,6 +62,15 @@ spec:
                   Sink: https://kafka.apache.org/41/configuration/kafka-connect-configs/#sink-connector-configs
                   MirrorMaker: https://kafka.apache.org/41/configuration/mirrormaker-configs/
                 type: object
+              state:
+                default: running
+                description: 'The desired state of the connector: running, paused,
+                  or stopped.'
+                enum:
+                - running
+                - paused
+                - stopped
+                type: string
             required:
             - cluster
             type: object
