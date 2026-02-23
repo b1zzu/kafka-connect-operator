@@ -106,6 +106,17 @@ type ClusterSpec struct {
 	// +optional
 	TopologySpreadConstraints []corev1.TopologySpreadConstraint `json:"topologySpreadConstraints,omitempty"`
 
+	// Affinity defines scheduling constraints for pods including node affinity,
+	// pod affinity, and pod anti-affinity.
+	// When not set, no affinity constraints are applied.
+	// +optional
+	Affinity *corev1.Affinity `json:"affinity,omitempty"`
+
+	// Tolerations allow pods to be scheduled on nodes with matching taints.
+	// When not set, no tolerations are applied.
+	// +optional
+	Tolerations []corev1.Toleration `json:"tolerations,omitempty"`
+
 	// Resources defines the CPU/memory requests and limits for the Kafka Connect container.
 	// When not set, defaults to requests: {cpu: 250m, memory: 1Gi}, limits: {cpu: 1000m, memory: 4Gi}.
 	// +optional

@@ -21,9 +21,9 @@ import (
 	"strings"
 
 	kcv1alpha1 "github.com/b1zzu/kafka-connect-operator/api/v1alpha1"
+	"github.com/b1zzu/kafka-connect-operator/pkg/applycfg"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	appsv1ac "k8s.io/client-go/applyconfigurations/apps/v1"
 	corev1ac "k8s.io/client-go/applyconfigurations/core/v1"
@@ -230,7 +230,7 @@ func deploymentForCluster(cluster *kcv1alpha1.Cluster) *appsv1ac.DeploymentApply
 			WithCommand("/opt/kafka/bin/connect-distributed.sh", "/config/connect.properties").
 			WithEnv(envVars...).
 			WithPorts(ports...).
-			WithResources(resourceRequirementsToApplyConfig(resources)).
+			WithResources(applycfg.ResourceRequirements(resources)).
 			WithLivenessProbe(corev1ac.Probe().
 				WithHTTPGet(corev1ac.HTTPGetAction().
 					WithPath("/health").
@@ -257,7 +257,9 @@ func deploymentForCluster(cluster *kcv1alpha1.Cluster) *appsv1ac.DeploymentApply
 				WithCapabilities(corev1ac.Capabilities().WithDrop("ALL"))),
 		).
 		WithVolumes(volumes...).
-		WithTopologySpreadConstraints(topologySpreadConstraintsToApplyConfig(cluster.Spec.TopologySpreadConstraints)...)
+		WithTopologySpreadConstraints(applycfg.TopologySpreadConstraints(cluster.Spec.TopologySpreadConstraints)...).
+		WithTolerations(applycfg.Tolerations(cluster.Spec.Tolerations)...).
+		WithAffinity(applycfg.Affinity(cluster.Spec.Affinity))
 
 	return appsv1ac.Deployment(name, cluster.Namespace).
 		WithOwnerReferences(ownerReferenceForCluster(cluster)).
@@ -451,55 +453,4 @@ func ownerReferenceForCluster(cluster *kcv1alpha1.Cluster) *metav1ac.OwnerRefere
 		WithUID(cluster.GetUID()).
 		WithBlockOwnerDeletion(true).
 		WithController(true)
-}
-
-func resourceRequirementsToApplyConfig(r *corev1.ResourceRequirements) *corev1ac.ResourceRequirementsApplyConfiguration {
-	ac := corev1ac.ResourceRequirements()
-	if r.Requests != nil {
-		ac = ac.WithRequests(r.Requests)
-	}
-	if r.Limits != nil {
-		ac = ac.WithLimits(r.Limits)
-	}
-	return ac
-}
-
-func topologySpreadConstraintsToApplyConfig(constraints []corev1.TopologySpreadConstraint) []*corev1ac.TopologySpreadConstraintApplyConfiguration {
-	acs := make([]*corev1ac.TopologySpreadConstraintApplyConfiguration, 0, len(constraints))
-	for _, c := range constraints {
-		ac := corev1ac.TopologySpreadConstraint().
-			WithMaxSkew(c.MaxSkew).
-			WithTopologyKey(c.TopologyKey).
-			WithWhenUnsatisfiable(c.WhenUnsatisfiable).
-			WithLabelSelector(labelSelectorToApplyConfig(c.LabelSelector)).
-			WithMatchLabelKeys(c.MatchLabelKeys...)
-		if c.MinDomains != nil {
-			ac = ac.WithMinDomains(*c.MinDomains)
-		}
-		if c.NodeAffinityPolicy != nil {
-			ac = ac.WithNodeAffinityPolicy(*c.NodeAffinityPolicy)
-		}
-		if c.NodeTaintsPolicy != nil {
-			ac = ac.WithNodeTaintsPolicy(*c.NodeTaintsPolicy)
-		}
-		acs = append(acs, ac)
-	}
-	return acs
-}
-
-func labelSelectorToApplyConfig(ls *metav1.LabelSelector) *metav1ac.LabelSelectorApplyConfiguration {
-	if ls == nil {
-		return nil
-	}
-	ac := metav1ac.LabelSelector().
-		WithMatchLabels(ls.MatchLabels)
-	for _, expr := range ls.MatchExpressions {
-		ac = ac.WithMatchExpressions(
-			metav1ac.LabelSelectorRequirement().
-				WithKey(expr.Key).
-				WithOperator(expr.Operator).
-				WithValues(expr.Values...),
-		)
-	}
-	return ac
 }
