@@ -59,7 +59,7 @@ kubectl apply -f 'https://strimzi.io/examples/latest/kafka/kafka-single-node.yam
 Deploy the Kafka Connect cluster:
 
 ```bash
-kubectl apply -f - <<<EOF
+kubectl apply -f - <<EOF
 apiVersion: kafka-connect.b1zzu.net/v1alpha1
 kind: Cluster
 metadata:
@@ -227,6 +227,7 @@ spec:
 
   # Topology spread constraints for pod scheduling (optional)
   # If labelSelector is not defined, Kubernetes uses the same selector as the deployment.
+  # See: https://kubernetes.io/docs/concepts/scheduling-eviction/topology-spread-constraints/
   topologySpreadConstraints:
     - maxSkew: 1
       topologyKey: topology.kubernetes.io/zone
@@ -234,6 +235,32 @@ spec:
       labelSelector:
         matchLabels:
           app.kubernetes.io/name: kafka-connect
+
+  # Affinity defines scheduling constraints for pods including node affinity,
+  # pod affinity, and pod anti-affinity (optional)
+  # See: https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/#affinity-and-anti-affinity
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+          - matchExpressions:
+              - key: topology.kubernetes.io/zone
+                operator: In
+                values:
+                  - eu-west-1a
+
+  # Tolerations allow pods to be scheduled on nodes with matching taints (optional)
+  # See: https://kubernetes.io/docs/concepts/scheduling-eviction/taint-and-toleration/
+  tolerations:
+    - key: "dedicated"
+      operator: "Equal"
+      value: "kafka"
+      effect: "NoSchedule"
+
+  # Maximum number of pods that can be unavailable during voluntary disruptions (optional)
+  # Used in the PodDisruptionBudget. Can be an absolute number (e.g. 1) or a percentage (e.g. "25%").
+  # Defaults to 1 when not set.
+  maxUnavailable: 1
 ```
 
 ### Connector

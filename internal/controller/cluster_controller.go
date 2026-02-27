@@ -368,6 +368,8 @@ func (r *ClusterReconciler) reconcileDeployment(ctx context.Context, cluster *kc
 		return nil, &ClusterReconciliationError{err: err, msg: "failed to get Deployment", cluster: cluster}
 	}
 
+	// TODO: When scaling up we shouldn't report the Available condition as False because the cluster is available
+
 	deploymentAvailable := utils.FindStatusDeploymentCondition(deployment.Status.Conditions, "Available")
 	clusterAvailable := meta.FindStatusCondition(cluster.Status.Conditions, typeAvailableCluster)
 	if deploymentAvailable != nil {
