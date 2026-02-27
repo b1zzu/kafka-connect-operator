@@ -2,7 +2,7 @@ FROM --platform=$BUILDPLATFORM docker.io/busybox AS download
 
 ARG CONNECT_FILE_VERSION=4.2.0
 ARG CONNECT_MIRROR_VERSION=4.2.0
-ARG CONNECT_DATAGEN_VERSION=0.6.6
+ARG CONNECT_DATAGEN_VERSION=0.7.0
 
 RUN wget -q -O /connect-file.jar \
       "https://repo1.maven.org/maven2/org/apache/kafka/connect-file/${CONNECT_FILE_VERSION}/connect-file-${CONNECT_FILE_VERSION}.jar" && \
