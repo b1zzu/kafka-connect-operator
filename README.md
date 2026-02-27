@@ -59,7 +59,7 @@ kubectl apply -f 'https://strimzi.io/examples/latest/kafka/kafka-single-node.yam
 Deploy the Kafka Connect cluster:
 
 ```bash
-kubectl apply -f - <<<EOF
+kubectl apply -f - <<EOF
 apiVersion: kafka-connect.b1zzu.net/v1alpha1
 kind: Cluster
 metadata:
