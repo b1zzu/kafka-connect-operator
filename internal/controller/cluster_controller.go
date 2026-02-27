@@ -228,6 +228,7 @@ func (r *ClusterReconciler) updateStatusCondition(
 
 	log.Info("Update Cluster status condition", "type", condition.Type, "status", condition.Status)
 
+	condition.ObservedGeneration = cluster.Generation
 	meta.SetStatusCondition(&cluster.Status.Conditions, condition)
 	err := r.Status().Update(ctx, cluster)
 	if err != nil {
@@ -374,6 +375,7 @@ func (r *ClusterReconciler) reconcileDeployment(ctx context.Context, cluster *kc
 			clusterAvailable.Status = metav1.ConditionStatus(deploymentAvailable.Status)
 			clusterAvailable.Reason = deploymentAvailable.Reason
 			clusterAvailable.Message = deploymentAvailable.Message
+			clusterAvailable.ObservedGeneration = cluster.Generation
 
 			log.Info("Update Cluster status Available condition according to Deployment status", "status", clusterAvailable.Status, "reason", clusterAvailable.Reason)
 
