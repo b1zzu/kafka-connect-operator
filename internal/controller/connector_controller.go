@@ -422,6 +422,7 @@ func (r *ConnectorReconciler) reconcileConnectorStatus(ctx context.Context, conn
 
 	// Set condition
 	newCondition := mapConnectorStatusToCondition(status)
+	newCondition.ObservedGeneration = connector.Generation
 	meta.SetStatusCondition(&connector.Status.Conditions, newCondition)
 
 	// Only persist if status has drifted
@@ -489,6 +490,7 @@ func (r *ConnectorReconciler) updateStatusCondition(
 	log := logf.FromContext(ctx)
 	log.Info("Update Connector status condition", "type", condition.Type, "status", condition.Status)
 
+	condition.ObservedGeneration = connector.Generation
 	meta.SetStatusCondition(&connector.Status.Conditions, condition)
 	err := r.Status().Update(ctx, connector)
 	if err != nil {

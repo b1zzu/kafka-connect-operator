@@ -225,6 +225,7 @@ var _ = Describe("Connector Controller", func() {
 			Expect(cond).NotTo(BeNil())
 			Expect(cond.Status).To(Equal(metav1.ConditionUnknown))
 			Expect(cond.Reason).To(Equal("Reconciling"))
+			Expect(cond.ObservedGeneration).To(Equal(connector.Generation))
 
 			// No finalizer yet after first reconcile
 			Expect(connector.Finalizers).To(BeEmpty())
@@ -266,6 +267,7 @@ var _ = Describe("Connector Controller", func() {
 			Expect(cond).NotTo(BeNil())
 			Expect(cond.Status).To(Equal(metav1.ConditionTrue))
 			Expect(cond.Reason).To(Equal("Running"))
+			Expect(cond.ObservedGeneration).To(Equal(connector.Generation))
 		})
 
 		It("should delete the connector and remove the finalizer", func() {

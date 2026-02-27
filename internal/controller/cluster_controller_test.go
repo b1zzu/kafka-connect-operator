@@ -132,6 +132,7 @@ var _ = Describe("Cluster Controller", func() {
 			Expect(cond).NotTo(BeNil())
 			Expect(cond.Status).To(Equal(metav1.ConditionUnknown))
 			Expect(cond.Reason).To(Equal("Reconciling"))
+			Expect(cond.ObservedGeneration).To(Equal(cluster.Generation))
 
 			// Service should not exist yet (reconciliation stopped after condition init)
 			svc := &corev1.Service{}
@@ -230,6 +231,7 @@ var _ = Describe("Cluster Controller", func() {
 			Expect(cond.Status).To(Equal(metav1.ConditionFalse))
 			Expect(cond.Reason).To(Equal("UserError"))
 			Expect(cond.Message).To(ContainSubstring("listeners"))
+			Expect(cond.ObservedGeneration).To(Equal(cluster.Generation))
 
 			// Deployment should not have been created
 			dep := &appsv1.Deployment{}
