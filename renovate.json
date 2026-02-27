@@ -43,18 +43,6 @@
     },
     {
       "customType": "regex",
-      "description": "Update kafka-connect-datagen version in sample-plugins Dockerfile",
-      "managerFilePatterns": [
-        "/^containers/sample-plugins/Dockerfile$/"
-      ],
-      "matchStrings": [
-        "ARG CONNECT_DATAGEN_VERSION=(?<currentValue>\\S+)"
-      ],
-      "depNameTemplate": "confluentinc/kafka-connect-datagen",
-      "datasourceTemplate": "github-tags"
-    },
-    {
-      "customType": "regex",
       "description": "Update JMX Exporter version in jmx-exporter Dockerfile",
       "managerFilePatterns": [
         "/^containers/jmx-exporter/Dockerfile$/"
