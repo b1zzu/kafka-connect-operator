@@ -41,6 +41,8 @@ const (
 	connectorStatusFailed = "FAILED"
 )
 
+type connectorReconcileFunc func(ctx context.Context, connector *kcv1alpha1.Connector) (*kcv1alpha1.Connector, error)
+
 type ConnectorReconciliationError struct {
 	err       error
 	msg       string
@@ -88,27 +90,16 @@ func (r *ConnectorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		return ctrl.Result{}, err
 	}
 
-	connector, err = r.reconcileConnectorFinalizer(ctx, connector)
-	if err != nil || connector == nil {
-		return ctrl.Result{}, r.handleReconciliationError(ctx, err)
-	}
-
-	// Step 4: Reconcile connector in Kafka Connect
-	connector, err = r.reconcileConnector(ctx, connector)
-	if err != nil || connector == nil {
-		return ctrl.Result{}, r.handleReconciliationError(ctx, err)
-	}
-
-	// Step 5: Reconcile connector state (pause/resume/stop)
-	connector, err = r.reconcileConnectorState(ctx, connector)
-	if err != nil || connector == nil {
-		return ctrl.Result{}, r.handleReconciliationError(ctx, err)
-	}
-
-	// Step 6: Sync status from Kafka Connect and restart failed connectors/tasks
-	connector, err = r.reconcileConnectorStatus(ctx, connector)
-	if err != nil || connector == nil {
-		return ctrl.Result{}, r.handleReconciliationError(ctx, err)
+	for _, reconcile := range [4]connectorReconcileFunc{
+		r.reconcileConnectorFinalizer,
+		r.reconcileConnector,
+		r.reconcileConnectorState,
+		r.reconcileConnectorStatus,
+	} {
+		connector, err = reconcile(ctx, connector)
+		if err != nil || connector == nil {
+			return ctrl.Result{}, r.handleReconciliationError(ctx, err)
+		}
 	}
 
 	log.Info("Reconcile completed")
