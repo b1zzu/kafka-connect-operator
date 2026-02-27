@@ -229,11 +229,18 @@ func deploymentForCluster(cluster *kcv1alpha1.Cluster) *appsv1ac.DeploymentApply
 			WithEnv(envVars...).
 			WithPorts(ports...).
 			WithResources(applycfg.ResourceRequirements(resources)).
+			WithStartupProbe(corev1ac.Probe().
+				WithHTTPGet(corev1ac.HTTPGetAction().
+					WithPath("/health").
+					WithPort(intstr.FromString("http"))).
+				WithPeriodSeconds(10).
+				WithTimeoutSeconds(5).
+				WithFailureThreshold(30),
+			).
 			WithLivenessProbe(corev1ac.Probe().
 				WithHTTPGet(corev1ac.HTTPGetAction().
 					WithPath("/health").
 					WithPort(intstr.FromString("http"))).
-				WithInitialDelaySeconds(30).
 				WithPeriodSeconds(10).
 				WithTimeoutSeconds(5).
 				WithFailureThreshold(3),
@@ -242,7 +249,6 @@ func deploymentForCluster(cluster *kcv1alpha1.Cluster) *appsv1ac.DeploymentApply
 				WithHTTPGet(corev1ac.HTTPGetAction().
 					WithPath("/health").
 					WithPort(intstr.FromString("http"))).
-				WithInitialDelaySeconds(10).
 				WithPeriodSeconds(5).
 				WithTimeoutSeconds(3).
 				WithFailureThreshold(3),
