@@ -70,6 +70,8 @@ func (e *ClusterReconciliationError) Error() string {
 	return fmt.Errorf("%s: %w", e.msg, e.err).Error()
 }
 
+type reconcileFunc func(ctx context.Context, cluster *kcv1alpha1.Cluster) (*kcv1alpha1.Cluster, error)
+
 // ClusterReconciler reconciles a Cluster object
 type ClusterReconciler struct {
 	client.Client
@@ -116,34 +118,18 @@ func (r *ClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, err
 	}
 
-	cluster, err = r.reconcileService(ctx, cluster)
-	if err != nil || cluster == nil {
-		return ctrl.Result{}, r.handleReconciliationError(ctx, err)
-	}
-
-	cluster, err = r.reconcileNetworkPolicy(ctx, cluster)
-	if err != nil || cluster == nil {
-		return ctrl.Result{}, r.handleReconciliationError(ctx, err)
-	}
-
-	cluster, err = r.reconcileServiceAccount(ctx, cluster)
-	if err != nil || cluster == nil {
-		return ctrl.Result{}, r.handleReconciliationError(ctx, err)
-	}
-
-	cluster, err = r.reconcilePodDisruptionBudget(ctx, cluster)
-	if err != nil || cluster == nil {
-		return ctrl.Result{}, r.handleReconciliationError(ctx, err)
-	}
-
-	cluster, err = r.reconcileConfigMap(ctx, cluster)
-	if err != nil || cluster == nil {
-		return ctrl.Result{}, r.handleReconciliationError(ctx, err)
-	}
-
-	cluster, err = r.reconcileDeployment(ctx, cluster)
-	if err != nil || cluster == nil {
-		return ctrl.Result{}, r.handleReconciliationError(ctx, err)
+	for _, reconcile := range [6]reconcileFunc{
+		r.reconcileService,
+		r.reconcileNetworkPolicy,
+		r.reconcileServiceAccount,
+		r.reconcilePodDisruptionBudget,
+		r.reconcileConfigMap,
+		r.reconcileDeployment,
+	} {
+		cluster, err = reconcile(ctx, cluster)
+		if err != nil || cluster == nil {
+			return ctrl.Result{}, r.handleReconciliationError(ctx, err)
+		}
 	}
 
 	log.Info("Reconcile completed")
