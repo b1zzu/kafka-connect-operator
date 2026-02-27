@@ -61,6 +61,7 @@ jobs:
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     permissions:
       contents: write
+      pull-requests: write
 
     steps:
       - name: Checkout repository
@@ -95,10 +96,25 @@ jobs:
             echo "has_changes=true" >> $GITHUB_OUTPUT
           fi
 
-      - name: Commit and push if changed
+      - name: Commit and push to branch
         if: steps.git-check.outputs.has_changes == 'true'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+          BRANCH="update-dist-install-yaml"
+          git checkout -B "$BRANCH"
           git commit -m "Update dist/install.yaml for ${{ steps.sha.outputs.short }}-${{ github.run_number }}"
-          git push
+          git push --force origin "$BRANCH"
+
+      - name: Create or update PR
+        if: steps.git-check.outputs.has_changes == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if ! gh pr list --head "update-dist-install-yaml" --state open --json number --jq '.[0].number' | grep -q .; then
+            gh pr create \
+              --title "Update dist/install.yaml" \
+              --body "Automated update of dist/install.yaml for ${{ steps.sha.outputs.short }}-${{ github.run_number }}" \
+              --base main \
+              --head "update-dist-install-yaml"
+          fi
