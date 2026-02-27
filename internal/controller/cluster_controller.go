@@ -44,13 +44,32 @@ const (
 	// typeAvailableCluster represents the status of the Deployment reconciliation
 	typeAvailableCluster = "Available"
 
-	reasonInvalidConfig = "InvalidConfig"
-)
-
-const (
 	// serverSideApplyManager the manager id set when performing Server-Side Apply
 	serverSideApplyManager = "kafka-connect-operator"
 )
+
+// ClusterReconciliationError when returned triggerd a Cluster status
+// condition update with the error details.
+type ClusterReconciliationError struct {
+	err     error
+	msg     string
+	cluster *kcv1alpha1.Cluster
+}
+
+func (e *ClusterReconciliationError) Reason() string {
+	if e.err == nil {
+		return "UserError"
+	}
+	return "Error"
+}
+
+func (e *ClusterReconciliationError) Error() string {
+	if e.err == nil {
+		return e.msg
+	}
+
+	return fmt.Errorf("%s: %w", e.msg, e.err).Error()
+}
 
 // ClusterReconciler reconciles a Cluster object
 type ClusterReconciler struct {
@@ -100,36 +119,65 @@ func (r *ClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 	cluster, err = r.reconcileService(ctx, cluster)
 	if err != nil || cluster == nil {
-		return ctrl.Result{}, err
+		return ctrl.Result{}, r.handleReconciliationError(ctx, err)
 	}
 
 	cluster, err = r.reconcileNetworkPolicy(ctx, cluster)
 	if err != nil || cluster == nil {
-		return ctrl.Result{}, err
+		return ctrl.Result{}, r.handleReconciliationError(ctx, err)
 	}
 
 	cluster, err = r.reconcileServiceAccount(ctx, cluster)
 	if err != nil || cluster == nil {
-		return ctrl.Result{}, err
+		return ctrl.Result{}, r.handleReconciliationError(ctx, err)
 	}
 
 	cluster, err = r.reconcilePodDisruptionBudget(ctx, cluster)
 	if err != nil || cluster == nil {
-		return ctrl.Result{}, err
+		return ctrl.Result{}, r.handleReconciliationError(ctx, err)
 	}
 
 	cluster, err = r.reconcileConfigMap(ctx, cluster)
 	if err != nil || cluster == nil {
-		return ctrl.Result{}, err
+		return ctrl.Result{}, r.handleReconciliationError(ctx, err)
 	}
 
 	cluster, err = r.reconcileDeployment(ctx, cluster)
 	if err != nil || cluster == nil {
-		return ctrl.Result{}, err
+		return ctrl.Result{}, r.handleReconciliationError(ctx, err)
 	}
 
 	log.Info("Reconcile completed")
 	return ctrl.Result{}, nil
+}
+
+func (r *ClusterReconciler) handleReconciliationError(ctx context.Context, err error) error {
+	if err == nil {
+		return nil
+	}
+
+	if rerr, ok := err.(*ClusterReconciliationError); ok {
+
+		err = r.updateStatusCondition(ctx, rerr.cluster, metav1.Condition{
+			Type:    typeAvailableCluster,
+			Status:  metav1.ConditionFalse,
+			Reason:  rerr.Reason(),
+			Message: fmt.Sprintf("Error: %s", rerr),
+		})
+		if err != nil {
+			return fmt.Errorf("failed to update Cluster status with error: %w; after error: %w", err, rerr)
+		}
+
+		if rerr.err != nil {
+			return rerr
+		}
+
+		// If ClusterReconciliationError.err is not set, than it's a user error
+		// therfore we do not return an error on top of updating the status,
+		// and we stop the reconciliation loop until the user fixes the error.
+		return nil
+	}
+	return err
 }
 
 // SetupWithManager sets up the controller with the Manager.
@@ -217,17 +265,11 @@ func (r *ClusterReconciler) reconcileService(ctx context.Context, cluster *kcv1a
 
 	err := r.serverSideApply(ctx, serviceA)
 	if err != nil {
-
-		err := r.updateStatusCondition(ctx, cluster, metav1.Condition{
-			Type:    typeAvailableCluster,
-			Status:  metav1.ConditionFalse,
-			Reason:  "Error",
-			Message: fmt.Sprintf("Failed to apply Service: %s", err),
-		})
-		if err != nil {
-			return nil, fmt.Errorf("failed to update Cluster status after failed to apply Service: %w", err)
+		return nil, &ClusterReconciliationError{
+			err:     err,
+			msg:     "failed to apply Service",
+			cluster: cluster,
 		}
-		return nil, fmt.Errorf("failed to apply Service: %w", err)
 	}
 
 	// Refetch the cluster after Server-Side Apply
@@ -244,34 +286,12 @@ func (r *ClusterReconciler) reconcileConfigMap(ctx context.Context, cluster *kcv
 
 	configMapA, err := configMapForCluster(cluster)
 	if err != nil {
-		log.Info("Invalid Cluster config", "message", err.Error())
-
-		err := r.updateStatusCondition(ctx, cluster, metav1.Condition{
-			Type:    typeAvailableCluster,
-			Status:  metav1.ConditionFalse,
-			Reason:  reasonInvalidConfig,
-			Message: err.Error(),
-		})
-		if err != nil {
-			return nil, fmt.Errorf("failed to update Cluster status after invalid config: %w", err)
-		}
-		// Stop reconciliation; user must fix spec.config
-		return nil, nil
+		return nil, &ClusterReconciliationError{msg: err.Error(), cluster: cluster}
 	}
 
 	err = r.serverSideApply(ctx, configMapA)
 	if err != nil {
-
-		err := r.updateStatusCondition(ctx, cluster, metav1.Condition{
-			Type:    typeAvailableCluster,
-			Status:  metav1.ConditionFalse,
-			Reason:  "Error",
-			Message: fmt.Sprintf("Failed to apply ConfigMap: %s", err),
-		})
-		if err != nil {
-			return nil, fmt.Errorf("failed to update Cluster status after failed to apply ConfigMap: %w", err)
-		}
-		return nil, fmt.Errorf("failed to apply ConfigMap: %w", err)
+		return nil, &ClusterReconciliationError{err: err, msg: "failed to apply ConfigMap", cluster: cluster}
 	}
 
 	// Refetch the cluster after Server-Side Apply
@@ -336,16 +356,7 @@ func (r *ClusterReconciler) reconcileNetworkPolicy(ctx context.Context, cluster 
 
 	err := r.serverSideApply(ctx, networkPolicyA)
 	if err != nil {
-		err := r.updateStatusCondition(ctx, cluster, metav1.Condition{
-			Type:    typeAvailableCluster,
-			Status:  metav1.ConditionFalse,
-			Reason:  "Error",
-			Message: fmt.Sprintf("Failed to apply NetworkPolicy: %s", err),
-		})
-		if err != nil {
-			return nil, fmt.Errorf("failed to update Cluster status after failed to apply NetworkPolicy: %w", err)
-		}
-		return nil, fmt.Errorf("failed to apply NetworkPolicy: %w", err)
+		return nil, &ClusterReconciliationError{err: err, msg: "failed to apply NetworkPolicy", cluster: cluster}
 	}
 
 	// Refetch the cluster after Server-Side Apply
@@ -362,17 +373,7 @@ func (r *ClusterReconciler) reconcileServiceAccount(ctx context.Context, cluster
 
 	err := r.serverSideApply(ctx, serviceAccountA)
 	if err != nil {
-
-		err := r.updateStatusCondition(ctx, cluster, metav1.Condition{
-			Type:    typeAvailableCluster,
-			Status:  metav1.ConditionFalse,
-			Reason:  "Error",
-			Message: fmt.Sprintf("Failed to apply ServiceAccount: %s", err),
-		})
-		if err != nil {
-			return nil, fmt.Errorf("failed to update Cluster status after failed to apply ServiceAccount: %w", err)
-		}
-		return nil, fmt.Errorf("failed to apply ServiceAccount: %w", err)
+		return nil, &ClusterReconciliationError{err: err, msg: "failed to apply ServiceAccount", cluster: cluster}
 	}
 
 	// Refetch the cluster after Server-Side Apply
@@ -389,17 +390,7 @@ func (r *ClusterReconciler) reconcilePodDisruptionBudget(ctx context.Context, cl
 
 	err := r.serverSideApply(ctx, pdbA)
 	if err != nil {
-
-		err := r.updateStatusCondition(ctx, cluster, metav1.Condition{
-			Type:    typeAvailableCluster,
-			Status:  metav1.ConditionFalse,
-			Reason:  "Error",
-			Message: fmt.Sprintf("Failed to apply PodDisruptionBudget: %s", err),
-		})
-		if err != nil {
-			return nil, fmt.Errorf("failed to update Cluster status after failed to apply PodDisruptionBudget: %w", err)
-		}
-		return nil, fmt.Errorf("failed to apply PodDisruptionBudget: %w", err)
+		return nil, &ClusterReconciliationError{err: err, msg: "failed to apply PodDisruptionBudget", cluster: cluster}
 	}
 
 	// Refetch the cluster after Server-Side Apply
@@ -418,18 +409,7 @@ func (r *ClusterReconciler) reconcileDeployment(ctx context.Context, cluster *kc
 
 	err := r.serverSideApply(ctx, deploymentA)
 	if err != nil {
-		log.Error(err, "Failed to apply Deployment")
-
-		err := r.updateStatusCondition(ctx, cluster, metav1.Condition{
-			Type:    typeAvailableCluster,
-			Status:  metav1.ConditionFalse,
-			Reason:  "Error",
-			Message: fmt.Sprintf("Failed to apply Deployment: %s", err),
-		})
-		if err != nil {
-			return nil, fmt.Errorf("failed to update Cluster status after failed to apply Deployment: %w", err)
-		}
-		return nil, fmt.Errorf("failed to apply Deployment: %w", err)
+		return nil, &ClusterReconciliationError{err: err, msg: "failed to apply Deployment", cluster: cluster}
 	}
 
 	// Refetch the cluster after Server-Side Apply
