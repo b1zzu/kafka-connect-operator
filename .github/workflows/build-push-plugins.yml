@@ -5,10 +5,10 @@ on:
     branches:
       - main
     paths:
-      - 'plugins/**'
+      - 'containers/sample-plugins/**'
   pull_request:
     paths:
-      - 'plugins/**'
+      - 'containers/sample-plugins/**'
 
 env:
   REGISTRY: ghcr.io
@@ -48,7 +48,7 @@ jobs:
       - name: Build and push plugin image
         uses: docker/build-push-action@v6
         with:
-          context: plugins
+          context: containers/sample-plugins
           platforms: linux/amd64,linux/arm64
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}

@@ -17,9 +17,9 @@
     },
     {
       "customType": "regex",
-      "description": "Update connect-file plugin version in plugins Dockerfile",
+      "description": "Update connect-file plugin version in sample-plugins Dockerfile",
       "managerFilePatterns": [
-        "/^plugins/Dockerfile$/"
+        "/^containers/sample-plugins/Dockerfile$/"
       ],
       "matchStrings": [
         "ARG CONNECT_FILE_VERSION=(?<currentValue>\\S+)"
@@ -30,9 +30,9 @@
     },
     {
       "customType": "regex",
-      "description": "Update connect-mirror plugin version in plugins Dockerfile",
+      "description": "Update connect-mirror plugin version in sample-plugins Dockerfile",
       "managerFilePatterns": [
-        "/^plugins/Dockerfile$/"
+        "/^containers/sample-plugins/Dockerfile$/"
       ],
       "matchStrings": [
         "ARG CONNECT_MIRROR_VERSION=(?<currentValue>\\S+)"
@@ -43,9 +43,21 @@
     },
     {
       "customType": "regex",
+      "description": "Update kafka-connect-datagen version in sample-plugins Dockerfile",
+      "managerFilePatterns": [
+        "/^containers/sample-plugins/Dockerfile$/"
+      ],
+      "matchStrings": [
+        "ARG CONNECT_DATAGEN_VERSION=(?<currentValue>\\S+)"
+      ],
+      "depNameTemplate": "confluentinc/kafka-connect-datagen",
+      "datasourceTemplate": "github-tags"
+    },
+    {
+      "customType": "regex",
       "description": "Update JMX Exporter version in jmx-exporter Dockerfile",
       "managerFilePatterns": [
-        "/^jmx-exporter/Dockerfile$/"
+        "/^containers/jmx-exporter/Dockerfile$/"
       ],
       "matchStrings": [
         "ARG JMX_EXPORTER_VERSION=(?<currentValue>\\S+)"
@@ -67,7 +79,9 @@
     {
       "customType": "regex",
       "description": "Update MSK IAM Auth version in msk-iam-auth Dockerfile",
-      "fileMatch": ["^msk-iam-auth/Dockerfile$"],
+      "managerFilePatterns": [
+        "/^containers/msk-iam-auth/Dockerfile$/"
+      ],
       "matchStrings": [
         "ARG MSK_IAM_AUTH_VERSION=(?<currentValue>\\S+)"
       ],
@@ -78,7 +92,9 @@
     {
       "customType": "regex",
       "description": "Update default MSK IAM Auth image in Go source files",
-      "fileMatch": ["\\.go$"],
+      "managerFilePatterns": [
+        "/\\.go$/"
+      ],
       "matchStrings": [
         "\"(?<depName>ghcr\\.io\\/b1zzu\\/kafka-connect-operator\\/msk-iam-auth):(?<currentValue>[^\"]+)\""
       ],
@@ -101,22 +117,24 @@
       "groupName": "dockerfile"
     },
     {
-      "description": "Group all plugins Dockerfile updates",
+      "description": "Group all sample-plugins Dockerfile updates",
       "matchFileNames": [
-        "plugins/Dockerfile"
+        "containers/sample-plugins/Dockerfile"
       ],
-      "groupName": "plugins dockerfile"
+      "groupName": "sample-plugins dockerfile"
     },
     {
       "description": "Group all jmx-exporter Dockerfile updates",
       "matchFileNames": [
-        "jmx-exporter/Dockerfile"
+        "containers/jmx-exporter/Dockerfile"
       ],
       "groupName": "jmx-exporter dockerfile"
     },
     {
       "description": "Group all msk-iam-auth Dockerfile updates",
-      "matchFileNames": ["msk-iam-auth/Dockerfile"],
+      "matchFileNames": [
+        "containers/msk-iam-auth/Dockerfile"
+      ],
       "groupName": "msk-iam-auth dockerfile"
     }
   ]

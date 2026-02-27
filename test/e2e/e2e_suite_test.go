@@ -68,7 +68,7 @@ var _ = BeforeSuite(func() {
 	}
 
 	By("building the sample-plugins image")
-	cmd = exec.Command(containerTool, "build", "-t", pluginsImage, "plugins")
+	cmd = exec.Command(containerTool, "build", "-t", pluginsImage, "containers/sample-plugins")
 	_, err = utils.Run(cmd)
 	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to build the sample-plugins image")
 
@@ -77,7 +77,7 @@ var _ = BeforeSuite(func() {
 	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to load the sample-plugins image into Kind")
 
 	By("building the jmx-exporter image")
-	cmd = exec.Command(containerTool, "build", "-t", jmxExporterImage, "jmx-exporter")
+	cmd = exec.Command(containerTool, "build", "-t", jmxExporterImage, "containers/jmx-exporter")
 	_, err = utils.Run(cmd)
 	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to build the jmx-exporter image")
 
