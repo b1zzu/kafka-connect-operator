@@ -66,6 +66,14 @@
     },
     {
       "customType": "regex",
+      "description": "Update kafka-connect-datagen version in kafka-connect-datagen Dockerfile",
+      "managerFilePatterns": ["/^containers/kafka-connect-datagen/Dockerfile$/"],
+      "matchStrings": ["ARG CONNECT_DATAGEN_VERSION=(?<currentValue>\\S+)"],
+      "depNameTemplate": "confluentinc/kafka-connect-datagen",
+      "datasourceTemplate": "github-tags"
+    },
+    {
+      "customType": "regex",
       "description": "Update MSK IAM Auth version in msk-iam-auth Dockerfile",
       "managerFilePatterns": [
         "/^containers/msk-iam-auth/Dockerfile$/"
@@ -117,6 +125,13 @@
         "containers/jmx-exporter/Dockerfile"
       ],
       "groupName": "jmx-exporter dockerfile"
+    },
+    {
+      "description": "Group all kafka-connect-datagen Dockerfile updates",
+      "matchFileNames": [
+        "containers/kafka-connect-datagen/Dockerfile"
+      ],
+      "groupName": "kafka-connect-datagen dockerfile"
     },
     {
       "description": "Group all msk-iam-auth Dockerfile updates",
