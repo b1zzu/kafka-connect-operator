@@ -215,7 +215,7 @@ var _ = Describe("Cluster Controller", func() {
 			Expect(k8sClient.Delete(ctx, cluster)).To(Succeed())
 		})
 
-		It("should set Available=False with InvalidConfig reason and not create a Deployment", func() {
+		It("should set Available=False with UserError reason and not create a Deployment", func() {
 			r := newReconciler()
 			nn := nameFor(name)
 
@@ -228,7 +228,7 @@ var _ = Describe("Cluster Controller", func() {
 			cond := meta.FindStatusCondition(cluster.Status.Conditions, "Available")
 			Expect(cond).NotTo(BeNil())
 			Expect(cond.Status).To(Equal(metav1.ConditionFalse))
-			Expect(cond.Reason).To(Equal("InvalidConfig"))
+			Expect(cond.Reason).To(Equal("UserError"))
 			Expect(cond.Message).To(ContainSubstring("listeners"))
 
 			// Deployment should not have been created

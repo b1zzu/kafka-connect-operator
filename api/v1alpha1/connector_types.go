@@ -19,9 +19,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
-// NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
-
 // ConnectorState represents the desired state of a connector.
 // +kubebuilder:validation:Enum=running;paused;stopped
 type ConnectorState string
@@ -34,11 +31,6 @@ const (
 
 // ConnectorSpec defines the desired state of Connector
 type ConnectorSpec struct {
-	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
-	// The following markers will use OpenAPI v3 schema to validate the value
-	// More info: https://book.kubebuilder.io/reference/markers/crd-validation.html
-
 	// The name of the Kafka Connect cluster hosting the connector.
 	ClusterRef corev1.LocalObjectReference `json:"cluster"`
 

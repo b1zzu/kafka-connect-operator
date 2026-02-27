@@ -41,6 +41,28 @@ const (
 	connectorStatusFailed = "FAILED"
 )
 
+type connectorReconcileFunc func(ctx context.Context, connector *kcv1alpha1.Connector) (*kcv1alpha1.Connector, error)
+
+type ConnectorReconciliationError struct {
+	err       error
+	msg       string
+	connector *kcv1alpha1.Connector
+}
+
+func (e *ConnectorReconciliationError) Reason() string {
+	if e.err == nil {
+		return "UserError"
+	}
+	return "Error"
+}
+
+func (e *ConnectorReconciliationError) Error() string {
+	if e.err == nil {
+		return e.msg
+	}
+	return fmt.Errorf("%s: %w", e.msg, e.err).Error()
+}
+
 // ConnectorReconciler reconciles a Connector object
 type ConnectorReconciler struct {
 	client.Client
@@ -56,10 +78,6 @@ type ConnectorReconciler struct {
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
-// TODO(user): Modify the Reconcile function to compare the state specified by
-// the Connector object against the actual cluster state, and then
-// perform operations to make the cluster state reflect the state specified by
-// the user.
 //
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.23.1/pkg/reconcile
@@ -78,32 +96,44 @@ func (r *ConnectorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		return ctrl.Result{}, err
 	}
 
-	connector, err = r.reconcileConnectorFinalizer(ctx, connector)
-	if err != nil || connector == nil {
-		return ctrl.Result{}, err
-	}
-
-	// Step 4: Reconcile connector in Kafka Connect
-	connector, err = r.reconcileConnector(ctx, connector)
-	if err != nil || connector == nil {
-		return ctrl.Result{}, err
-	}
-
-	// Step 5: Reconcile connector state (pause/resume/stop)
-	connector, err = r.reconcileConnectorState(ctx, connector)
-	if err != nil || connector == nil {
-		return ctrl.Result{}, err
-	}
-
-	// Step 6: Sync status from Kafka Connect and restart failed connectors/tasks
-	connector, err = r.reconcileConnectorStatus(ctx, connector)
-	if err != nil || connector == nil {
-		return ctrl.Result{}, err
+	for _, reconcile := range []connectorReconcileFunc{
+		r.reconcileConnectorFinalizer,
+		r.reconcileConnector,
+		r.reconcileConnectorState,
+		r.reconcileConnectorStatus,
+	} {
+		connector, err = reconcile(ctx, connector)
+		if err != nil || connector == nil {
+			return ctrl.Result{}, r.handleReconciliationError(ctx, err)
+		}
 	}
 
 	log.Info("Reconcile completed")
 	// Monitor the connector status every minute
 	return ctrl.Result{RequeueAfter: time.Minute}, nil
+}
+
+func (r *ConnectorReconciler) handleReconciliationError(ctx context.Context, err error) error {
+	if err == nil {
+		return nil
+	}
+
+	if rerr, ok := err.(*ConnectorReconciliationError); ok {
+		err = r.updateStatusCondition(ctx, rerr.connector, metav1.Condition{
+			Type:    typeRunningConnector,
+			Status:  metav1.ConditionFalse,
+			Reason:  rerr.Reason(),
+			Message: fmt.Sprintf("Error: %s", rerr),
+		})
+		if err != nil {
+			return fmt.Errorf("failed to update Connector status with error: %w; after error: %w", err, rerr)
+		}
+		if rerr.err != nil {
+			return rerr
+		}
+		return nil
+	}
+	return err
 }
 
 // SetupWithManager sets up the controller with the Manager.
@@ -152,7 +182,7 @@ func (r *ConnectorReconciler) initializeStatusConditions(ctx context.Context, co
 
 		log.Info("Resource initial condition updated successfully")
 
-		// The Connector resource was updated, it must be refecth or th reconciliation loop restarted
+		// The Connector resource was updated, it must be refetched or the reconciliation loop restarted
 		return nil, nil
 	}
 
@@ -163,20 +193,12 @@ func (r *ConnectorReconciler) reconcileConnector(ctx context.Context, connector 
 	log := logf.FromContext(ctx)
 
 	// Create Kafka Connect client
-	kafkaConnect := r.newKafkaConnectClient(connector)
+	kafkaConnect := r.NewKafkaConnectClientFunc(connector)
 
 	// Get existing connector from Kafka Connect
 	existingConnector, err := kafkaConnect.GetConnector(ctx, connector.Name)
 	if err != nil {
-		if err := r.updateStatusCondition(ctx, connector, metav1.Condition{
-			Type:    typeRunningConnector,
-			Status:  metav1.ConditionUnknown,
-			Reason:  "Error",
-			Message: fmt.Sprintf("Failed to get connector: %s", err.Error()),
-		}); err != nil {
-			return nil, fmt.Errorf("failed to update status after failed to get connector: %w", err)
-		}
-		return nil, fmt.Errorf("failed to get connector: %w", err)
+		return nil, &ConnectorReconciliationError{err: err, msg: "failed to get connector", connector: connector}
 	}
 
 	// Connector doesn't exist, create it
@@ -200,7 +222,7 @@ func (r *ConnectorReconciler) reconcileConnector(ctx context.Context, connector 
 
 		err = kafkaConnect.CreateConnector(ctx, newConnector)
 		if err != nil {
-			return nil, r.updateStatusConditionAndReturnError(ctx, connector, err, "failed to create connector")
+			return nil, &ConnectorReconciliationError{err: err, msg: "failed to create connector", connector: connector}
 		}
 
 		err = r.updateStatusCondition(ctx, connector, metav1.Condition{
@@ -233,7 +255,7 @@ func (r *ConnectorReconciler) reconcileConnector(ctx context.Context, connector 
 		// Update the connector config
 		err = kafkaConnect.UpdateConnectorConfig(ctx, connector.Name, desiredConfig)
 		if err != nil {
-			return nil, r.updateStatusConditionAndReturnError(ctx, connector, err, "failed to update connector config")
+			return nil, &ConnectorReconciliationError{err: err, msg: "failed to update connector config", connector: connector}
 		}
 
 		err := r.updateStatusCondition(ctx, connector, metav1.Condition{
@@ -260,11 +282,11 @@ func (r *ConnectorReconciler) reconcileConnectorState(ctx context.Context, conne
 
 	desiredState := getDesiredConnectorState(connector)
 
-	kafkaConnect := r.newKafkaConnectClient(connector)
+	kafkaConnect := r.NewKafkaConnectClientFunc(connector)
 
 	status, err := kafkaConnect.GetConnectorStatus(ctx, connector.Name)
 	if err != nil {
-		return nil, r.updateStatusConditionAndReturnError(ctx, connector, err, "failed to get connector status")
+		return nil, &ConnectorReconciliationError{err: err, msg: "failed to get connector status", connector: connector}
 	}
 
 	actualState := kcv1alpha1.ConnectorState(strings.ToLower(status.Connector.State))
@@ -289,7 +311,7 @@ func (r *ConnectorReconciler) reconcileConnectorState(ctx context.Context, conne
 		log.Info("Resuming connector")
 		err = kafkaConnect.ResumeConnector(ctx, connector.Name)
 		if err != nil {
-			return nil, r.updateStatusConditionAndReturnError(ctx, connector, err, "failed to resume connector")
+			return nil, &ConnectorReconciliationError{err: err, msg: "failed to resume connector", connector: connector}
 		}
 	case kcv1alpha1.ConnectorStatePaused:
 		if actualState == kcv1alpha1.ConnectorStateStopped {
@@ -297,20 +319,20 @@ func (r *ConnectorReconciler) reconcileConnectorState(ctx context.Context, conne
 			log.Info("Resuming connector before pausing")
 			err = kafkaConnect.ResumeConnector(ctx, connector.Name)
 			if err != nil {
-				return nil, r.updateStatusConditionAndReturnError(ctx, connector, err, "failed to resume connector before pausing")
+				return nil, &ConnectorReconciliationError{err: err, msg: "failed to resume connector before pausing", connector: connector}
 			}
 		} else {
 			log.Info("Pausing connector")
 			err = kafkaConnect.PauseConnector(ctx, connector.Name)
 			if err != nil {
-				return nil, r.updateStatusConditionAndReturnError(ctx, connector, err, "failed to pause connector")
+				return nil, &ConnectorReconciliationError{err: err, msg: "failed to pause connector", connector: connector}
 			}
 		}
 	case kcv1alpha1.ConnectorStateStopped:
 		log.Info("Stopping connector")
 		err = kafkaConnect.StopConnector(ctx, connector.Name)
 		if err != nil {
-			return nil, r.updateStatusConditionAndReturnError(ctx, connector, err, "failed to stop connector")
+			return nil, &ConnectorReconciliationError{err: err, msg: "failed to stop connector", connector: connector}
 		}
 	}
 
@@ -334,12 +356,12 @@ func (r *ConnectorReconciler) reconcileConnectorStatus(ctx context.Context, conn
 	log := logf.FromContext(ctx)
 
 	// Create Kafka Connect client
-	kafkaConnect := r.newKafkaConnectClient(connector)
+	kafkaConnect := r.NewKafkaConnectClientFunc(connector)
 
 	// Get connector status from Kafka Connect
 	status, err := kafkaConnect.GetConnectorStatus(ctx, connector.Name)
 	if err != nil {
-		return nil, r.updateStatusConditionAndReturnError(ctx, connector, err, "failed to get connector status")
+		return nil, &ConnectorReconciliationError{err: err, msg: "failed to get connector status", connector: connector}
 	}
 
 	// Restart failed connectors/tasks when desired state is running
@@ -349,9 +371,12 @@ func (r *ConnectorReconciler) reconcileConnectorStatus(ctx context.Context, conn
 		if status.Connector.State == connectorStatusFailed {
 			log.Info("Restarting failed connector")
 			if err := kafkaConnect.RestartConnector(ctx, connector.Name); err != nil {
-				return nil, r.updateStatusConditionAndReturnError(ctx, connector, err, "failed to restart connector")
+				return nil, &ConnectorReconciliationError{err: err, msg: "failed to restart connector", connector: connector}
 			}
-			return nil, fmt.Errorf("connector %s is in FAILED state, restarted and requeueing", connector.Name)
+			return nil, &ConnectorReconciliationError{
+				msg:       fmt.Sprintf("connector %s is in FAILED state, restarted and requeueing", connector.Name),
+				connector: connector,
+			}
 		}
 
 		var failedTaskIDs []int
@@ -365,10 +390,13 @@ func (r *ConnectorReconciler) reconcileConnectorStatus(ctx context.Context, conn
 			log.Info("Restarting failed tasks", "taskIDs", failedTaskIDs)
 			for _, taskID := range failedTaskIDs {
 				if err := kafkaConnect.RestartTask(ctx, connector.Name, taskID); err != nil {
-					return nil, r.updateStatusConditionAndReturnError(ctx, connector, err, fmt.Sprintf("failed to restart task %d", taskID))
+					return nil, &ConnectorReconciliationError{err: err, msg: fmt.Sprintf("failed to restart task %d", taskID), connector: connector}
 				}
 			}
-			return nil, fmt.Errorf("connector %s has %d failed task(s), restarted and requeueing", connector.Name, len(failedTaskIDs))
+			return nil, &ConnectorReconciliationError{
+				msg:       fmt.Sprintf("connector %s has %d failed task(s), restarted and requeueing", connector.Name, len(failedTaskIDs)),
+				connector: connector,
+			}
 		}
 	}
 
@@ -417,10 +445,10 @@ func (r *ConnectorReconciler) reconcileConnectorFinalizer(ctx context.Context, c
 		log.Info("Deleting connector")
 
 		// Delete the connector from Kafka Connect
-		kafkaConnect := r.newKafkaConnectClient(connector)
+		kafkaConnect := r.NewKafkaConnectClientFunc(connector)
 		err := kafkaConnect.DeleteConnector(ctx, connector.Name)
 		if err != nil {
-			return nil, r.updateStatusConditionAndReturnError(ctx, connector, err, "failed to delete connector")
+			return nil, &ConnectorReconciliationError{err: err, msg: "failed to delete connector", connector: connector}
 		}
 
 		log.Info("Connector deleted successfully, removing finalizer")
@@ -453,28 +481,14 @@ func (r *ConnectorReconciler) reconcileConnectorFinalizer(ctx context.Context, c
 	return connector, nil
 }
 
-func (r *ConnectorReconciler) updateStatusConditionAndReturnError(
-	ctx context.Context,
-	connector *kcv1alpha1.Connector,
-	err error,
-	reason string,
-) error {
-	if err := r.updateStatusCondition(ctx, connector, metav1.Condition{
-		Type:    typeRunningConnector,
-		Status:  metav1.ConditionFalse,
-		Reason:  "Error",
-		Message: fmt.Sprintf("%s: %s", reason, err.Error()),
-	}); err != nil {
-		return fmt.Errorf("failed to update status after %s: %w", reason, err)
-	}
-	return fmt.Errorf("%s: %w", reason, err)
-}
-
 func (r *ConnectorReconciler) updateStatusCondition(
 	ctx context.Context,
 	connector *kcv1alpha1.Connector,
 	condition metav1.Condition,
 ) error {
+	log := logf.FromContext(ctx)
+	log.Info("Update Connector status condition", "type", condition.Type, "status", condition.Status)
+
 	meta.SetStatusCondition(&connector.Status.Conditions, condition)
 	err := r.Status().Update(ctx, connector)
 	if err != nil {
@@ -482,10 +496,6 @@ func (r *ConnectorReconciler) updateStatusCondition(
 	}
 
 	return nil
-}
-
-func (r *ConnectorReconciler) newKafkaConnectClient(connector *kcv1alpha1.Connector) *kafkaconnect.Client {
-	return r.NewKafkaConnectClientFunc(connector)
 }
 
 // NewDefaultKafkaConnectClientFunc returns a factory that creates Kafka Connect
