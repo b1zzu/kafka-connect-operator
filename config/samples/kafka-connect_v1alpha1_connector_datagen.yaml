@@ -1,0 +1,27 @@
+apiVersion: kafka-connect.b1zzu.net/v1alpha1
+kind: Connector
+metadata:
+  labels:
+    app.kubernetes.io/name: kafka-connect-operator
+    app.kubernetes.io/managed-by: kustomize
+  name: datagen-orders
+spec:
+  cluster:
+    name: my-cluster
+  config:
+    connector.class: io.confluent.kafka.connect.datagen.DatagenConnector
+    tasks.max: "2"
+    # If the topic does not exist, Kafka Connect will auto-create it using the
+    # topic.creation settings below.
+    kafka.topic: orders
+    topic.creation.default.partitions: "3"
+    topic.creation.default.replication.factor: "1"
+    quickstart: orders
+    key.converter: org.apache.kafka.connect.storage.StringConverter
+    value.converter: org.apache.kafka.connect.json.JsonConverter
+    value.converter.schemas.enable: "false"
+    # Total number of messages to generate before stopping.
+    iterations: "1000000"
+    # Max random delay (ms) between messages. With 2 tasks, the average delay is
+    # ~500ms per task, producing ~4 events/sec total.
+    max.interval: "1000"

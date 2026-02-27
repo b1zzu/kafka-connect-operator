@@ -127,7 +127,7 @@ JMX_EXPORTER_IMG ?= ghcr.io/b1zzu/kafka-connect-operator/jmx-exporter:1.5.0
 
 .PHONY: docker-build-jmx-exporter
 docker-build-jmx-exporter: ## Build JMX Exporter OCI image.
-	$(CONTAINER_TOOL) build -t ${JMX_EXPORTER_IMG} jmx-exporter
+	$(CONTAINER_TOOL) build -t ${JMX_EXPORTER_IMG} containers/jmx-exporter
 
 .PHONY: docker-push-jmx-exporter
 docker-push-jmx-exporter: ## Push JMX Exporter OCI image.
@@ -137,7 +137,7 @@ MSK_IAM_AUTH_IMG ?= ghcr.io/b1zzu/kafka-connect-operator/msk-iam-auth:2.3.5
 
 .PHONY: docker-build-msk-iam-auth
 docker-build-msk-iam-auth: ## Build MSK IAM Auth OCI image.
-	$(CONTAINER_TOOL) build -t ${MSK_IAM_AUTH_IMG} msk-iam-auth
+	$(CONTAINER_TOOL) build -t ${MSK_IAM_AUTH_IMG} containers/msk-iam-auth
 
 .PHONY: docker-push-msk-iam-auth
 docker-push-msk-iam-auth: ## Push MSK IAM Auth OCI image.

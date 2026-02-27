@@ -5,10 +5,10 @@ on:
     branches:
       - main
     paths:
-      - 'msk-iam-auth/**'
+      - 'containers/msk-iam-auth/**'
   pull_request:
     paths:
-      - 'msk-iam-auth/**'
+      - 'containers/msk-iam-auth/**'
 
 env:
   REGISTRY: ghcr.io
@@ -38,7 +38,7 @@ jobs:
       - name: Extract MSK IAM Auth version from Dockerfile
         id: version
         run: |
-          version=$(grep -oP 'ARG MSK_IAM_AUTH_VERSION=\K\S+' msk-iam-auth/Dockerfile)
+          version=$(grep -oP 'ARG MSK_IAM_AUTH_VERSION=\K\S+' containers/msk-iam-auth/Dockerfile)
           echo "msk_iam_auth_version=$version" >> "$GITHUB_OUTPUT"
 
       - name: Extract metadata (tags, labels)
@@ -55,7 +55,7 @@ jobs:
       - name: Build and push MSK IAM Auth image
         uses: docker/build-push-action@v6
         with:
-          context: msk-iam-auth
+          context: containers/msk-iam-auth
           platforms: linux/amd64,linux/arm64
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}

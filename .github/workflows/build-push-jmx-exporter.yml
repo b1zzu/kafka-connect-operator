@@ -5,10 +5,10 @@ on:
     branches:
       - main
     paths:
-      - 'jmx-exporter/**'
+      - 'containers/jmx-exporter/**'
   pull_request:
     paths:
-      - 'jmx-exporter/**'
+      - 'containers/jmx-exporter/**'
 
 env:
   REGISTRY: ghcr.io
@@ -38,7 +38,7 @@ jobs:
       - name: Extract JMX Exporter version from Dockerfile
         id: version
         run: |
-          version=$(grep -oP 'ARG JMX_EXPORTER_VERSION=\K\S+' jmx-exporter/Dockerfile)
+          version=$(grep -oP 'ARG JMX_EXPORTER_VERSION=\K\S+' containers/jmx-exporter/Dockerfile)
           echo "jmx_exporter_version=$version" >> "$GITHUB_OUTPUT"
 
       - name: Extract metadata (tags, labels)
@@ -55,7 +55,7 @@ jobs:
       - name: Build and push JMX Exporter image
         uses: docker/build-push-action@v6
         with:
-          context: jmx-exporter
+          context: containers/jmx-exporter
           platforms: linux/amd64,linux/arm64
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
