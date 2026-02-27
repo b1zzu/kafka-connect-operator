@@ -253,31 +253,23 @@ func (r *ClusterReconciler) updateStatusCondition(
 	return nil
 }
 
-func (r *ClusterReconciler) serverSideApply(ctx context.Context, obj runtime.ApplyConfiguration) error {
-	return r.Apply(ctx, obj, &client.ApplyOptions{
+func (r *ClusterReconciler) serverSideApply(ctx context.Context, cluster *kcv1alpha1.Cluster, obj runtime.ApplyConfiguration) (*kcv1alpha1.Cluster, error) {
+	err := r.Apply(ctx, obj, &client.ApplyOptions{
 		Force:        ptr.To(false),
 		FieldManager: serverSideApplyManager,
 	})
+	if err != nil {
+		return nil, err
+	}
+
+	return r.getCluster(ctx, types.NamespacedName{Name: cluster.Name, Namespace: cluster.Namespace})
 }
 
 func (r *ClusterReconciler) reconcileService(ctx context.Context, cluster *kcv1alpha1.Cluster) (*kcv1alpha1.Cluster, error) {
-	serviceA := serviceForCluster(cluster)
-
-	err := r.serverSideApply(ctx, serviceA)
+	cluster, err := r.serverSideApply(ctx, cluster, serviceForCluster(cluster))
 	if err != nil {
-		return nil, &ClusterReconciliationError{
-			err:     err,
-			msg:     "failed to apply Service",
-			cluster: cluster,
-		}
+		return nil, &ClusterReconciliationError{err: err, msg: "failed to apply Service", cluster: cluster}
 	}
-
-	// Refetch the cluster after Server-Side Apply
-	cluster, err = r.getCluster(ctx, types.NamespacedName{Name: cluster.Name, Namespace: cluster.Namespace})
-	if err != nil || cluster == nil {
-		return cluster, err
-	}
-
 	return cluster, nil
 }
 
@@ -289,15 +281,12 @@ func (r *ClusterReconciler) reconcileConfigMap(ctx context.Context, cluster *kcv
 		return nil, &ClusterReconciliationError{msg: err.Error(), cluster: cluster}
 	}
 
-	err = r.serverSideApply(ctx, configMapA)
+	cluster, err = r.serverSideApply(ctx, cluster, configMapA)
 	if err != nil {
 		return nil, &ClusterReconciliationError{err: err, msg: "failed to apply ConfigMap", cluster: cluster}
 	}
-
-	// Refetch the cluster after Server-Side Apply
-	cluster, err = r.getCluster(ctx, types.NamespacedName{Name: cluster.Name, Namespace: cluster.Namespace})
-	if err != nil || cluster == nil {
-		return cluster, err
+	if cluster == nil {
+		return nil, nil
 	}
 
 	// Fetch the ConfigMap to compute the full hash of what is actually applied
@@ -352,53 +341,26 @@ func (r *ClusterReconciler) reconcileNetworkPolicy(ctx context.Context, cluster 
 		return cluster, nil
 	}
 
-	networkPolicyA := networkPolicyForCluster(cluster, r.Namespace)
-
-	err := r.serverSideApply(ctx, networkPolicyA)
+	cluster, err := r.serverSideApply(ctx, cluster, networkPolicyForCluster(cluster, r.Namespace))
 	if err != nil {
 		return nil, &ClusterReconciliationError{err: err, msg: "failed to apply NetworkPolicy", cluster: cluster}
 	}
-
-	// Refetch the cluster after Server-Side Apply
-	cluster, err = r.getCluster(ctx, types.NamespacedName{Name: cluster.Name, Namespace: cluster.Namespace})
-	if err != nil || cluster == nil {
-		return cluster, err
-	}
-
 	return cluster, nil
 }
 
 func (r *ClusterReconciler) reconcileServiceAccount(ctx context.Context, cluster *kcv1alpha1.Cluster) (*kcv1alpha1.Cluster, error) {
-	serviceAccountA := serviceAccountForCluster(cluster)
-
-	err := r.serverSideApply(ctx, serviceAccountA)
+	cluster, err := r.serverSideApply(ctx, cluster, serviceAccountForCluster(cluster))
 	if err != nil {
 		return nil, &ClusterReconciliationError{err: err, msg: "failed to apply ServiceAccount", cluster: cluster}
 	}
-
-	// Refetch the cluster after Server-Side Apply
-	cluster, err = r.getCluster(ctx, types.NamespacedName{Name: cluster.Name, Namespace: cluster.Namespace})
-	if err != nil || cluster == nil {
-		return cluster, err
-	}
-
 	return cluster, nil
 }
 
 func (r *ClusterReconciler) reconcilePodDisruptionBudget(ctx context.Context, cluster *kcv1alpha1.Cluster) (*kcv1alpha1.Cluster, error) {
-	pdbA := podDisruptionBudgetForCluster(cluster)
-
-	err := r.serverSideApply(ctx, pdbA)
+	cluster, err := r.serverSideApply(ctx, cluster, podDisruptionBudgetForCluster(cluster))
 	if err != nil {
 		return nil, &ClusterReconciliationError{err: err, msg: "failed to apply PodDisruptionBudget", cluster: cluster}
 	}
-
-	// Refetch the cluster after Server-Side Apply
-	cluster, err = r.getCluster(ctx, types.NamespacedName{Name: cluster.Name, Namespace: cluster.Namespace})
-	if err != nil || cluster == nil {
-		return cluster, err
-	}
-
 	return cluster, nil
 }
 
@@ -407,15 +369,12 @@ func (r *ClusterReconciler) reconcileDeployment(ctx context.Context, cluster *kc
 
 	deploymentA := deploymentForCluster(cluster)
 
-	err := r.serverSideApply(ctx, deploymentA)
+	cluster, err := r.serverSideApply(ctx, cluster, deploymentA)
 	if err != nil {
 		return nil, &ClusterReconciliationError{err: err, msg: "failed to apply Deployment", cluster: cluster}
 	}
-
-	// Refetch the cluster after Server-Side Apply
-	cluster, err = r.getCluster(ctx, types.NamespacedName{Name: cluster.Name, Namespace: cluster.Namespace})
-	if err != nil || cluster == nil {
-		return cluster, err
+	if cluster == nil {
+		return nil, nil
 	}
 
 	// Update cluster condition according to deployment condition
