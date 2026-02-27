@@ -30,7 +30,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
@@ -118,7 +117,7 @@ func (r *ClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, err
 	}
 
-	for _, reconcile := range [6]reconcileFunc{
+	for _, reconcile := range []reconcileFunc{
 		r.reconcileService,
 		r.reconcileNetworkPolicy,
 		r.reconcileServiceAccount,
@@ -212,7 +211,7 @@ func (r *ClusterReconciler) initializeStatusConditions(ctx context.Context, clus
 
 		log.Info("Resource initial condition updated successfully")
 
-		// The Cluster resource was updted, it must be refecth or th reconciliation loop restarted
+		// The Cluster resource was updated, it must be refetched or the reconciliation loop restarted
 		return nil, nil
 	}
 
@@ -240,7 +239,6 @@ func (r *ClusterReconciler) updateStatusCondition(
 
 func (r *ClusterReconciler) serverSideApply(ctx context.Context, cluster *kcv1alpha1.Cluster, obj runtime.ApplyConfiguration) (*kcv1alpha1.Cluster, error) {
 	err := r.Apply(ctx, obj, &client.ApplyOptions{
-		Force:        ptr.To(false),
 		FieldManager: serverSideApplyManager,
 	})
 	if err != nil {
@@ -278,7 +276,7 @@ func (r *ClusterReconciler) reconcileConfigMap(ctx context.Context, cluster *kcv
 	configMap := &corev1.ConfigMap{}
 	err = r.Get(ctx, types.NamespacedName{Name: *configMapA.Name, Namespace: *configMapA.Namespace}, configMap)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get ConfigMap after apply: %w", err)
+		return nil, &ClusterReconciliationError{err: err, msg: "failed to get ConfigMap after apply", cluster: cluster}
 	}
 
 	// Compute the ConfigMap hash
@@ -366,7 +364,7 @@ func (r *ClusterReconciler) reconcileDeployment(ctx context.Context, cluster *kc
 	deployment := &appsv1.Deployment{}
 	err = r.Get(ctx, types.NamespacedName{Name: *deploymentA.Name, Namespace: *deploymentA.Namespace}, deployment)
 	if err != nil {
-		return nil, err
+		return nil, &ClusterReconciliationError{err: err, msg: "failed to get Deployment", cluster: cluster}
 	}
 
 	deploymentAvailable := utils.FindStatusDeploymentCondition(deployment.Status.Conditions, "Available")
@@ -381,7 +379,7 @@ func (r *ClusterReconciler) reconcileDeployment(ctx context.Context, cluster *kc
 
 			err := r.updateStatusCondition(ctx, cluster, *clusterAvailable)
 			if err != nil {
-				return nil, fmt.Errorf("failed to udpate Cluster status with Deployment status: %w", err)
+				return nil, fmt.Errorf("failed to update Cluster status with Deployment status: %w", err)
 			}
 
 			return nil, nil
