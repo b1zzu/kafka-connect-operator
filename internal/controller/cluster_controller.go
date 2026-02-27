@@ -67,7 +67,6 @@ func (e *ClusterReconciliationError) Error() string {
 	if e.err == nil {
 		return e.msg
 	}
-
 	return fmt.Errorf("%s: %w", e.msg, e.err).Error()
 }
 
