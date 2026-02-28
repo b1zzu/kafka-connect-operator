@@ -143,6 +143,16 @@ docker-build-msk-iam-auth: ## Build MSK IAM Auth OCI image.
 docker-push-msk-iam-auth: ## Push MSK IAM Auth OCI image.
 	$(CONTAINER_TOOL) push ${MSK_IAM_AUTH_IMG}
 
+KAFKA_CONNECT_DATAGEN_IMG ?= ghcr.io/b1zzu/kafka-connect-operator/kafka-connect-datagen:0.6.6
+
+.PHONY: docker-build-kafka-connect-datagen
+docker-build-kafka-connect-datagen: ## Build Kafka Connect Datagen OCI image.
+	$(CONTAINER_TOOL) build -t ${KAFKA_CONNECT_DATAGEN_IMG} containers/kafka-connect-datagen
+
+.PHONY: docker-push-kafka-connect-datagen
+docker-push-kafka-connect-datagen: ## Push Kafka Connect Datagen OCI image.
+	$(CONTAINER_TOOL) push ${KAFKA_CONNECT_DATAGEN_IMG}
+
 # PLATFORMS defines the target platforms for the manager image be built to provide support to multiple
 # architectures. (i.e. make docker-buildx IMG=myregistry/mypoperator:0.0.1). To use this option you need to:
 # - be able to use docker buildx. More info: https://docs.docker.com/build/buildx/
