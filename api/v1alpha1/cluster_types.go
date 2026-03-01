@@ -63,6 +63,21 @@ type ClusterSpec struct {
 	// +listMapKey=name
 	Secrets []SecretMount `json:"secrets,omitempty"`
 
+	// Envs is a list of Kubernetes Envs to add to the Kafka Connect container.
+	// +optional
+	// +listType=map
+	// +listMapKey=name
+	Envs []corev1.EnvVar `json:"envs,omitempty"`
+
+	// ConfigMaps is a list of Kubernetes ConfigMaps to mount into the Kafka Connect pods.
+	// Each ConfigMap is mounted read-only at /configmaps/{name}.
+	// ConfigMap content changes do not trigger pod restarts.
+	// via the kubelet's periodic sync.
+	// +optional
+	// +listType=map
+	// +listMapKey=name
+	ConfigMaps []ConfigMapMount `json:"configMaps,omitempty"`
+
 	// NetworkPolicy configuration
 	// +optional
 	NetworkPolicy *NetworkPolicyConfig `json:"networkPolicy,omitempty"`
@@ -170,6 +185,17 @@ type SecretMount struct {
 
 	// SecretRef is a reference to a Kubernetes Secret in the same namespace.
 	SecretRef corev1.LocalObjectReference `json:"secretRef"`
+}
+
+// ConfigMapMount defines a Kubernetes ConfigMap to mount into the Kafka Connect pods.
+type ConfigMapMount struct {
+	// Name is the identifier for this config map mount
+	// The config map will be mounted at /configmaps/{name}
+	// +kubebuilder:validation:MinLength=1
+	Name string `json:"name"`
+
+	// ConfigMapRef is a reference to a Kubernetes ConfigMap in the same namespace.
+	ConfigMapRef corev1.LocalObjectReference `json:"configMapRef"`
 }
 
 // NetworkPolicyConfig defines the NetworkPolicy configuration
