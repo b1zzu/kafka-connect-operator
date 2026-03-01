@@ -32,6 +32,31 @@ import (
 	policyv1ac "k8s.io/client-go/applyconfigurations/policy/v1"
 )
 
+func marshalProperties(props map[string]string) string {
+	keys := make([]string, 0, len(props))
+	for k := range props {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	b := &strings.Builder{}
+	for _, k := range keys {
+		fmt.Fprintf(b, "%s=%s\n", k, props[k])
+	}
+	return b.String()
+}
+
+func log4j2Config() map[string]string {
+	return map[string]string{
+		"appender.0.type":              "Console",
+		"appender.0.name":              "CONSOLE",
+		"appender.0.direct":            "true",
+		"appender.0.layout.type":       "JsonTemplateLayout",
+		"rootLogger.level":             "INFO",
+		"rootLogger.appenderRef.0.ref": "CONSOLE",
+	}
+}
+
 func deploymentForCluster(cluster *kcv1alpha1.Cluster) *appsv1ac.DeploymentApplyConfiguration {
 	image := "docker.io/apache/kafka:4.2.0"
 	if cluster.Spec.Image != nil {
@@ -114,6 +139,16 @@ func deploymentForCluster(cluster *kcv1alpha1.Cluster) *appsv1ac.DeploymentApply
 			WithReadOnly(true))
 	}
 
+	// Build log4j-layout-template-json volume and mount (always present)
+	log4jLayoutImage := "ghcr.io/b1zzu/kafka-connect-operator/log4j-layout-template-json:2.25.3"
+	log4jLayoutVolume := corev1ac.Volume().
+		WithName("log4j-layout-template-json").
+		WithImage(corev1ac.ImageVolumeSource().WithReference(log4jLayoutImage))
+	log4jLayoutMount := corev1ac.VolumeMount().
+		WithName("log4j-layout-template-json").
+		WithMountPath("/opt/log4j-layout-template-json").
+		WithReadOnly(true)
+
 	// Build JMX exporter volume and mount (conditional)
 	var jmxVolumes []*corev1ac.VolumeApplyConfiguration
 	var jmxMounts []*corev1ac.VolumeMountApplyConfiguration
@@ -168,6 +203,10 @@ func deploymentForCluster(cluster *kcv1alpha1.Cluster) *appsv1ac.DeploymentApply
 			WithName("config").
 			WithConfigMap(corev1ac.ConfigMapVolumeSource().
 				WithName(configMapNameForCluster(cluster))),
+		log4jLayoutVolume,
+		corev1ac.Volume().
+			WithName("logs").
+			WithEmptyDir(corev1ac.EmptyDirVolumeSource()),
 	}, pluginVolumes...)
 	volumes = append(volumes, libraryVolumes...)
 	volumes = append(volumes, secretVolumes...)
@@ -179,6 +218,10 @@ func deploymentForCluster(cluster *kcv1alpha1.Cluster) *appsv1ac.DeploymentApply
 			WithName("config").
 			WithMountPath("/config").
 			WithReadOnly(true),
+		log4jLayoutMount,
+		corev1ac.VolumeMount().
+			WithName("logs").
+			WithMountPath("/opt/kafka/logs"),
 	}, pluginMounts...)
 	volumeMounts = append(volumeMounts, libraryMounts...)
 	volumeMounts = append(volumeMounts, secretMounts...)
@@ -193,21 +236,22 @@ func deploymentForCluster(cluster *kcv1alpha1.Cluster) *appsv1ac.DeploymentApply
 		corev1ac.EnvVar().
 			WithName("KAFKA_HEAP_OPTS").
 			WithValue("-XX:MaxRAMPercentage=75.0"),
+		corev1ac.EnvVar().
+			WithName("KAFKA_LOG4J_OPTS").
+			WithValue("-Dlog4j2.configurationFile=/config/connect-log4j2.properties"),
 	}
 	if cluster.Spec.Metrics != nil && cluster.Spec.Metrics.JMXExporter != nil {
 		envVars = append(envVars, corev1ac.EnvVar().
 			WithName("KAFKA_OPTS").
 			WithValue("-javaagent:/opt/jmx-exporter/jmx_prometheus_javaagent.jar=9404:/config/jmx-exporter-config.yaml"))
 	}
-	if len(cluster.Spec.Libraries) > 0 {
-		classpathEntries := make([]string, len(cluster.Spec.Libraries))
-		for i, library := range cluster.Spec.Libraries {
-			classpathEntries[i] = fmt.Sprintf("/libraries/%s/*", library.Name)
-		}
-		envVars = append(envVars, corev1ac.EnvVar().
-			WithName("CLASSPATH").
-			WithValue(strings.Join(classpathEntries, ":")))
+	classpathEntries := []string{"/opt/log4j-layout-template-json/*"}
+	for _, library := range cluster.Spec.Libraries {
+		classpathEntries = append(classpathEntries, fmt.Sprintf("/libraries/%s/*", library.Name))
 	}
+	envVars = append(envVars, corev1ac.EnvVar().
+		WithName("CLASSPATH").
+		WithValue(strings.Join(classpathEntries, ":")))
 	for _, e := range cluster.Spec.Envs {
 		envVars = append(envVars, applycfg.EnvVar(e))
 	}
@@ -354,17 +398,10 @@ func configMapForCluster(cluster *kcv1alpha1.Cluster) (*corev1ac.ConfigMapApplyC
 		return nil, err
 	}
 
-	configsBuilder := &strings.Builder{}
-	configsKeys := make([]string, 0, len(configs))
-	for k := range configs {
-		configsKeys = append(configsKeys, k)
+	data := map[string]string{
+		"connect.properties":        marshalProperties(configs),
+		"connect-log4j2.properties": marshalProperties(log4j2Config()),
 	}
-	sort.Strings(configsKeys)
-	for _, k := range configsKeys {
-		fmt.Fprintf(configsBuilder, "%s=%s\n", k, configs[k])
-	}
-
-	data := map[string]string{"connect.properties": configsBuilder.String()}
 	if cluster.Spec.Metrics != nil && cluster.Spec.Metrics.JMXExporter != nil {
 		data["jmx-exporter-config.yaml"] = "rules:\n- pattern: \".*\"\n"
 	}
