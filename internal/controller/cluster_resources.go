@@ -122,23 +122,6 @@ func deploymentForCluster(cluster *kcv1alpha1.Cluster) *appsv1ac.DeploymentApply
 			WithReadOnly(true))
 	}
 
-	// Build configmap volumes and volume mounts
-	configMapVolumes := make([]*corev1ac.VolumeApplyConfiguration, 0, len(cluster.Spec.ConfigMaps))
-	configMapMounts := make([]*corev1ac.VolumeMountApplyConfiguration, 0, len(cluster.Spec.ConfigMaps))
-	for i, cm := range cluster.Spec.ConfigMaps {
-		volName := fmt.Sprintf("configmap-%d", i)
-		mountPath := fmt.Sprintf("/configmaps/%s", cm.Name)
-
-		configMapVolumes = append(configMapVolumes, corev1ac.Volume().
-			WithName(volName).
-			WithConfigMap(corev1ac.ConfigMapVolumeSource().
-				WithName(cm.ConfigMapRef.Name)))
-		configMapMounts = append(configMapMounts, corev1ac.VolumeMount().
-			WithName(volName).
-			WithMountPath(mountPath).
-			WithReadOnly(true))
-	}
-
 	// Build log4j-layout-template-json volume and mount (always present)
 	log4jLayoutImage := "ghcr.io/b1zzu/kafka-connect-operator/log4j-layout-template-json:2.25.3"
 	log4jLayoutVolume := corev1ac.Volume().
@@ -210,7 +193,6 @@ func deploymentForCluster(cluster *kcv1alpha1.Cluster) *appsv1ac.DeploymentApply
 	}, pluginVolumes...)
 	volumes = append(volumes, libraryVolumes...)
 	volumes = append(volumes, secretVolumes...)
-	volumes = append(volumes, configMapVolumes...)
 	volumes = append(volumes, jmxVolumes...)
 
 	volumeMounts := append([]*corev1ac.VolumeMountApplyConfiguration{
@@ -225,7 +207,6 @@ func deploymentForCluster(cluster *kcv1alpha1.Cluster) *appsv1ac.DeploymentApply
 	}, pluginMounts...)
 	volumeMounts = append(volumeMounts, libraryMounts...)
 	volumeMounts = append(volumeMounts, secretMounts...)
-	volumeMounts = append(volumeMounts, configMapMounts...)
 	volumeMounts = append(volumeMounts, jmxMounts...)
 
 	// Build env vars
@@ -252,9 +233,6 @@ func deploymentForCluster(cluster *kcv1alpha1.Cluster) *appsv1ac.DeploymentApply
 	envVars = append(envVars, corev1ac.EnvVar().
 		WithName("CLASSPATH").
 		WithValue(strings.Join(classpathEntries, ":")))
-	for _, e := range cluster.Spec.Envs {
-		envVars = append(envVars, applycfg.EnvVar(e))
-	}
 
 	// Build ports
 	ports := []*corev1ac.ContainerPortApplyConfiguration{
