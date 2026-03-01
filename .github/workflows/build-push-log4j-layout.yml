@@ -1,0 +1,64 @@
+name: Build and Push Log4j Layout Template JSON Image
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'containers/log4j-layout-template-json/**'
+  pull_request:
+    paths:
+      - 'containers/log4j-layout-template-json/**'
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}/log4j-layout-template-json
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract Log4j version from Dockerfile
+        id: version
+        run: |
+          version=$(grep -oP 'ARG LOG4J_VERSION=\K\S+' containers/log4j-layout-template-json/Dockerfile)
+          echo "log4j_version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Extract metadata (tags, labels)
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=${{ steps.version.outputs.log4j_version }},enable={{is_default_branch}}
+            type=raw,value={{sha}}-${{ github.run_number }}
+            type=semver,pattern={{version}}
+
+      - name: Build and push Log4j Layout Template JSON image
+        uses: docker/build-push-action@v6
+        with:
+          context: containers/log4j-layout-template-json
+          platforms: linux/amd64,linux/arm64
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

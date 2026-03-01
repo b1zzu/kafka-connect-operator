@@ -133,6 +133,16 @@ docker-build-jmx-exporter: ## Build JMX Exporter OCI image.
 docker-push-jmx-exporter: ## Push JMX Exporter OCI image.
 	$(CONTAINER_TOOL) push ${JMX_EXPORTER_IMG}
 
+LOG4J_LAYOUT_IMG ?= ghcr.io/b1zzu/kafka-connect-operator/log4j-layout-template-json:2.25.3
+
+.PHONY: docker-build-log4j-layout
+docker-build-log4j-layout: ## Build Log4j Layout Template JSON OCI image.
+	$(CONTAINER_TOOL) build -t ${LOG4J_LAYOUT_IMG} containers/log4j-layout-template-json
+
+.PHONY: docker-push-log4j-layout
+docker-push-log4j-layout: ## Push Log4j Layout Template JSON OCI image.
+	$(CONTAINER_TOOL) push ${LOG4J_LAYOUT_IMG}
+
 MSK_IAM_AUTH_IMG ?= ghcr.io/b1zzu/kafka-connect-operator/msk-iam-auth:2.3.5
 
 .PHONY: docker-build-msk-iam-auth
