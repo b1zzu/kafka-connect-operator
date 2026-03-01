@@ -28,6 +28,7 @@ import (
 
 const testClusterName = "my-cluster"
 const jmxExporterVolName = "jmx-exporter"
+const log4jLayoutVolName = "log4j-layout-template-json"
 const classpathEnvName = "CLASSPATH"
 
 var _ = Describe("Cluster Resources", func() {
@@ -70,17 +71,21 @@ var _ = Describe("Cluster Resources", func() {
 	}
 
 	Describe("deploymentForCluster", func() {
-		It("should have only the config volume when no plugins are specified", func() {
+		It("should have config and log4j-layout-template-json volumes when no plugins are specified", func() {
 			cluster := newCluster(nil)
 			dep := deploymentForCluster(cluster)
 
 			volumes := dep.Spec.Template.Spec.Volumes
-			Expect(volumes).To(HaveLen(1))
+			Expect(volumes).To(HaveLen(3))
 			Expect(*volumes[0].Name).To(Equal("config"))
+			Expect(*volumes[1].Name).To(Equal(log4jLayoutVolName))
+			Expect(*volumes[2].Name).To(Equal("logs"))
 
 			mounts := dep.Spec.Template.Spec.Containers[0].VolumeMounts
-			Expect(mounts).To(HaveLen(1))
+			Expect(mounts).To(HaveLen(3))
 			Expect(*mounts[0].Name).To(Equal("config"))
+			Expect(*mounts[1].Name).To(Equal(log4jLayoutVolName))
+			Expect(*mounts[2].Name).To(Equal("logs"))
 		})
 
 		It("should add plugin volumes and mounts for multiple plugins", func() {
@@ -91,23 +96,27 @@ var _ = Describe("Cluster Resources", func() {
 			dep := deploymentForCluster(cluster)
 
 			volumes := dep.Spec.Template.Spec.Volumes
-			Expect(volumes).To(HaveLen(3)) // config + 2 plugins
+			Expect(volumes).To(HaveLen(5)) // config + log4j-layout + logs + 2 plugins
 
 			Expect(*volumes[0].Name).To(Equal("config"))
-			Expect(*volumes[1].Name).To(Equal("plugin-plugin-a"))
-			Expect(*volumes[1].Image.Reference).To(Equal("registry.example.com/plugin-a:1.0"))
-			Expect(*volumes[2].Name).To(Equal("plugin-plugin-b"))
-			Expect(*volumes[2].Image.Reference).To(Equal("registry.example.com/plugin-b:2.0"))
+			Expect(*volumes[1].Name).To(Equal(log4jLayoutVolName))
+			Expect(*volumes[2].Name).To(Equal("logs"))
+			Expect(*volumes[3].Name).To(Equal("plugin-plugin-a"))
+			Expect(*volumes[3].Image.Reference).To(Equal("registry.example.com/plugin-a:1.0"))
+			Expect(*volumes[4].Name).To(Equal("plugin-plugin-b"))
+			Expect(*volumes[4].Image.Reference).To(Equal("registry.example.com/plugin-b:2.0"))
 
 			mounts := dep.Spec.Template.Spec.Containers[0].VolumeMounts
-			Expect(mounts).To(HaveLen(3))
+			Expect(mounts).To(HaveLen(5))
 			Expect(*mounts[0].Name).To(Equal("config"))
-			Expect(*mounts[1].Name).To(Equal("plugin-plugin-a"))
-			Expect(*mounts[1].MountPath).To(Equal("/plugins/plugin-a"))
-			Expect(*mounts[1].ReadOnly).To(BeTrue())
-			Expect(*mounts[2].Name).To(Equal("plugin-plugin-b"))
-			Expect(*mounts[2].MountPath).To(Equal("/plugins/plugin-b"))
-			Expect(*mounts[2].ReadOnly).To(BeTrue())
+			Expect(*mounts[1].Name).To(Equal(log4jLayoutVolName))
+			Expect(*mounts[2].Name).To(Equal("logs"))
+			Expect(*mounts[3].Name).To(Equal("plugin-plugin-a"))
+			Expect(*mounts[3].MountPath).To(Equal("/plugins/plugin-a"))
+			Expect(*mounts[3].ReadOnly).To(BeTrue())
+			Expect(*mounts[4].Name).To(Equal("plugin-plugin-b"))
+			Expect(*mounts[4].MountPath).To(Equal("/plugins/plugin-b"))
+			Expect(*mounts[4].ReadOnly).To(BeTrue())
 		})
 
 		It("should propagate pullPolicy when specified", func() {
@@ -118,8 +127,8 @@ var _ = Describe("Cluster Resources", func() {
 			dep := deploymentForCluster(cluster)
 
 			volumes := dep.Spec.Template.Spec.Volumes
-			Expect(volumes).To(HaveLen(2))
-			Expect(*volumes[1].Image.PullPolicy).To(Equal(corev1.PullAlways))
+			Expect(volumes).To(HaveLen(4)) // config + log4j-layout + logs + 1 plugin
+			Expect(*volumes[3].Image.PullPolicy).To(Equal(corev1.PullAlways))
 		})
 
 		It("should not set pullPolicy when not specified", func() {
@@ -129,8 +138,8 @@ var _ = Describe("Cluster Resources", func() {
 			dep := deploymentForCluster(cluster)
 
 			volumes := dep.Spec.Template.Spec.Volumes
-			Expect(volumes).To(HaveLen(2))
-			Expect(volumes[1].Image.PullPolicy).To(BeNil())
+			Expect(volumes).To(HaveLen(4)) // config + log4j-layout + logs + 1 plugin
+			Expect(volumes[3].Image.PullPolicy).To(BeNil())
 		})
 
 		It("should add secret volumes and mounts with correct paths", func() {
@@ -141,23 +150,27 @@ var _ = Describe("Cluster Resources", func() {
 			dep := deploymentForCluster(cluster)
 
 			volumes := dep.Spec.Template.Spec.Volumes
-			Expect(volumes).To(HaveLen(3)) // config + 2 secrets
+			Expect(volumes).To(HaveLen(5)) // config + log4j-layout + logs + 2 secrets
 
 			Expect(*volumes[0].Name).To(Equal("config"))
-			Expect(*volumes[1].Name).To(Equal("secret-0"))
-			Expect(*volumes[1].Secret.SecretName).To(Equal("my-keystore-secret"))
-			Expect(*volumes[2].Name).To(Equal("secret-1"))
-			Expect(*volumes[2].Secret.SecretName).To(Equal("my-truststore-secret"))
+			Expect(*volumes[1].Name).To(Equal(log4jLayoutVolName))
+			Expect(*volumes[2].Name).To(Equal("logs"))
+			Expect(*volumes[3].Name).To(Equal("secret-0"))
+			Expect(*volumes[3].Secret.SecretName).To(Equal("my-keystore-secret"))
+			Expect(*volumes[4].Name).To(Equal("secret-1"))
+			Expect(*volumes[4].Secret.SecretName).To(Equal("my-truststore-secret"))
 
 			mounts := dep.Spec.Template.Spec.Containers[0].VolumeMounts
-			Expect(mounts).To(HaveLen(3))
+			Expect(mounts).To(HaveLen(5))
 			Expect(*mounts[0].Name).To(Equal("config"))
-			Expect(*mounts[1].Name).To(Equal("secret-0"))
-			Expect(*mounts[1].MountPath).To(Equal("/secrets/my-keystore"))
-			Expect(*mounts[1].ReadOnly).To(BeTrue())
-			Expect(*mounts[2].Name).To(Equal("secret-1"))
-			Expect(*mounts[2].MountPath).To(Equal("/secrets/my-truststore"))
-			Expect(*mounts[2].ReadOnly).To(BeTrue())
+			Expect(*mounts[1].Name).To(Equal(log4jLayoutVolName))
+			Expect(*mounts[2].Name).To(Equal("logs"))
+			Expect(*mounts[3].Name).To(Equal("secret-0"))
+			Expect(*mounts[3].MountPath).To(Equal("/secrets/my-keystore"))
+			Expect(*mounts[3].ReadOnly).To(BeTrue())
+			Expect(*mounts[4].Name).To(Equal("secret-1"))
+			Expect(*mounts[4].MountPath).To(Equal("/secrets/my-truststore"))
+			Expect(*mounts[4].ReadOnly).To(BeTrue())
 		})
 
 		It("should add both plugin and secret volumes together", func() {
@@ -172,32 +185,40 @@ var _ = Describe("Cluster Resources", func() {
 			dep := deploymentForCluster(cluster)
 
 			volumes := dep.Spec.Template.Spec.Volumes
-			Expect(volumes).To(HaveLen(3)) // config + 1 plugin + 1 secret
+			Expect(volumes).To(HaveLen(5)) // config + log4j-layout + logs + 1 plugin + 1 secret
 
 			Expect(*volumes[0].Name).To(Equal("config"))
-			Expect(*volumes[1].Name).To(Equal("plugin-plugin-a"))
-			Expect(*volumes[2].Name).To(Equal("secret-0"))
+			Expect(*volumes[1].Name).To(Equal(log4jLayoutVolName))
+			Expect(*volumes[2].Name).To(Equal("logs"))
+			Expect(*volumes[3].Name).To(Equal("plugin-plugin-a"))
+			Expect(*volumes[4].Name).To(Equal("secret-0"))
 
 			mounts := dep.Spec.Template.Spec.Containers[0].VolumeMounts
-			Expect(mounts).To(HaveLen(3))
+			Expect(mounts).To(HaveLen(5))
 			Expect(*mounts[0].Name).To(Equal("config"))
-			Expect(*mounts[1].Name).To(Equal("plugin-plugin-a"))
-			Expect(*mounts[1].MountPath).To(Equal("/plugins/plugin-a"))
-			Expect(*mounts[2].Name).To(Equal("secret-0"))
-			Expect(*mounts[2].MountPath).To(Equal("/secrets/my-keystore"))
+			Expect(*mounts[1].Name).To(Equal(log4jLayoutVolName))
+			Expect(*mounts[2].Name).To(Equal("logs"))
+			Expect(*mounts[3].Name).To(Equal("plugin-plugin-a"))
+			Expect(*mounts[3].MountPath).To(Equal("/plugins/plugin-a"))
+			Expect(*mounts[4].Name).To(Equal("secret-0"))
+			Expect(*mounts[4].MountPath).To(Equal("/secrets/my-keystore"))
 		})
 
-		It("should have only the config volume when no plugins or secrets are specified", func() {
+		It("should have config and log4j-layout-template-json volumes when no plugins or secrets are specified", func() {
 			cluster := newClusterWithSecrets(nil, nil)
 			dep := deploymentForCluster(cluster)
 
 			volumes := dep.Spec.Template.Spec.Volumes
-			Expect(volumes).To(HaveLen(1))
+			Expect(volumes).To(HaveLen(3))
 			Expect(*volumes[0].Name).To(Equal("config"))
+			Expect(*volumes[1].Name).To(Equal(log4jLayoutVolName))
+			Expect(*volumes[2].Name).To(Equal("logs"))
 
 			mounts := dep.Spec.Template.Spec.Containers[0].VolumeMounts
-			Expect(mounts).To(HaveLen(1))
+			Expect(mounts).To(HaveLen(3))
 			Expect(*mounts[0].Name).To(Equal("config"))
+			Expect(*mounts[1].Name).To(Equal(log4jLayoutVolName))
+			Expect(*mounts[2].Name).To(Equal("logs"))
 		})
 
 		It("should have only config/hash annotation when no user pod annotations", func() {
@@ -313,6 +334,21 @@ var _ = Describe("Cluster Resources", func() {
 
 			Expect(dep.Spec.Template.Spec.ServiceAccountName).NotTo(BeNil())
 			Expect(*dep.Spec.Template.Spec.ServiceAccountName).To(Equal("my-cluster-connect"))
+		})
+
+		It("should always set KAFKA_LOG4J_OPTS pointing to the custom Log4j2 config", func() {
+			cluster := newCluster(nil)
+			dep := deploymentForCluster(cluster)
+
+			envVars := dep.Spec.Template.Spec.Containers[0].Env
+			var log4jOpts *corev1ac.EnvVarApplyConfiguration
+			for i := range envVars {
+				if *envVars[i].Name == "KAFKA_LOG4J_OPTS" {
+					log4jOpts = &envVars[i]
+				}
+			}
+			Expect(log4jOpts).NotTo(BeNil())
+			Expect(*log4jOpts.Value).To(Equal("-Dlog4j2.configurationFile=/config/connect-log4j2.properties"))
 		})
 
 		It("should set KAFKA_HEAP_OPTS with MaxRAMPercentage", func() {
@@ -439,40 +475,21 @@ var _ = Describe("Cluster Resources", func() {
 			Expect(*jmxVol.Image.PullPolicy).To(Equal(corev1.PullAlways))
 		})
 
-		It("should not have library volumes or CLASSPATH env when no libraries are specified", func() {
+		It("should have log4j-layout-template-json in CLASSPATH when no libraries are specified", func() {
 			cluster := newClusterWithLibraries(nil)
 			dep := deploymentForCluster(cluster)
 
 			volumes := dep.Spec.Template.Spec.Volumes
-			Expect(volumes).To(HaveLen(1))
+			Expect(volumes).To(HaveLen(3)) // config + log4j-layout + logs
 			Expect(*volumes[0].Name).To(Equal("config"))
+			Expect(*volumes[1].Name).To(Equal(log4jLayoutVolName))
+			Expect(*volumes[2].Name).To(Equal("logs"))
 
 			mounts := dep.Spec.Template.Spec.Containers[0].VolumeMounts
-			Expect(mounts).To(HaveLen(1))
+			Expect(mounts).To(HaveLen(3))
 			Expect(*mounts[0].Name).To(Equal("config"))
-
-			envVars := dep.Spec.Template.Spec.Containers[0].Env
-			for _, env := range envVars {
-				Expect(*env.Name).NotTo(Equal(classpathEnvName))
-			}
-		})
-
-		It("should add a single library volume, mount, and CLASSPATH env", func() {
-			cluster := newClusterWithLibraries([]kcv1alpha1.Library{
-				{Name: "msk-iam-auth", Image: "ghcr.io/example/aws-msk-iam-auth:2.3.0"},
-			})
-			dep := deploymentForCluster(cluster)
-
-			volumes := dep.Spec.Template.Spec.Volumes
-			Expect(volumes).To(HaveLen(2)) // config + 1 library
-			Expect(*volumes[1].Name).To(Equal("library-msk-iam-auth"))
-			Expect(*volumes[1].Image.Reference).To(Equal("ghcr.io/example/aws-msk-iam-auth:2.3.0"))
-
-			mounts := dep.Spec.Template.Spec.Containers[0].VolumeMounts
-			Expect(mounts).To(HaveLen(2))
-			Expect(*mounts[1].Name).To(Equal("library-msk-iam-auth"))
-			Expect(*mounts[1].MountPath).To(Equal("/libraries/msk-iam-auth"))
-			Expect(*mounts[1].ReadOnly).To(BeTrue())
+			Expect(*mounts[1].Name).To(Equal(log4jLayoutVolName))
+			Expect(*mounts[2].Name).To(Equal("logs"))
 
 			envVars := dep.Spec.Template.Spec.Containers[0].Env
 			var classpathEnv *corev1ac.EnvVarApplyConfiguration
@@ -483,7 +500,36 @@ var _ = Describe("Cluster Resources", func() {
 				}
 			}
 			Expect(classpathEnv).NotTo(BeNil())
-			Expect(*classpathEnv.Value).To(Equal("/libraries/msk-iam-auth/*"))
+			Expect(*classpathEnv.Value).To(Equal("/opt/log4j-layout-template-json/*"))
+		})
+
+		It("should add a single library volume, mount, and CLASSPATH env", func() {
+			cluster := newClusterWithLibraries([]kcv1alpha1.Library{
+				{Name: "msk-iam-auth", Image: "ghcr.io/example/aws-msk-iam-auth:2.3.0"},
+			})
+			dep := deploymentForCluster(cluster)
+
+			volumes := dep.Spec.Template.Spec.Volumes
+			Expect(volumes).To(HaveLen(4)) // config + log4j-layout + logs + 1 library
+			Expect(*volumes[3].Name).To(Equal("library-msk-iam-auth"))
+			Expect(*volumes[3].Image.Reference).To(Equal("ghcr.io/example/aws-msk-iam-auth:2.3.0"))
+
+			mounts := dep.Spec.Template.Spec.Containers[0].VolumeMounts
+			Expect(mounts).To(HaveLen(4))
+			Expect(*mounts[3].Name).To(Equal("library-msk-iam-auth"))
+			Expect(*mounts[3].MountPath).To(Equal("/libraries/msk-iam-auth"))
+			Expect(*mounts[3].ReadOnly).To(BeTrue())
+
+			envVars := dep.Spec.Template.Spec.Containers[0].Env
+			var classpathEnv *corev1ac.EnvVarApplyConfiguration
+			for i := range envVars {
+				if *envVars[i].Name == classpathEnvName {
+					classpathEnv = &envVars[i]
+					break
+				}
+			}
+			Expect(classpathEnv).NotTo(BeNil())
+			Expect(*classpathEnv.Value).To(Equal("/opt/log4j-layout-template-json/*:/libraries/msk-iam-auth/*"))
 		})
 
 		It("should build colon-separated CLASSPATH for multiple libraries", func() {
@@ -494,14 +540,14 @@ var _ = Describe("Cluster Resources", func() {
 			dep := deploymentForCluster(cluster)
 
 			volumes := dep.Spec.Template.Spec.Volumes
-			Expect(volumes).To(HaveLen(3)) // config + 2 libraries
-			Expect(*volumes[1].Name).To(Equal("library-lib-a"))
-			Expect(*volumes[2].Name).To(Equal("library-lib-b"))
+			Expect(volumes).To(HaveLen(5)) // config + log4j-layout + logs + 2 libraries
+			Expect(*volumes[3].Name).To(Equal("library-lib-a"))
+			Expect(*volumes[4].Name).To(Equal("library-lib-b"))
 
 			mounts := dep.Spec.Template.Spec.Containers[0].VolumeMounts
-			Expect(mounts).To(HaveLen(3))
-			Expect(*mounts[1].MountPath).To(Equal("/libraries/lib-a"))
-			Expect(*mounts[2].MountPath).To(Equal("/libraries/lib-b"))
+			Expect(mounts).To(HaveLen(5))
+			Expect(*mounts[3].MountPath).To(Equal("/libraries/lib-a"))
+			Expect(*mounts[4].MountPath).To(Equal("/libraries/lib-b"))
 
 			envVars := dep.Spec.Template.Spec.Containers[0].Env
 			var classpathEnv *corev1ac.EnvVarApplyConfiguration
@@ -512,7 +558,7 @@ var _ = Describe("Cluster Resources", func() {
 				}
 			}
 			Expect(classpathEnv).NotTo(BeNil())
-			Expect(*classpathEnv.Value).To(Equal("/libraries/lib-a/*:/libraries/lib-b/*"))
+			Expect(*classpathEnv.Value).To(Equal("/opt/log4j-layout-template-json/*:/libraries/lib-a/*:/libraries/lib-b/*"))
 		})
 
 		It("should propagate library pullPolicy when specified", func() {
@@ -523,8 +569,8 @@ var _ = Describe("Cluster Resources", func() {
 			dep := deploymentForCluster(cluster)
 
 			volumes := dep.Spec.Template.Spec.Volumes
-			Expect(volumes).To(HaveLen(2))
-			Expect(*volumes[1].Image.PullPolicy).To(Equal(corev1.PullAlways))
+			Expect(volumes).To(HaveLen(4)) // config + log4j-layout + logs + 1 library
+			Expect(*volumes[3].Image.PullPolicy).To(Equal(corev1.PullAlways))
 		})
 
 		It("should not set library pullPolicy when not specified", func() {
@@ -534,8 +580,8 @@ var _ = Describe("Cluster Resources", func() {
 			dep := deploymentForCluster(cluster)
 
 			volumes := dep.Spec.Template.Spec.Volumes
-			Expect(volumes).To(HaveLen(2))
-			Expect(volumes[1].Image.PullPolicy).To(BeNil())
+			Expect(volumes).To(HaveLen(4)) // config + log4j-layout + logs + 1 library
+			Expect(volumes[3].Image.PullPolicy).To(BeNil())
 		})
 
 		It("should add libraries together with plugins and secrets", func() {
@@ -556,21 +602,25 @@ var _ = Describe("Cluster Resources", func() {
 			dep := deploymentForCluster(cluster)
 
 			volumes := dep.Spec.Template.Spec.Volumes
-			Expect(volumes).To(HaveLen(4)) // config + 1 plugin + 1 library + 1 secret
+			Expect(volumes).To(HaveLen(6)) // config + log4j-layout + logs + 1 plugin + 1 library + 1 secret
 			Expect(*volumes[0].Name).To(Equal("config"))
-			Expect(*volumes[1].Name).To(Equal("plugin-plugin-a"))
-			Expect(*volumes[2].Name).To(Equal("library-lib-a"))
-			Expect(*volumes[3].Name).To(Equal("secret-0"))
+			Expect(*volumes[1].Name).To(Equal(log4jLayoutVolName))
+			Expect(*volumes[2].Name).To(Equal("logs"))
+			Expect(*volumes[3].Name).To(Equal("plugin-plugin-a"))
+			Expect(*volumes[4].Name).To(Equal("library-lib-a"))
+			Expect(*volumes[5].Name).To(Equal("secret-0"))
 
 			mounts := dep.Spec.Template.Spec.Containers[0].VolumeMounts
-			Expect(mounts).To(HaveLen(4))
+			Expect(mounts).To(HaveLen(6))
 			Expect(*mounts[0].Name).To(Equal("config"))
-			Expect(*mounts[1].Name).To(Equal("plugin-plugin-a"))
-			Expect(*mounts[1].MountPath).To(Equal("/plugins/plugin-a"))
-			Expect(*mounts[2].Name).To(Equal("library-lib-a"))
-			Expect(*mounts[2].MountPath).To(Equal("/libraries/lib-a"))
-			Expect(*mounts[3].Name).To(Equal("secret-0"))
-			Expect(*mounts[3].MountPath).To(Equal("/secrets/my-keystore"))
+			Expect(*mounts[1].Name).To(Equal(log4jLayoutVolName))
+			Expect(*mounts[2].Name).To(Equal("logs"))
+			Expect(*mounts[3].Name).To(Equal("plugin-plugin-a"))
+			Expect(*mounts[3].MountPath).To(Equal("/plugins/plugin-a"))
+			Expect(*mounts[4].Name).To(Equal("library-lib-a"))
+			Expect(*mounts[4].MountPath).To(Equal("/libraries/lib-a"))
+			Expect(*mounts[5].Name).To(Equal("secret-0"))
+			Expect(*mounts[5].MountPath).To(Equal("/secrets/my-keystore"))
 
 			envVars := dep.Spec.Template.Spec.Containers[0].Env
 			var classpathEnv *corev1ac.EnvVarApplyConfiguration
@@ -581,7 +631,7 @@ var _ = Describe("Cluster Resources", func() {
 				}
 			}
 			Expect(classpathEnv).NotTo(BeNil())
-			Expect(*classpathEnv.Value).To(Equal("/libraries/lib-a/*"))
+			Expect(*classpathEnv.Value).To(Equal("/opt/log4j-layout-template-json/*:/libraries/lib-a/*"))
 		})
 
 		It("should use default resources when spec.resources is nil", func() {
@@ -920,23 +970,27 @@ var _ = Describe("Cluster Resources", func() {
 			dep := deploymentForCluster(cluster)
 
 			volumes := dep.Spec.Template.Spec.Volumes
-			Expect(volumes).To(HaveLen(3)) // config + 2 configmaps
+			Expect(volumes).To(HaveLen(5)) // config + log4j-layout + logs + 2 configmaps
 
 			Expect(*volumes[0].Name).To(Equal("config"))
-			Expect(*volumes[1].Name).To(Equal("configmap-0"))
-			Expect(*volumes[1].ConfigMap.Name).To(Equal("my-config-cm"))
-			Expect(*volumes[2].Name).To(Equal("configmap-1"))
-			Expect(*volumes[2].ConfigMap.Name).To(Equal("other-config-cm"))
+			Expect(*volumes[1].Name).To(Equal(log4jLayoutVolName))
+			Expect(*volumes[2].Name).To(Equal("logs"))
+			Expect(*volumes[3].Name).To(Equal("configmap-0"))
+			Expect(*volumes[3].ConfigMap.Name).To(Equal("my-config-cm"))
+			Expect(*volumes[4].Name).To(Equal("configmap-1"))
+			Expect(*volumes[4].ConfigMap.Name).To(Equal("other-config-cm"))
 
 			mounts := dep.Spec.Template.Spec.Containers[0].VolumeMounts
-			Expect(mounts).To(HaveLen(3))
+			Expect(mounts).To(HaveLen(5))
 			Expect(*mounts[0].Name).To(Equal("config"))
-			Expect(*mounts[1].Name).To(Equal("configmap-0"))
-			Expect(*mounts[1].MountPath).To(Equal("/configmaps/my-config"))
-			Expect(*mounts[1].ReadOnly).To(BeTrue())
-			Expect(*mounts[2].Name).To(Equal("configmap-1"))
-			Expect(*mounts[2].MountPath).To(Equal("/configmaps/other-config"))
-			Expect(*mounts[2].ReadOnly).To(BeTrue())
+			Expect(*mounts[1].Name).To(Equal(log4jLayoutVolName))
+			Expect(*mounts[2].Name).To(Equal("logs"))
+			Expect(*mounts[3].Name).To(Equal("configmap-0"))
+			Expect(*mounts[3].MountPath).To(Equal("/configmaps/my-config"))
+			Expect(*mounts[3].ReadOnly).To(BeTrue())
+			Expect(*mounts[4].Name).To(Equal("configmap-1"))
+			Expect(*mounts[4].MountPath).To(Equal("/configmaps/other-config"))
+			Expect(*mounts[4].ReadOnly).To(BeTrue())
 		})
 
 		It("should add configmaps together with plugins and secrets", func() {
@@ -957,20 +1011,24 @@ var _ = Describe("Cluster Resources", func() {
 			dep := deploymentForCluster(cluster)
 
 			volumes := dep.Spec.Template.Spec.Volumes
-			Expect(volumes).To(HaveLen(4)) // config + 1 plugin + 1 secret + 1 configmap
+			Expect(volumes).To(HaveLen(6)) // config + log4j-layout + logs + 1 plugin + 1 secret + 1 configmap
 
 			Expect(*volumes[0].Name).To(Equal("config"))
-			Expect(*volumes[1].Name).To(Equal("plugin-plugin-a"))
-			Expect(*volumes[2].Name).To(Equal("secret-0"))
-			Expect(*volumes[3].Name).To(Equal("configmap-0"))
+			Expect(*volumes[1].Name).To(Equal(log4jLayoutVolName))
+			Expect(*volumes[2].Name).To(Equal("logs"))
+			Expect(*volumes[3].Name).To(Equal("plugin-plugin-a"))
+			Expect(*volumes[4].Name).To(Equal("secret-0"))
+			Expect(*volumes[5].Name).To(Equal("configmap-0"))
 
 			mounts := dep.Spec.Template.Spec.Containers[0].VolumeMounts
-			Expect(mounts).To(HaveLen(4))
+			Expect(mounts).To(HaveLen(6))
 			Expect(*mounts[0].Name).To(Equal("config"))
-			Expect(*mounts[1].Name).To(Equal("plugin-plugin-a"))
-			Expect(*mounts[2].Name).To(Equal("secret-0"))
-			Expect(*mounts[3].Name).To(Equal("configmap-0"))
-			Expect(*mounts[3].MountPath).To(Equal("/configmaps/my-config"))
+			Expect(*mounts[1].Name).To(Equal(log4jLayoutVolName))
+			Expect(*mounts[2].Name).To(Equal("logs"))
+			Expect(*mounts[3].Name).To(Equal("plugin-plugin-a"))
+			Expect(*mounts[4].Name).To(Equal("secret-0"))
+			Expect(*mounts[5].Name).To(Equal("configmap-0"))
+			Expect(*mounts[5].MountPath).To(Equal("/configmaps/my-config"))
 		})
 
 		It("should not have configmap volumes when no configmaps are specified", func() {
@@ -981,6 +1039,48 @@ var _ = Describe("Cluster Resources", func() {
 			for _, v := range volumes {
 				Expect(*v.Name).NotTo(HavePrefix("configmap-"))
 			}
+		})
+
+		It("should always have log4j-layout-template-json volume and mount", func() {
+			cluster := newCluster(nil)
+			dep := deploymentForCluster(cluster)
+
+			// Volume
+			var log4jVol *corev1ac.VolumeApplyConfiguration
+			for i := range dep.Spec.Template.Spec.Volumes {
+				if *dep.Spec.Template.Spec.Volumes[i].Name == log4jLayoutVolName {
+					log4jVol = &dep.Spec.Template.Spec.Volumes[i]
+				}
+			}
+			Expect(log4jVol).NotTo(BeNil())
+			Expect(*log4jVol.Image.Reference).To(Equal("ghcr.io/b1zzu/kafka-connect-operator/log4j-layout-template-json:2.25.3"))
+
+			// Mount
+			var log4jMount *corev1ac.VolumeMountApplyConfiguration
+			for i := range dep.Spec.Template.Spec.Containers[0].VolumeMounts {
+				if *dep.Spec.Template.Spec.Containers[0].VolumeMounts[i].Name == log4jLayoutVolName {
+					log4jMount = &dep.Spec.Template.Spec.Containers[0].VolumeMounts[i]
+				}
+			}
+			Expect(log4jMount).NotTo(BeNil())
+			Expect(*log4jMount.MountPath).To(Equal("/opt/log4j-layout-template-json"))
+			Expect(*log4jMount.ReadOnly).To(BeTrue())
+		})
+
+		It("should always have CLASSPATH with log4j-layout-template-json", func() {
+			cluster := newCluster(nil)
+			dep := deploymentForCluster(cluster)
+
+			envVars := dep.Spec.Template.Spec.Containers[0].Env
+			var classpathEnv *corev1ac.EnvVarApplyConfiguration
+			for i := range envVars {
+				if *envVars[i].Name == classpathEnvName {
+					classpathEnv = &envVars[i]
+					break
+				}
+			}
+			Expect(classpathEnv).NotTo(BeNil())
+			Expect(*classpathEnv.Value).To(ContainSubstring("/opt/log4j-layout-template-json/*"))
 		})
 	})
 
@@ -1153,6 +1253,19 @@ var _ = Describe("Cluster Resources", func() {
 	})
 
 	Describe("configMapForCluster", func() {
+		It("should always contain connect-log4j2.properties with JSON console logging", func() {
+			cluster := newCluster(nil)
+			cm, err := configMapForCluster(cluster)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(cm.Data).To(HaveKey("connect-log4j2.properties"))
+
+			log4jConfig := cm.Data["connect-log4j2.properties"]
+			Expect(log4jConfig).To(ContainSubstring("JsonTemplateLayout"))
+			Expect(log4jConfig).To(ContainSubstring("CONSOLE"))
+			Expect(log4jConfig).NotTo(ContainSubstring("File"))
+			Expect(log4jConfig).NotTo(ContainSubstring("RollingFile"))
+		})
+
 		It("should not have jmx-exporter-config.yaml key when metrics is nil", func() {
 			cluster := newCluster(nil)
 			cm, err := configMapForCluster(cluster)

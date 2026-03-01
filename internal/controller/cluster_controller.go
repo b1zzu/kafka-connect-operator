@@ -19,6 +19,7 @@ import (
 	"context"
 	"fmt"
 	"hash/fnv"
+	"sort"
 	"strconv"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -257,6 +258,32 @@ func (r *ClusterReconciler) reconcileService(ctx context.Context, cluster *kcv1a
 	return cluster, nil
 }
 
+func hashConfigMap(configMap *corev1.ConfigMap) string {
+	// Compute the ConfigMap hash (keys must be sorted for deterministic output)
+	h := fnv.New64a()
+	dataKeys := make([]string, 0, len(configMap.Data))
+	for k := range configMap.Data {
+		dataKeys = append(dataKeys, k)
+	}
+	sort.Strings(dataKeys)
+	for _, k := range dataKeys {
+		h.Write([]byte(k))
+		h.Write([]byte(configMap.Data[k]))
+	}
+
+	binaryDataKeys := make([]string, 0, len(configMap.BinaryData))
+	for k := range configMap.BinaryData {
+		binaryDataKeys = append(binaryDataKeys, k)
+	}
+	sort.Strings(binaryDataKeys)
+	for _, k := range binaryDataKeys {
+		h.Write([]byte(k))
+		h.Write(configMap.BinaryData[k])
+	}
+
+	return strconv.FormatUint(h.Sum64(), 16)
+}
+
 func (r *ClusterReconciler) reconcileConfigMap(ctx context.Context, cluster *kcv1alpha1.Cluster) (*kcv1alpha1.Cluster, error) {
 	log := logf.FromContext(ctx)
 
@@ -280,17 +307,7 @@ func (r *ClusterReconciler) reconcileConfigMap(ctx context.Context, cluster *kcv
 		return nil, &ClusterReconciliationError{err: err, msg: "failed to get ConfigMap after apply", cluster: cluster}
 	}
 
-	// Compute the ConfigMap hash
-	h := fnv.New64a()
-	for k, v := range configMap.Data {
-		h.Write([]byte(k))
-		h.Write([]byte(v))
-	}
-	for k, v := range configMap.BinaryData {
-		h.Write([]byte(k))
-		h.Write(v)
-	}
-	configMapHash := strconv.FormatUint(h.Sum64(), 16)
+	configMapHash := hashConfigMap(configMap)
 
 	// Update the cluster status with the ConfigMap hash
 	if cluster.Status.ConfigHash == nil || *cluster.Status.ConfigHash != configMapHash {

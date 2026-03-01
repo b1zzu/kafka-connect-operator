@@ -487,6 +487,14 @@ spec:
       path: /metrics
 ```
 
+## Logging
+
+The operator preconfigures Kafka Connect to log in structured JSON format directly to standard output (console). This uses the [Log4j2 `JsonTemplateLayout`](https://logging.apache.org/log4j/2.x/manual/json-template-layout.html) with the default ECS template, so logs are ready for ingestion by log aggregation systems (e.g. Elasticsearch, Loki, CloudWatch) without additional parsing.
+
+File-based logging is disabled — the container only writes to stdout/stderr, following the twelve-factor app methodology for containers.
+
+Logging configuration is currently not customizable. The root logger level is set to `INFO` and cannot be changed through the Cluster CR.
+
 ## Development
 
 ### My Workspace
