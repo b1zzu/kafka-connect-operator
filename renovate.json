@@ -95,6 +95,30 @@
         "\"(?<depName>ghcr\\.io\\/b1zzu\\/kafka-connect-operator\\/msk-iam-auth):(?<currentValue>[^\"]+)\""
       ],
       "datasourceTemplate": "docker"
+    },
+    {
+      "customType": "regex",
+      "description": "Update Log4j Layout Template JSON version in Dockerfile",
+      "managerFilePatterns": [
+        "/^containers/log4j-layout-template-json/Dockerfile$/"
+      ],
+      "matchStrings": [
+        "ARG LOG4J_VERSION=(?<currentValue>\\S+)"
+      ],
+      "depNameTemplate": "org.apache.logging.log4j:log4j-layout-template-json",
+      "datasourceTemplate": "maven",
+      "registryUrlTemplate": "https://repo1.maven.org/maven2"
+    },
+    {
+      "customType": "regex",
+      "description": "Update default Log4j Layout Template JSON image in Go source files",
+      "managerFilePatterns": [
+        "/\\.go$/"
+      ],
+      "matchStrings": [
+        "\"(?<depName>ghcr\\.io\\/b1zzu\\/kafka-connect-operator\\/log4j-layout-template-json):(?<currentValue>[^\"]+)\""
+      ],
+      "datasourceTemplate": "docker"
     }
   ],
   "packageRules": [
@@ -139,6 +163,13 @@
         "containers/msk-iam-auth/Dockerfile"
       ],
       "groupName": "msk-iam-auth dockerfile"
+    },
+    {
+      "description": "Group all log4j-layout-template-json Dockerfile updates",
+      "matchFileNames": [
+        "containers/log4j-layout-template-json/Dockerfile"
+      ],
+      "groupName": "log4j-layout-template-json dockerfile"
     }
   ]
 }
