@@ -31,7 +31,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -47,7 +47,15 @@ type mockKafkaConnectServer struct {
 	connectorStates     map[string]string // name -> state (RUNNING, STOPPED, etc.)
 	offsets             map[string]*kafkaconnect.ConnectorOffsets
 	restartedConnectors []string
+	restartedTasks      []int
 	server              *httptest.Server
+
+	// connectorStatus overrides the status returned for connectors (default: RUNNING)
+	connectorStatus string
+	// taskStatuses overrides the status returned for tasks (default: single RUNNING task)
+	taskStatuses []kafkaconnect.ConnectorStatusTask
+	// restartError if set, causes restart endpoints to return this error
+	restartError bool
 }
 
 func newMockKafkaConnectServer() *mockKafkaConnectServer {
@@ -78,6 +86,13 @@ func (m *mockKafkaConnectServer) ServeHTTP(w http.ResponseWriter, r *http.Reques
 			m.handleConnector(w, r, parts[1])
 		case 3:
 			m.handleConnectorAction(w, r, parts[1], parts[2])
+		case 5:
+			// POST /connectors/{name}/tasks/{id}/restart
+			if parts[2] == "tasks" && parts[4] == "restart" && r.Method == http.MethodPost {
+				m.handleTaskRestart(w, parts[1], parts[3])
+			} else {
+				http.Error(w, fmt.Sprintf("unhandled: %s %s", r.Method, r.URL.Path), http.StatusNotImplemented)
+			}
 		default:
 			http.Error(w, fmt.Sprintf("unhandled: %s %s", r.Method, r.URL.Path), http.StatusNotImplemented)
 		}
@@ -153,7 +168,26 @@ func (m *mockKafkaConnectServer) handleRestart(w http.ResponseWriter, _ *http.Re
 		http.Error(w, "not found", http.StatusNotFound)
 		return
 	}
+	if m.restartError {
+		http.Error(w, "restart failed", http.StatusInternalServerError)
+		return
+	}
 	m.restartedConnectors = append(m.restartedConnectors, name)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (m *mockKafkaConnectServer) handleTaskRestart(w http.ResponseWriter, name, taskIDStr string) {
+	if _, ok := m.connectors[name]; !ok {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	if m.restartError {
+		http.Error(w, "restart failed", http.StatusInternalServerError)
+		return
+	}
+	var taskID int
+	_, _ = fmt.Sscanf(taskIDStr, "%d", &taskID)
+	m.restartedTasks = append(m.restartedTasks, taskID)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -166,6 +200,10 @@ func (m *mockKafkaConnectServer) handleStatus(w http.ResponseWriter, name string
 	if state == "" {
 		state = connectorStatusRunning
 	}
+	// Allow test-level override of connector status
+	if m.connectorStatus != "" {
+		state = m.connectorStatus
+	}
 	status := kafkaconnect.ConnectorStatus{
 		Name: name,
 		Connector: kafkaconnect.ConnectorStatusConnector{
@@ -173,7 +211,9 @@ func (m *mockKafkaConnectServer) handleStatus(w http.ResponseWriter, name string
 			WorkerID: "worker-1",
 		},
 	}
-	if state == connectorStatusRunning {
+	if m.taskStatuses != nil {
+		status.Tasks = m.taskStatuses
+	} else if state == connectorStatusRunning {
 		status.Tasks = []kafkaconnect.ConnectorStatusTask{
 			{ID: 0, State: connectorStatusRunning, WorkerID: "worker-1"},
 		}
@@ -218,8 +258,8 @@ func (m *mockKafkaConnectServer) handleOffsets(w http.ResponseWriter, r *http.Re
 
 var _ = Describe("Connector Controller", func() {
 
-	newReconciler := func(mock *mockKafkaConnectServer) (*ConnectorReconciler, *record.FakeRecorder) {
-		recorder := record.NewFakeRecorder(10)
+	newReconciler := func(mock *mockKafkaConnectServer) (*ConnectorReconciler, *events.FakeRecorder) {
+		recorder := events.NewFakeRecorder(10)
 		r := &ConnectorReconciler{
 			Client:                    k8sClient,
 			Scheme:                    k8sClient.Scheme(),
@@ -431,10 +471,142 @@ var _ = Describe("Connector Controller", func() {
 			Expect(connector).NotTo(BeNil())
 			Expect(connector.Annotations).NotTo(HaveKey("kafka-connect.b1zzu.net/restart"))
 
+			// Verify restart status fields
+			Expect(connector.Status.LastRestartAt).NotTo(BeNil())
+			Expect(connector.Status.RestartCount).To(Equal(int32(1)))
+
 			// Verify the connector was restarted via the mock
 			mock.mu.Lock()
 			defer mock.mu.Unlock()
 			Expect(mock.restartedConnectors).To(ContainElement(name))
+		})
+
+		It("should emit warning event and return error when manual restart fails", func() {
+			ctx := context.Background()
+			name := "restart-fail"
+			nn := nameFor(name)
+
+			mock := newMockKafkaConnectServer()
+			mock.restartError = true
+			DeferCleanup(mock.Close)
+
+			createConnector(ctx, name, "my-cluster", map[string]string{"connector.class": "FileStreamSource"}, map[string]string{
+				"kafka-connect.b1zzu.net/restart": "true",
+			})
+			DeferCleanup(func() {
+				c := getConnector(ctx, nn)
+				if c != nil {
+					c.Finalizers = nil
+					_ = k8sClient.Update(ctx, c)
+					_ = k8sClient.Delete(ctx, c)
+				}
+			})
+
+			r, _ := newReconciler(mock)
+
+			// Reconcile 3 times: init conditions, add finalizer, create connector
+			_, err := reconcileN(ctx, r, nn, 3)
+			Expect(err).NotTo(HaveOccurred())
+
+			// 4th reconcile hits restart which fails
+			_, err = r.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("failed to restart connector"))
+
+			// Verify restart status fields are NOT updated on failure
+			connector := getConnector(ctx, nn)
+			Expect(connector).NotTo(BeNil())
+			Expect(connector.Status.LastRestartAt).To(BeNil())
+			Expect(connector.Status.RestartCount).To(Equal(int32(0)))
+		})
+
+		It("should auto-restart failed connector, emit event, and update restart status", func() {
+			ctx := context.Background()
+			name := "auto-restart-connector"
+			nn := nameFor(name)
+
+			mock := newMockKafkaConnectServer()
+			DeferCleanup(mock.Close)
+
+			createConnector(ctx, name, "my-cluster", map[string]string{"connector.class": "FileStreamSource"}, nil)
+			DeferCleanup(func() {
+				c := getConnector(ctx, nn)
+				if c != nil {
+					c.Finalizers = nil
+					_ = k8sClient.Update(ctx, c)
+					_ = k8sClient.Delete(ctx, c)
+				}
+			})
+
+			r, _ := newReconciler(mock)
+
+			// Reconcile 4 times: init conditions, add finalizer, create connector, restart loop
+			_, err := reconcileN(ctx, r, nn, 4)
+			Expect(err).NotTo(HaveOccurred())
+
+			// Now set mock to return FAILED status
+			mock.mu.Lock()
+			mock.connectorStatus = "FAILED"
+			mock.mu.Unlock()
+
+			// Reconcile once more — auto restart should happen
+			result, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+			Expect(err).NotTo(HaveOccurred())
+			// Status was updated (restarted flag triggered DeepEqual diff), so returns empty result
+			Expect(result).To(Equal(ctrl.Result{}))
+
+			// Verify restart status fields
+			connector := getConnector(ctx, nn)
+			Expect(connector).NotTo(BeNil())
+			Expect(connector.Status.LastRestartAt).NotTo(BeNil())
+			Expect(connector.Status.RestartCount).To(Equal(int32(1)))
+
+			// Verify the connector was restarted via the mock
+			mock.mu.Lock()
+			defer mock.mu.Unlock()
+			Expect(mock.restartedConnectors).To(ContainElement(name))
+		})
+
+		It("should emit warning event and return error when auto-restart fails", func() {
+			ctx := context.Background()
+			name := "auto-restart-fail"
+			nn := nameFor(name)
+
+			mock := newMockKafkaConnectServer()
+			DeferCleanup(mock.Close)
+
+			createConnector(ctx, name, "my-cluster", map[string]string{"connector.class": "FileStreamSource"}, nil)
+			DeferCleanup(func() {
+				c := getConnector(ctx, nn)
+				if c != nil {
+					c.Finalizers = nil
+					_ = k8sClient.Update(ctx, c)
+					_ = k8sClient.Delete(ctx, c)
+				}
+			})
+
+			r, _ := newReconciler(mock)
+
+			// Reconcile 4 times: init conditions, add finalizer, create connector, restart loop
+			_, err := reconcileN(ctx, r, nn, 4)
+			Expect(err).NotTo(HaveOccurred())
+
+			// Now set mock to return FAILED status and make restart fail
+			mock.mu.Lock()
+			mock.connectorStatus = "FAILED"
+			mock.restartError = true
+			mock.mu.Unlock()
+
+			// Reconcile — auto restart should fail and return error
+			_, err = r.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("failed to restart failed connector"))
+
+			// Verify restart status fields are NOT updated on failure
+			connector := getConnector(ctx, nn)
+			Expect(connector).NotTo(BeNil())
+			Expect(connector.Status.LastRestartAt).To(BeNil())
+			Expect(connector.Status.RestartCount).To(Equal(int32(0)))
 		})
 
 	})
