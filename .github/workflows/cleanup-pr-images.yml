@@ -1,0 +1,29 @@
+name: Cleanup PR Images
+
+on:
+  pull_request:
+    types: [closed]
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+
+    steps:
+      - name: Delete PR image tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          VERSION_ID=$(gh api \
+            /orgs/${{ github.repository_owner }}/packages/container/kafka-connect-operator/versions \
+            --jq ".[] | select(.metadata.container.tags[] == \"pr-${PR_NUMBER}\") | .id")
+
+          if [ -n "$VERSION_ID" ]; then
+            gh api --method DELETE \
+              /orgs/${{ github.repository_owner }}/packages/container/kafka-connect-operator/versions/${VERSION_ID}
+            echo "Deleted image version ${VERSION_ID} with tag pr-${PR_NUMBER}"
+          else
+            echo "No image found with tag pr-${PR_NUMBER}, skipping"
+          fi
