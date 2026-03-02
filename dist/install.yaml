@@ -1015,6 +1015,58 @@ spec:
                 x-kubernetes-list-map-keys:
                 - name
                 x-kubernetes-list-type: map
+              logging:
+                description: |-
+                  Logging configures the log4j2 log levels for the Kafka Connect cluster.
+                  When not set, the root logger defaults to INFO level.
+                properties:
+                  level:
+                    default: INFO
+                    description: |-
+                      Level sets the root logger log level.
+                      Defaults to INFO when not set.
+                    enum:
+                    - "OFF"
+                    - FATAL
+                    - ERROR
+                    - WARN
+                    - INFO
+                    - DEBUG
+                    - TRACE
+                    - ALL
+                    type: string
+                  loggers:
+                    description: Loggers is a list of logger level overrides for specific
+                      logger names.
+                    items:
+                      description: LoggingLoggerConfig defines a log level override
+                        for a specific logger.
+                      properties:
+                        level:
+                          description: Level sets the log level for this logger.
+                          enum:
+                          - "OFF"
+                          - FATAL
+                          - ERROR
+                          - WARN
+                          - INFO
+                          - DEBUG
+                          - TRACE
+                          - ALL
+                          type: string
+                        name:
+                          description: Name is the log4j2 logger name (e.g., "org.apache.kafka.connect").
+                          minLength: 1
+                          type: string
+                      required:
+                      - level
+                      - name
+                      type: object
+                    type: array
+                    x-kubernetes-list-map-keys:
+                    - name
+                    x-kubernetes-list-type: map
+                type: object
               maxUnavailable:
                 anyOf:
                 - type: integer
@@ -1600,6 +1652,53 @@ spec:
                   Sink: https://kafka.apache.org/41/configuration/kafka-connect-configs/#sink-connector-configs
                   MirrorMaker: https://kafka.apache.org/41/configuration/mirrormaker-configs/
                 type: object
+              exportOffsets:
+                description: |-
+                  Configuration for exporting offsets to a ConfigMap.
+                  This field alone has no effect. To trigger an export,
+                  set the annotation kafka-connect.b1zzu.net/offsets: export
+                properties:
+                  configMapRef:
+                    description: Reference to the ConfigMap used for the offset operation.
+                    properties:
+                      name:
+                        default: ""
+                        description: |-
+                          Name of the referent.
+                          This field is effectively required, but due to backwards compatibility is
+                          allowed to be empty. Instances of this type with an empty value here are
+                          almost certainly wrong.
+                          More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                        type: string
+                    type: object
+                    x-kubernetes-map-type: atomic
+                required:
+                - configMapRef
+                type: object
+              importOffsets:
+                description: |-
+                  Configuration for importing offsets from a ConfigMap.
+                  This field alone has no effect. To trigger an import,
+                  set the annotation kafka-connect.b1zzu.net/offsets: import
+                  The connector must be in the stopped state before importing.
+                properties:
+                  configMapRef:
+                    description: Reference to the ConfigMap used for the offset operation.
+                    properties:
+                      name:
+                        default: ""
+                        description: |-
+                          Name of the referent.
+                          This field is effectively required, but due to backwards compatibility is
+                          allowed to be empty. Instances of this type with an empty value here are
+                          almost certainly wrong.
+                          More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                        type: string
+                    type: object
+                    x-kubernetes-map-type: atomic
+                required:
+                - configMapRef
+                type: object
               state:
                 default: running
                 description: 'The desired state of the connector: running, paused,
@@ -1704,6 +1803,25 @@ spec:
                 - state
                 - workerID
                 type: object
+              lastExportedOffsetsAt:
+                format: date-time
+                type: string
+              lastImportedOffsetsAt:
+                format: date-time
+                type: string
+              lastResetOffsetsAt:
+                format: date-time
+                type: string
+              lastRestartAt:
+                description: lastRestartAt is the timestamp of the last connector
+                  or task restart.
+                format: date-time
+                type: string
+              restartCount:
+                description: restartCount is the total number of restarts performed
+                  on this connector.
+                format: int32
+                type: integer
               tasks:
                 description: tasks represents the state of individual connector tasks
                   as reported by Kafka Connect.
@@ -1961,6 +2079,14 @@ rules:
   - list
   - watch
 - apiGroups:
+  - ""
+  - events.k8s.io
+  resources:
+  - events
+  verbs:
+  - create
+  - patch
+- apiGroups:
   - apps
   resources:
   - deployments
@@ -1972,13 +2098,6 @@ rules:
   - patch
   - update
   - watch
-- apiGroups:
-  - events.k8s.io
-  resources:
-  - events
-  verbs:
-  - create
-  - patch
 - apiGroups:
   - kafka-connect.b1zzu.net
   resources:
@@ -2156,7 +2275,7 @@ spec:
         - --health-probe-bind-address=:8081
         command:
         - /manager
-        image: ghcr.io/b1zzu/kafka-connect-operator:latest
+        image: ghcr.io/b1zzu/kafka-connect-operator:0.3.0
         livenessProbe:
           httpGet:
             path: /healthz
