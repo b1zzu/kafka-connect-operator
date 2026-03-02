@@ -1007,6 +1007,58 @@ spec:
                 x-kubernetes-list-map-keys:
                 - name
                 x-kubernetes-list-type: map
+              logging:
+                description: |-
+                  Logging configures the log4j2 log levels for the Kafka Connect cluster.
+                  When not set, the root logger defaults to INFO level.
+                properties:
+                  level:
+                    default: INFO
+                    description: |-
+                      Level sets the root logger log level.
+                      Defaults to INFO when not set.
+                    enum:
+                    - "OFF"
+                    - FATAL
+                    - ERROR
+                    - WARN
+                    - INFO
+                    - DEBUG
+                    - TRACE
+                    - ALL
+                    type: string
+                  loggers:
+                    description: Loggers is a list of logger level overrides for specific
+                      logger names.
+                    items:
+                      description: LoggingLoggerConfig defines a log level override
+                        for a specific logger.
+                      properties:
+                        level:
+                          description: Level sets the log level for this logger.
+                          enum:
+                          - "OFF"
+                          - FATAL
+                          - ERROR
+                          - WARN
+                          - INFO
+                          - DEBUG
+                          - TRACE
+                          - ALL
+                          type: string
+                        name:
+                          description: Name is the log4j2 logger name (e.g., "org.apache.kafka.connect").
+                          minLength: 1
+                          type: string
+                      required:
+                      - level
+                      - name
+                      type: object
+                    type: array
+                    x-kubernetes-list-map-keys:
+                    - name
+                    x-kubernetes-list-type: map
+                type: object
               maxUnavailable:
                 anyOf:
                 - type: integer

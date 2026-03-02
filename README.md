@@ -257,6 +257,19 @@ spec:
       value: "kafka"
       effect: "NoSchedule"
 
+  # Log4j2 logging configuration (optional)
+  logging:
+    # Root logger level (optional, defaults to INFO)
+    # Values: OFF, FATAL, ERROR, WARN, INFO, DEBUG, TRACE, ALL
+    level: INFO
+
+    # Per-logger level overrides (optional)
+    loggers:
+      - name: org.apache.kafka.connect
+        level: WARN
+      - name: io.debezium
+        level: DEBUG
+
   # Maximum number of pods that can be unavailable during voluntary disruptions (optional)
   # Used in the PodDisruptionBudget. Can be an absolute number (e.g. 1) or a percentage (e.g. "25%").
   # Defaults to 1 when not set.
@@ -493,7 +506,27 @@ The operator preconfigures Kafka Connect to log in structured JSON format direct
 
 File-based logging is disabled — the container only writes to stdout/stderr, following the twelve-factor app methodology for containers.
 
-Logging configuration is currently not customizable. The root logger level is set to `INFO` and cannot be changed through the Cluster CR.
+The root logger level defaults to `INFO`. You can change it and add per-logger overrides via `spec.logging`:
+
+```yaml
+apiVersion: kafka-connect.b1zzu.net/v1alpha1
+kind: Cluster
+metadata:
+  name: my-cluster
+spec:
+  logging:
+    level: WARN
+    loggers:
+      - name: org.apache.kafka.connect.runtime
+        level: DEBUG
+      - name: io.debezium
+        level: TRACE
+  config:
+    bootstrap.servers: my-cluster-kafka-bootstrap:9092
+    # ...
+```
+
+Supported levels: `OFF`, `FATAL`, `ERROR`, `WARN`, `INFO`, `DEBUG`, `TRACE`, `ALL`.
 
 ## Development
 

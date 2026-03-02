@@ -1112,6 +1112,67 @@ var _ = Describe("Cluster Resources", func() {
 			Expect(cm.Data["jmx-exporter-config.yaml"]).To(ContainSubstring("rules:"))
 			Expect(cm.Data).To(HaveKey("connect.properties"))
 		})
+
+		It("should default rootLogger.level to INFO when logging is nil", func() {
+			cluster := newCluster(nil)
+			cm, err := configMapForCluster(cluster)
+			Expect(err).NotTo(HaveOccurred())
+
+			log4jConfig := cm.Data["connect-log4j2.properties"]
+			Expect(log4jConfig).To(ContainSubstring("rootLogger.level=INFO"))
+			Expect(log4jConfig).NotTo(MatchRegexp(`logger\.\d+\.name`))
+		})
+
+		It("should set custom root logger level", func() {
+			level := "DEBUG"
+			cluster := newCluster(nil)
+			cluster.Spec.Logging = &kcv1alpha1.LoggingConfig{Level: &level}
+
+			cm, err := configMapForCluster(cluster)
+			Expect(err).NotTo(HaveOccurred())
+
+			log4jConfig := cm.Data["connect-log4j2.properties"]
+			Expect(log4jConfig).To(ContainSubstring("rootLogger.level=DEBUG"))
+		})
+
+		It("should add per-logger overrides", func() {
+			cluster := newCluster(nil)
+			cluster.Spec.Logging = &kcv1alpha1.LoggingConfig{
+				Loggers: []kcv1alpha1.LoggingLoggerConfig{
+					{Name: "org.apache.kafka.connect", Level: "WARN"},
+					{Name: "io.debezium", Level: "TRACE"},
+				},
+			}
+
+			cm, err := configMapForCluster(cluster)
+			Expect(err).NotTo(HaveOccurred())
+
+			log4jConfig := cm.Data["connect-log4j2.properties"]
+			Expect(log4jConfig).To(ContainSubstring("rootLogger.level=INFO"))
+			Expect(log4jConfig).To(ContainSubstring("logger.0.name=org.apache.kafka.connect"))
+			Expect(log4jConfig).To(ContainSubstring("logger.0.level=WARN"))
+			Expect(log4jConfig).To(ContainSubstring("logger.1.name=io.debezium"))
+			Expect(log4jConfig).To(ContainSubstring("logger.1.level=TRACE"))
+		})
+
+		It("should combine custom root level with per-logger overrides", func() {
+			level := "ERROR"
+			cluster := newCluster(nil)
+			cluster.Spec.Logging = &kcv1alpha1.LoggingConfig{
+				Level: &level,
+				Loggers: []kcv1alpha1.LoggingLoggerConfig{
+					{Name: "org.apache.kafka", Level: "DEBUG"},
+				},
+			}
+
+			cm, err := configMapForCluster(cluster)
+			Expect(err).NotTo(HaveOccurred())
+
+			log4jConfig := cm.Data["connect-log4j2.properties"]
+			Expect(log4jConfig).To(ContainSubstring("rootLogger.level=ERROR"))
+			Expect(log4jConfig).To(ContainSubstring("logger.0.name=org.apache.kafka"))
+			Expect(log4jConfig).To(ContainSubstring("logger.0.level=DEBUG"))
+		})
 	})
 
 	Describe("podDisruptionBudgetForCluster", func() {

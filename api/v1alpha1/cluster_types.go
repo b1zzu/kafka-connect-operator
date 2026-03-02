@@ -72,6 +72,11 @@ type ClusterSpec struct {
 	// +optional
 	Metrics *MetricsConfig `json:"metrics,omitempty"`
 
+	// Logging configures the log4j2 log levels for the Kafka Connect cluster.
+	// When not set, the root logger defaults to INFO level.
+	// +optional
+	Logging *LoggingConfig `json:"logging,omitempty"`
+
 	// ServiceAnnotations defines custom annotations for the Service
 	// +optional
 	ServiceAnnotations map[string]string `json:"serviceAnnotations,omitempty"`
@@ -200,6 +205,33 @@ type JMXExporterConfig struct {
 	// +optional
 	// +kubebuilder:validation:Enum=Always;Never;IfNotPresent
 	PullPolicy *corev1.PullPolicy `json:"pullPolicy,omitempty"`
+}
+
+// LoggingConfig defines the log4j2 logging configuration for the Kafka Connect cluster.
+type LoggingConfig struct {
+	// Level sets the root logger log level.
+	// Defaults to INFO when not set.
+	// +optional
+	// +kubebuilder:default="INFO"
+	// +kubebuilder:validation:Enum=OFF;FATAL;ERROR;WARN;INFO;DEBUG;TRACE;ALL
+	Level *string `json:"level,omitempty"`
+
+	// Loggers is a list of logger level overrides for specific logger names.
+	// +optional
+	// +listType=map
+	// +listMapKey=name
+	Loggers []LoggingLoggerConfig `json:"loggers,omitempty"`
+}
+
+// LoggingLoggerConfig defines a log level override for a specific logger.
+type LoggingLoggerConfig struct {
+	// Name is the log4j2 logger name (e.g., "org.apache.kafka.connect").
+	// +kubebuilder:validation:MinLength=1
+	Name string `json:"name"`
+
+	// Level sets the log level for this logger.
+	// +kubebuilder:validation:Enum=OFF;FATAL;ERROR;WARN;INFO;DEBUG;TRACE;ALL
+	Level string `json:"level"`
 }
 
 // ClusterStatus defines the observed state of Cluster.
