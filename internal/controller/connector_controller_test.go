@@ -40,9 +40,10 @@ import (
 
 // mockKafkaConnectServer provides a stateful mock Kafka Connect REST API.
 type mockKafkaConnectServer struct {
-	mu         sync.Mutex
-	connectors map[string]*kafkaconnect.Connector
-	server     *httptest.Server
+	mu                  sync.Mutex
+	connectors          map[string]*kafkaconnect.Connector
+	restartedConnectors []string
+	server              *httptest.Server
 }
 
 func newMockKafkaConnectServer() *mockKafkaConnectServer {
@@ -90,6 +91,18 @@ func newMockKafkaConnectServer() *mockKafkaConnectServer {
 		if len(parts) == 2 && parts[0] == connectorsPath && r.Method == http.MethodDelete {
 			name := parts[1]
 			delete(m.connectors, name)
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+
+		// POST /connectors/{name}/restart
+		if len(parts) == 3 && parts[0] == connectorsPath && parts[2] == "restart" && r.Method == http.MethodPost {
+			name := parts[1]
+			if _, ok := m.connectors[name]; !ok {
+				http.Error(w, "not found", http.StatusNotFound)
+				return
+			}
+			m.restartedConnectors = append(m.restartedConnectors, name)
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
@@ -301,6 +314,45 @@ var _ = Describe("Connector Controller", func() {
 
 			// Connector should be fully deleted
 			Expect(getConnector(ctx, nn)).To(BeNil())
+		})
+
+		It("should restart the connector when restart annotation is set and remove it", func() {
+			ctx := context.Background()
+			name := "restart-connector"
+			nn := nameFor(name)
+
+			mock := newMockKafkaConnectServer()
+			DeferCleanup(mock.Close)
+
+			createConnector(ctx, name, "my-cluster", map[string]string{"connector.class": "FileStreamSource"}, map[string]string{
+				"kafka-connect.b1zzu.net/restart": "true",
+			})
+			DeferCleanup(func() {
+				c := getConnector(ctx, nn)
+				if c != nil {
+					c.Finalizers = nil
+					_ = k8sClient.Update(ctx, c)
+					_ = k8sClient.Delete(ctx, c)
+				}
+			})
+
+			r := newReconciler(mock)
+
+			// Reconcile to completion: init conditions, add finalizer, create connector,
+			// restart (removes annotation + restarts loop), then full pass through status
+			result, err := reconcileN(ctx, r, nn, 7)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.RequeueAfter).To(Equal(time.Minute))
+
+			// Verify the restart annotation has been removed
+			connector := getConnector(ctx, nn)
+			Expect(connector).NotTo(BeNil())
+			Expect(connector.Annotations).NotTo(HaveKey("kafka-connect.b1zzu.net/restart"))
+
+			// Verify the connector was restarted via the mock
+			mock.mu.Lock()
+			defer mock.mu.Unlock()
+			Expect(mock.restartedConnectors).To(ContainElement(name))
 		})
 
 	})
