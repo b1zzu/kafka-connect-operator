@@ -19,7 +19,6 @@ import (
 	"context"
 	"fmt"
 	"hash/fnv"
-	"sort"
 	"strconv"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -258,29 +257,18 @@ func (r *ClusterReconciler) reconcileService(ctx context.Context, cluster *kcv1a
 	return cluster, nil
 }
 
+// configMapRestartKeys lists ConfigMap keys whose changes require a pod restart.
+// The slice is ordered so the hash is deterministic without sorting.
+var configMapRestartKeys = []string{"connect.properties", "jmx-exporter-config.yaml"}
+
 func hashConfigMap(configMap *corev1.ConfigMap) string {
-	// Compute the ConfigMap hash (keys must be sorted for deterministic output)
 	h := fnv.New64a()
-	dataKeys := make([]string, 0, len(configMap.Data))
-	for k := range configMap.Data {
-		dataKeys = append(dataKeys, k)
+	for _, k := range configMapRestartKeys {
+		if v, ok := configMap.Data[k]; ok {
+			h.Write([]byte(k))
+			h.Write([]byte(v))
+		}
 	}
-	sort.Strings(dataKeys)
-	for _, k := range dataKeys {
-		h.Write([]byte(k))
-		h.Write([]byte(configMap.Data[k]))
-	}
-
-	binaryDataKeys := make([]string, 0, len(configMap.BinaryData))
-	for k := range configMap.BinaryData {
-		binaryDataKeys = append(binaryDataKeys, k)
-	}
-	sort.Strings(binaryDataKeys)
-	for _, k := range binaryDataKeys {
-		h.Write([]byte(k))
-		h.Write(configMap.BinaryData[k])
-	}
-
 	return strconv.FormatUint(h.Sum64(), 16)
 }
 

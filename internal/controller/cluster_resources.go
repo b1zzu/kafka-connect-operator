@@ -54,6 +54,7 @@ func log4j2ConfigForCluster(cluster *kcv1alpha1.Cluster) map[string]string {
 	}
 
 	props := map[string]string{
+		"monitorInterval":              "30",
 		"appender.0.type":              "Console",
 		"appender.0.name":              "CONSOLE",
 		"appender.0.direct":            "true",
@@ -392,7 +393,6 @@ func configMapForCluster(cluster *kcv1alpha1.Cluster) (*corev1ac.ConfigMapApplyC
 		return nil, err
 	}
 
-	// TODO: Chaning logging level configuration should not require a restart
 	data := map[string]string{
 		"connect.properties":        marshalProperties(configs),
 		"connect-log4j2.properties": marshalProperties(log4j2ConfigForCluster(cluster)),

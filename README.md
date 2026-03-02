@@ -540,6 +540,8 @@ spec:
 
 Supported levels: `OFF`, `FATAL`, `ERROR`, `WARN`, `INFO`, `DEBUG`, `TRACE`, `ALL`.
 
+Logging changes are applied **without restarting pods**. The operator sets `monitorInterval=30` in the Log4j2 configuration, so Log4j2 automatically reloads the config file every 30 seconds when the mounted ConfigMap is updated by Kubernetes. This means changes to `spec.logging` (both root level and per-logger overrides) take effect within 30 seconds with zero downtime.
+
 ## Development
 
 ### My Workspace
