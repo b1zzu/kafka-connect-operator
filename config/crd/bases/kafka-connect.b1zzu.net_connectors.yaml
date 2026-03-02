@@ -66,6 +66,53 @@ spec:
                   Sink: https://kafka.apache.org/41/configuration/kafka-connect-configs/#sink-connector-configs
                   MirrorMaker: https://kafka.apache.org/41/configuration/mirrormaker-configs/
                 type: object
+              exportOffsets:
+                description: |-
+                  Configuration for exporting offsets to a ConfigMap.
+                  This field alone has no effect. To trigger an export,
+                  set the annotation kafka-connect.b1zzu.net/offsets: export
+                properties:
+                  configMapRef:
+                    description: Reference to the ConfigMap used for the offset operation.
+                    properties:
+                      name:
+                        default: ""
+                        description: |-
+                          Name of the referent.
+                          This field is effectively required, but due to backwards compatibility is
+                          allowed to be empty. Instances of this type with an empty value here are
+                          almost certainly wrong.
+                          More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                        type: string
+                    type: object
+                    x-kubernetes-map-type: atomic
+                required:
+                - configMapRef
+                type: object
+              importOffsets:
+                description: |-
+                  Configuration for importing offsets from a ConfigMap.
+                  This field alone has no effect. To trigger an import,
+                  set the annotation kafka-connect.b1zzu.net/offsets: import
+                  The connector must be in the stopped state before importing.
+                properties:
+                  configMapRef:
+                    description: Reference to the ConfigMap used for the offset operation.
+                    properties:
+                      name:
+                        default: ""
+                        description: |-
+                          Name of the referent.
+                          This field is effectively required, but due to backwards compatibility is
+                          allowed to be empty. Instances of this type with an empty value here are
+                          almost certainly wrong.
+                          More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                        type: string
+                    type: object
+                    x-kubernetes-map-type: atomic
+                required:
+                - configMapRef
+                type: object
               state:
                 default: running
                 description: 'The desired state of the connector: running, paused,
@@ -170,6 +217,15 @@ spec:
                 - state
                 - workerID
                 type: object
+              lastExportedOffsetsAt:
+                format: date-time
+                type: string
+              lastImportedOffsetsAt:
+                format: date-time
+                type: string
+              lastResetOffsetsAt:
+                format: date-time
+                type: string
               tasks:
                 description: tasks represents the state of individual connector tasks
                   as reported by Kafka Connect.

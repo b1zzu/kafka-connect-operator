@@ -302,19 +302,28 @@ spec:
     connector.class: <string>
 
     # ...
+
+  # ConfigMap reference for exporting offsets (optional)
+  exportOffsets:
+    configMapRef:
+      name: my-connector-offsets
+
+  # ConfigMap reference for importing offsets (optional)
+  importOffsets:
+    configMapRef:
+      name: my-connector-offsets
 ```
 
-**Spec Fields:**
-
-| Field   | Values                         | Default   | Description                 |
-| ------- | ------------------------------ | --------- | --------------------------- |
-| `state` | `running`, `paused`, `stopped` | `running` | Control the connector state |
-
-- `running` — connector is running normally
-- `paused` — connector and tasks are paused
-- `stopped` — connector is stopped and all tasks are shut down (offsets are retained)
-
 When a connector is created with state `paused` or `stopped`, the operator passes `initial_state` to the Kafka Connect API so the connector never starts running. This is useful for offset migration workflows where you need to configure offsets before the connector starts.
+
+**Annotations:**
+
+| Annotation                        | Values                      | Description                                                                 |
+| --------------------------------- | --------------------------- | --------------------------------------------------------------------------- |
+| `kafka-connect.b1zzu.net/restart` | `true`                      | Trigger a manual connector restart                                          |
+| `kafka-connect.b1zzu.net/offsets` | `export`, `import`, `reset` | Trigger an offset operation (see [Offsets Management](#offsets-management)) |
+
+Annotations are removed automatically after the operation completes. And the operation result is logged as a Kubernetes Event.
 
 ### Restart
 
@@ -327,6 +336,38 @@ kubectl annotate connector my-connector kafka-connect.b1zzu.net/restart=true
 ```
 
 The operator will restart the connector and automatically remove the annotation afterward.
+
+### Offsets Management
+
+The operator supports exporting, importing, and resetting connector offsets. These operations are useful for migrating connectors between clusters or resetting consumption positions.
+
+Offset operations are triggered by setting the `kafka-connect.b1zzu.net/offsets` annotation on the Connector CR (see [Connector](#connector) reference for the full spec including `exportOffsets` and `importOffsets` fields).
+
+**Export offsets** to a ConfigMap (works in any connector state):
+
+```bash
+kubectl annotate connector my-connector kafka-connect.b1zzu.net/offsets=export
+```
+
+The operator exports the offsets to the ConfigMap specified in `spec.exportOffsets.configMapRef`, creating it if it doesn't exist.
+
+**Import offsets** from a ConfigMap (connector must be `stopped`):
+
+```bash
+kubectl annotate connector my-connector kafka-connect.b1zzu.net/offsets=import
+```
+
+The operator reads offsets from the ConfigMap specified in `spec.importOffsets.configMapRef` and patches them into Kafka Connect. If the connector is not stopped, the annotation is kept and the operation is retried on the next reconciliation.
+
+**Reset offsets** (connector must be `stopped`):
+
+```bash
+kubectl annotate connector my-connector kafka-connect.b1zzu.net/offsets=reset
+```
+
+The operator deletes all offsets for the connector. No ConfigMap reference is needed for reset.
+
+After a successful operation the annotation is removed automatically, a Kubernetes event is emitted (`ExportedOffsets`, `ImportedOffsets`, or `ResetOffsets`), and a timestamp is recorded in the connector status (`lastExportedOffsetsAt`, `lastImportedOffsetsAt`, or `lastResetOffsetsAt`).
 
 ### Network Security
 

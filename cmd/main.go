@@ -193,6 +193,7 @@ func main() {
 	if err := (&controller.ConnectorReconciler{
 		Client:                    mgr.GetClient(),
 		Scheme:                    mgr.GetScheme(),
+		Recorder:                  mgr.GetEventRecorderFor("connector-controller"),
 		NewKafkaConnectClientFunc: controller.NewDefaultKafkaConnectClientFunc,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Connector")

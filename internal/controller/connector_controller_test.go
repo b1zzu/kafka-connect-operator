@@ -31,7 +31,9 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kafkaconnectv1alpha1 "github.com/b1zzu/kafka-connect-operator/api/v1alpha1"
@@ -42,97 +44,19 @@ import (
 type mockKafkaConnectServer struct {
 	mu                  sync.Mutex
 	connectors          map[string]*kafkaconnect.Connector
+	connectorStates     map[string]string // name -> state (RUNNING, STOPPED, etc.)
+	offsets             map[string]*kafkaconnect.ConnectorOffsets
 	restartedConnectors []string
 	server              *httptest.Server
 }
 
 func newMockKafkaConnectServer() *mockKafkaConnectServer {
 	m := &mockKafkaConnectServer{
-		connectors: make(map[string]*kafkaconnect.Connector),
+		connectors:      make(map[string]*kafkaconnect.Connector),
+		connectorStates: make(map[string]string),
+		offsets:         make(map[string]*kafkaconnect.ConnectorOffsets),
 	}
-
-	mux := http.NewServeMux()
-
-	const connectorsPath = "connectors"
-
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		m.mu.Lock()
-		defer m.mu.Unlock()
-
-		parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
-
-		// POST /connectors
-		if len(parts) == 1 && parts[0] == connectorsPath && r.Method == http.MethodPost {
-			var c kafkaconnect.Connector
-			if err := json.NewDecoder(r.Body).Decode(&c); err != nil {
-				http.Error(w, err.Error(), http.StatusBadRequest)
-				return
-			}
-			m.connectors[c.Name] = &c
-			w.WriteHeader(http.StatusCreated)
-			_ = json.NewEncoder(w).Encode(c)
-			return
-		}
-
-		// GET /connectors/{name}
-		if len(parts) == 2 && parts[0] == connectorsPath && r.Method == http.MethodGet {
-			name := parts[1]
-			c, ok := m.connectors[name]
-			if !ok {
-				http.Error(w, "not found", http.StatusNotFound)
-				return
-			}
-			w.WriteHeader(http.StatusOK)
-			_ = json.NewEncoder(w).Encode(c)
-			return
-		}
-
-		// DELETE /connectors/{name}
-		if len(parts) == 2 && parts[0] == connectorsPath && r.Method == http.MethodDelete {
-			name := parts[1]
-			delete(m.connectors, name)
-			w.WriteHeader(http.StatusNoContent)
-			return
-		}
-
-		// POST /connectors/{name}/restart
-		if len(parts) == 3 && parts[0] == connectorsPath && parts[2] == "restart" && r.Method == http.MethodPost {
-			name := parts[1]
-			if _, ok := m.connectors[name]; !ok {
-				http.Error(w, "not found", http.StatusNotFound)
-				return
-			}
-			m.restartedConnectors = append(m.restartedConnectors, name)
-			w.WriteHeader(http.StatusNoContent)
-			return
-		}
-
-		// GET /connectors/{name}/status
-		if len(parts) == 3 && parts[0] == connectorsPath && parts[2] == "status" && r.Method == http.MethodGet {
-			name := parts[1]
-			if _, ok := m.connectors[name]; !ok {
-				http.Error(w, "not found", http.StatusNotFound)
-				return
-			}
-			status := kafkaconnect.ConnectorStatus{
-				Name: name,
-				Connector: kafkaconnect.ConnectorStatusConnector{
-					State:    "RUNNING",
-					WorkerID: "worker-1",
-				},
-				Tasks: []kafkaconnect.ConnectorStatusTask{
-					{ID: 0, State: "RUNNING", WorkerID: "worker-1"},
-				},
-			}
-			w.WriteHeader(http.StatusOK)
-			_ = json.NewEncoder(w).Encode(status)
-			return
-		}
-
-		http.Error(w, fmt.Sprintf("unhandled: %s %s", r.Method, r.URL.Path), http.StatusNotImplemented)
-	})
-
-	m.server = httptest.NewServer(mux)
+	m.server = httptest.NewServer(m)
 	return m
 }
 
@@ -140,12 +64,166 @@ func (m *mockKafkaConnectServer) Close() {
 	m.server.Close()
 }
 
+func (m *mockKafkaConnectServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+
+	if len(parts) >= 1 && parts[0] == "connectors" {
+		switch len(parts) {
+		case 1:
+			m.handleConnectors(w, r)
+		case 2:
+			m.handleConnector(w, r, parts[1])
+		case 3:
+			m.handleConnectorAction(w, r, parts[1], parts[2])
+		default:
+			http.Error(w, fmt.Sprintf("unhandled: %s %s", r.Method, r.URL.Path), http.StatusNotImplemented)
+		}
+		return
+	}
+
+	http.Error(w, fmt.Sprintf("unhandled: %s %s", r.Method, r.URL.Path), http.StatusNotImplemented)
+}
+
+func (m *mockKafkaConnectServer) handleConnectors(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, fmt.Sprintf("unhandled: %s %s", r.Method, r.URL.Path), http.StatusNotImplemented)
+		return
+	}
+	var c kafkaconnect.Connector
+	if err := json.NewDecoder(r.Body).Decode(&c); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	m.connectors[c.Name] = &c
+	state := connectorStatusRunning
+	if c.InitialState != "" {
+		state = c.InitialState
+	}
+	m.connectorStates[c.Name] = state
+	w.WriteHeader(http.StatusCreated)
+	_ = json.NewEncoder(w).Encode(c)
+}
+
+func (m *mockKafkaConnectServer) handleConnector(w http.ResponseWriter, r *http.Request, name string) {
+	switch r.Method {
+	case http.MethodGet:
+		c, ok := m.connectors[name]
+		if !ok {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(c)
+	case http.MethodDelete:
+		delete(m.connectors, name)
+		delete(m.connectorStates, name)
+		w.WriteHeader(http.StatusNoContent)
+	default:
+		http.Error(w, fmt.Sprintf("unhandled: %s %s", r.Method, r.URL.Path), http.StatusNotImplemented)
+	}
+}
+
+func (m *mockKafkaConnectServer) handleConnectorAction(w http.ResponseWriter, r *http.Request, name, action string) {
+	switch action {
+	case "restart":
+		m.handleRestart(w, r, name)
+	case "status":
+		m.handleStatus(w, name)
+	case "stop":
+		m.connectorStates[name] = connectorStatusStopped
+		w.WriteHeader(http.StatusAccepted)
+	case "resume":
+		m.connectorStates[name] = connectorStatusRunning
+		w.WriteHeader(http.StatusAccepted)
+	case "pause":
+		m.connectorStates[name] = connectorStatusPaused
+		w.WriteHeader(http.StatusAccepted)
+	case "offsets":
+		m.handleOffsets(w, r, name)
+	default:
+		http.Error(w, fmt.Sprintf("unhandled: %s %s", r.Method, r.URL.Path), http.StatusNotImplemented)
+	}
+}
+
+func (m *mockKafkaConnectServer) handleRestart(w http.ResponseWriter, _ *http.Request, name string) {
+	if _, ok := m.connectors[name]; !ok {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	m.restartedConnectors = append(m.restartedConnectors, name)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (m *mockKafkaConnectServer) handleStatus(w http.ResponseWriter, name string) {
+	if _, ok := m.connectors[name]; !ok {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	state := m.connectorStates[name]
+	if state == "" {
+		state = connectorStatusRunning
+	}
+	status := kafkaconnect.ConnectorStatus{
+		Name: name,
+		Connector: kafkaconnect.ConnectorStatusConnector{
+			State:    state,
+			WorkerID: "worker-1",
+		},
+	}
+	if state == connectorStatusRunning {
+		status.Tasks = []kafkaconnect.ConnectorStatusTask{
+			{ID: 0, State: connectorStatusRunning, WorkerID: "worker-1"},
+		}
+	}
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(status)
+}
+
+func (m *mockKafkaConnectServer) handleOffsets(w http.ResponseWriter, r *http.Request, name string) {
+	switch r.Method {
+	case http.MethodGet:
+		offsets, ok := m.offsets[name]
+		if !ok {
+			offsets = &kafkaconnect.ConnectorOffsets{Offsets: []kafkaconnect.ConnectorOffset{}}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(offsets)
+	case http.MethodPatch:
+		if m.connectorStates[name] != connectorStatusStopped {
+			http.Error(w, "connector must be stopped", http.StatusConflict)
+			return
+		}
+		var offsets kafkaconnect.ConnectorOffsets
+		if err := json.NewDecoder(r.Body).Decode(&offsets); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		m.offsets[name] = &offsets
+		w.WriteHeader(http.StatusOK)
+	case http.MethodDelete:
+		if m.connectorStates[name] != connectorStatusStopped {
+			http.Error(w, "connector must be stopped", http.StatusConflict)
+			return
+		}
+		delete(m.offsets, name)
+		w.WriteHeader(http.StatusOK)
+	default:
+		http.Error(w, fmt.Sprintf("unhandled: %s %s", r.Method, r.URL.Path), http.StatusNotImplemented)
+	}
+}
+
 var _ = Describe("Connector Controller", func() {
 
-	newReconciler := func(mock *mockKafkaConnectServer) *ConnectorReconciler {
+	newReconciler := func(mock *mockKafkaConnectServer) (*ConnectorReconciler, *record.FakeRecorder) {
+		recorder := record.NewFakeRecorder(10)
 		r := &ConnectorReconciler{
 			Client:                    k8sClient,
 			Scheme:                    k8sClient.Scheme(),
+			Recorder:                  recorder,
 			NewKafkaConnectClientFunc: NewDefaultKafkaConnectClientFunc,
 		}
 		if mock != nil {
@@ -153,26 +231,30 @@ var _ = Describe("Connector Controller", func() {
 				return kafkaconnect.NewClient(mock.server.URL)
 			}
 		}
-		return r
+		return r, recorder
 	}
 
 	nameFor := func(name string) types.NamespacedName {
 		return types.NamespacedName{Name: name, Namespace: "default"}
 	}
 
-	createConnector := func(ctx context.Context, name string, clusterRef string, config map[string]string, annotations map[string]string) {
+	createConnectorWithSpec := func(ctx context.Context, name string, annotations map[string]string, spec kafkaconnectv1alpha1.ConnectorSpec) {
 		connector := &kafkaconnectv1alpha1.Connector{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:        name,
 				Namespace:   "default",
 				Annotations: annotations,
 			},
-			Spec: kafkaconnectv1alpha1.ConnectorSpec{
-				ClusterRef: corev1.LocalObjectReference{Name: clusterRef},
-				Config:     config,
-			},
+			Spec: spec,
 		}
 		Expect(k8sClient.Create(ctx, connector)).To(Succeed())
+	}
+
+	createConnector := func(ctx context.Context, name string, clusterRef string, config map[string]string, annotations map[string]string) {
+		createConnectorWithSpec(ctx, name, annotations, kafkaconnectv1alpha1.ConnectorSpec{
+			ClusterRef: corev1.LocalObjectReference{Name: clusterRef},
+			Config:     config,
+		})
 	}
 
 	reconcileN := func(ctx context.Context, r *ConnectorReconciler, nn types.NamespacedName, n int) (ctrl.Result, error) {
@@ -201,7 +283,7 @@ var _ = Describe("Connector Controller", func() {
 
 		It("should return no error and no requeue for a deleted resource", func() {
 			ctx := context.Background()
-			r := newReconciler(nil)
+			r, _ := newReconciler(nil)
 
 			result, err := r.Reconcile(ctx, reconcile.Request{
 				NamespacedName: nameFor("nonexistent-connector"),
@@ -225,7 +307,7 @@ var _ = Describe("Connector Controller", func() {
 				}
 			})
 
-			r := newReconciler(nil)
+			r, _ := newReconciler(nil)
 			result, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
 			Expect(err).NotTo(HaveOccurred())
 			Expect(result).To(Equal(ctrl.Result{}))
@@ -262,7 +344,7 @@ var _ = Describe("Connector Controller", func() {
 				}
 			})
 
-			r := newReconciler(mock)
+			r, _ := newReconciler(mock)
 
 			// Reconcile 5 times: init conditions, add finalizer, create connector, update status, full pass
 			result, err := reconcileN(ctx, r, nn, 5)
@@ -293,7 +375,7 @@ var _ = Describe("Connector Controller", func() {
 
 			createConnector(ctx, name, "my-cluster", map[string]string{"connector.class": "FileStreamSource"}, nil)
 
-			r := newReconciler(mock)
+			r, _ := newReconciler(mock)
 
 			// Reconcile 2x to get conditions initialized and finalizer added
 			_, err := reconcileN(ctx, r, nn, 2)
@@ -336,7 +418,7 @@ var _ = Describe("Connector Controller", func() {
 				}
 			})
 
-			r := newReconciler(mock)
+			r, _ := newReconciler(mock)
 
 			// Reconcile to completion: init conditions, add finalizer, create connector,
 			// restart (removes annotation + restarts loop), then full pass through status
@@ -503,6 +585,319 @@ var _ = Describe("Connector Controller", func() {
 			Expect(condition.Status).To(Equal(metav1.ConditionUnknown))
 			Expect(condition.Reason).To(Equal("Unknown"))
 			Expect(condition.Message).To(ContainSubstring("UNASSIGNED"))
+		})
+	})
+
+	Context("reconcileConnectorOffsets", func() {
+
+		cleanupConnector := func(ctx context.Context, nn types.NamespacedName) {
+			c := getConnector(ctx, nn)
+			if c != nil {
+				c.Finalizers = nil
+				_ = k8sClient.Update(ctx, c)
+				_ = k8sClient.Delete(ctx, c)
+			}
+		}
+
+		It("should be a no-op when no annotation is set", func() {
+			ctx := context.Background()
+			name := "offsets-noop"
+			nn := nameFor(name)
+
+			mock := newMockKafkaConnectServer()
+			DeferCleanup(mock.Close)
+
+			createConnector(ctx, name, "my-cluster", map[string]string{"connector.class": "FileStreamSource"}, nil)
+			DeferCleanup(func() { cleanupConnector(ctx, nn) })
+
+			r, _ := newReconciler(mock)
+
+			// Reconcile to full running: init, finalizer, create, status, full pass
+			result, err := reconcileN(ctx, r, nn, 5)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.RequeueAfter).To(Equal(time.Minute))
+
+			// No annotation, no offset operation
+			connector := getConnector(ctx, nn)
+			Expect(connector).NotTo(BeNil())
+			Expect(connector.Annotations).NotTo(HaveKey(offsetsAnnotation))
+		})
+
+		It("should export offsets to a new ConfigMap and remove annotation", func() {
+			ctx := context.Background()
+			name := "offsets-export"
+			nn := nameFor(name)
+
+			mock := newMockKafkaConnectServer()
+			DeferCleanup(mock.Close)
+
+			// Pre-set offsets in the mock
+			mock.offsets[name] = &kafkaconnect.ConnectorOffsets{
+				Offsets: []kafkaconnect.ConnectorOffset{
+					{
+						Partition: map[string]any{"kafka_topic": "test-topic", "kafka_partition": float64(0)},
+						Offset:    map[string]any{"kafka_offset": float64(100)},
+					},
+				},
+			}
+
+			createConnectorWithSpec(ctx, name, map[string]string{
+				offsetsAnnotation: "export",
+			}, kafkaconnectv1alpha1.ConnectorSpec{
+				ClusterRef: corev1.LocalObjectReference{Name: "my-cluster"},
+				Config:     map[string]string{"connector.class": "FileStreamSource"},
+				ExportOffsets: &kafkaconnectv1alpha1.OffsetsSpec{
+					ConfigMapRef: corev1.LocalObjectReference{Name: "offsets-export-cm"},
+				},
+			})
+			DeferCleanup(func() {
+				cleanupConnector(ctx, nn)
+				cm := &corev1.ConfigMap{}
+				if err := k8sClient.Get(ctx, client.ObjectKey{Name: "offsets-export-cm", Namespace: "default"}, cm); err == nil {
+					_ = k8sClient.Delete(ctx, cm)
+				}
+			})
+
+			r, recorder := newReconciler(mock)
+
+			// Reconcile: init, finalizer, create, export+annotation removal, then next pass syncs status
+			_, err := reconcileN(ctx, r, nn, 6)
+			Expect(err).NotTo(HaveOccurred())
+
+			// Annotation should be removed
+			connector := getConnector(ctx, nn)
+			Expect(connector).NotTo(BeNil())
+			Expect(connector.Annotations).NotTo(HaveKey(offsetsAnnotation))
+
+			// ConfigMap should exist with offsets
+			cm := &corev1.ConfigMap{}
+			err = k8sClient.Get(ctx, client.ObjectKey{Name: "offsets-export-cm", Namespace: "default"}, cm)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(cm.Data).To(HaveKey(offsetsConfigMapKey))
+			Expect(cm.Data[offsetsConfigMapKey]).To(ContainSubstring("kafka_topic"))
+
+			// Timestamp should be set
+			Expect(connector.Status.LastExportedOffsetsAt).NotTo(BeNil())
+
+			// Event should be emitted
+			Expect(recorder.Events).To(Receive(ContainSubstring("ExportedOffsets")))
+		})
+
+		It("should emit warning and remove annotation when exportOffsets is missing", func() {
+			ctx := context.Background()
+			name := "offsets-export-no-spec"
+			nn := nameFor(name)
+
+			mock := newMockKafkaConnectServer()
+			DeferCleanup(mock.Close)
+
+			createConnectorWithSpec(ctx, name, map[string]string{
+				offsetsAnnotation: "export",
+			}, kafkaconnectv1alpha1.ConnectorSpec{
+				ClusterRef: corev1.LocalObjectReference{Name: "my-cluster"},
+				Config:     map[string]string{"connector.class": "FileStreamSource"},
+				// No ExportOffsets set
+			})
+			DeferCleanup(func() { cleanupConnector(ctx, nn) })
+
+			r, recorder := newReconciler(mock)
+
+			// Reconcile: init, finalizer, create, export fails (removes annotation), status, full pass
+			_, err := reconcileN(ctx, r, nn, 6)
+			Expect(err).NotTo(HaveOccurred())
+
+			connector := getConnector(ctx, nn)
+			Expect(connector).NotTo(BeNil())
+			Expect(connector.Annotations).NotTo(HaveKey(offsetsAnnotation))
+
+			Expect(recorder.Events).To(Receive(ContainSubstring("FailedExportOffsets")))
+		})
+
+		It("should import offsets when connector is stopped", func() {
+			ctx := context.Background()
+			name := "offsets-import"
+			nn := nameFor(name)
+
+			mock := newMockKafkaConnectServer()
+			DeferCleanup(mock.Close)
+
+			// Create the ConfigMap with offsets first
+			offsetsJSON := `{"offsets":[{"partition":{"kafka_topic":"test-topic","kafka_partition":0},"offset":{"kafka_offset":500}}]}`
+			cm := &corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "offsets-import-cm",
+					Namespace: "default",
+				},
+				Data: map[string]string{
+					offsetsConfigMapKey: offsetsJSON,
+				},
+			}
+			Expect(k8sClient.Create(ctx, cm)).To(Succeed())
+			DeferCleanup(func() {
+				cleanupConnector(ctx, nn)
+				_ = k8sClient.Delete(ctx, cm)
+			})
+
+			createConnectorWithSpec(ctx, name, map[string]string{
+				offsetsAnnotation: "import",
+			}, kafkaconnectv1alpha1.ConnectorSpec{
+				ClusterRef: corev1.LocalObjectReference{Name: "my-cluster"},
+				Config:     map[string]string{"connector.class": "FileStreamSource"},
+				State:      kafkaconnectv1alpha1.ConnectorStateStopped,
+				ImportOffsets: &kafkaconnectv1alpha1.OffsetsSpec{
+					ConfigMapRef: corev1.LocalObjectReference{Name: "offsets-import-cm"},
+				},
+			})
+
+			r, recorder := newReconciler(mock)
+
+			// Reconcile: init, finalizer, create (stopped), import+annotation removal, status, full pass
+			_, err := reconcileN(ctx, r, nn, 6)
+			Expect(err).NotTo(HaveOccurred())
+
+			// Annotation should be removed
+			connector := getConnector(ctx, nn)
+			Expect(connector).NotTo(BeNil())
+			Expect(connector.Annotations).NotTo(HaveKey(offsetsAnnotation))
+
+			// Offsets should be set in mock
+			mock.mu.Lock()
+			importedOffsets := mock.offsets[name]
+			mock.mu.Unlock()
+			Expect(importedOffsets).NotTo(BeNil())
+			Expect(importedOffsets.Offsets).To(HaveLen(1))
+
+			// Timestamp should be set
+			Expect(connector.Status.LastImportedOffsetsAt).NotTo(BeNil())
+
+			Expect(recorder.Events).To(Receive(ContainSubstring("ImportedOffsets")))
+		})
+
+		It("should emit warning and keep annotation when importing but connector is not stopped", func() {
+			ctx := context.Background()
+			name := "offsets-import-notstop"
+			nn := nameFor(name)
+
+			mock := newMockKafkaConnectServer()
+			DeferCleanup(mock.Close)
+
+			cm := &corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "offsets-import-notstop-cm",
+					Namespace: "default",
+				},
+				Data: map[string]string{
+					offsetsConfigMapKey: `{"offsets":[]}`,
+				},
+			}
+			Expect(k8sClient.Create(ctx, cm)).To(Succeed())
+			DeferCleanup(func() {
+				cleanupConnector(ctx, nn)
+				_ = k8sClient.Delete(ctx, cm)
+			})
+
+			createConnectorWithSpec(ctx, name, map[string]string{
+				offsetsAnnotation: "import",
+			}, kafkaconnectv1alpha1.ConnectorSpec{
+				ClusterRef: corev1.LocalObjectReference{Name: "my-cluster"},
+				Config:     map[string]string{"connector.class": "FileStreamSource"},
+				State:      kafkaconnectv1alpha1.ConnectorStateRunning,
+				ImportOffsets: &kafkaconnectv1alpha1.OffsetsSpec{
+					ConfigMapRef: corev1.LocalObjectReference{Name: "offsets-import-notstop-cm"},
+				},
+			})
+
+			r, recorder := newReconciler(mock)
+
+			// Reconcile enough times to reach offset reconciliation
+			_, err := reconcileN(ctx, r, nn, 5)
+			Expect(err).NotTo(HaveOccurred())
+
+			// Annotation should still be present (retry)
+			connector := getConnector(ctx, nn)
+			Expect(connector).NotTo(BeNil())
+			Expect(connector.Annotations).To(HaveKeyWithValue(offsetsAnnotation, "import"))
+
+			Expect(recorder.Events).To(Receive(ContainSubstring("FailedImportOffsets")))
+		})
+
+		It("should reset offsets when connector is stopped", func() {
+			ctx := context.Background()
+			name := "offsets-reset"
+			nn := nameFor(name)
+
+			mock := newMockKafkaConnectServer()
+			DeferCleanup(mock.Close)
+
+			// Pre-set offsets in mock
+			mock.offsets[name] = &kafkaconnect.ConnectorOffsets{
+				Offsets: []kafkaconnect.ConnectorOffset{
+					{
+						Partition: map[string]any{"kafka_topic": "test-topic"},
+						Offset:    map[string]any{"kafka_offset": float64(100)},
+					},
+				},
+			}
+
+			createConnectorWithSpec(ctx, name, map[string]string{
+				offsetsAnnotation: "reset",
+			}, kafkaconnectv1alpha1.ConnectorSpec{
+				ClusterRef: corev1.LocalObjectReference{Name: "my-cluster"},
+				Config:     map[string]string{"connector.class": "FileStreamSource"},
+				State:      kafkaconnectv1alpha1.ConnectorStateStopped,
+			})
+			DeferCleanup(func() { cleanupConnector(ctx, nn) })
+
+			r, recorder := newReconciler(mock)
+
+			// Reconcile: init, finalizer, create (stopped), reset+annotation removal, status, full pass
+			_, err := reconcileN(ctx, r, nn, 6)
+			Expect(err).NotTo(HaveOccurred())
+
+			// Annotation should be removed
+			connector := getConnector(ctx, nn)
+			Expect(connector).NotTo(BeNil())
+			Expect(connector.Annotations).NotTo(HaveKey(offsetsAnnotation))
+
+			// Offsets should be cleared in mock
+			mock.mu.Lock()
+			_, exists := mock.offsets[name]
+			mock.mu.Unlock()
+			Expect(exists).To(BeFalse())
+
+			// Timestamp should be set
+			Expect(connector.Status.LastResetOffsetsAt).NotTo(BeNil())
+
+			Expect(recorder.Events).To(Receive(ContainSubstring("ResetOffsets")))
+		})
+
+		It("should emit warning and keep annotation when resetting but connector is not stopped", func() {
+			ctx := context.Background()
+			name := "offsets-reset-notstop"
+			nn := nameFor(name)
+
+			mock := newMockKafkaConnectServer()
+			DeferCleanup(mock.Close)
+
+			createConnectorWithSpec(ctx, name, map[string]string{
+				offsetsAnnotation: "reset",
+			}, kafkaconnectv1alpha1.ConnectorSpec{
+				ClusterRef: corev1.LocalObjectReference{Name: "my-cluster"},
+				Config:     map[string]string{"connector.class": "FileStreamSource"},
+				State:      kafkaconnectv1alpha1.ConnectorStateRunning,
+			})
+			DeferCleanup(func() { cleanupConnector(ctx, nn) })
+
+			r, recorder := newReconciler(mock)
+
+			_, err := reconcileN(ctx, r, nn, 5)
+			Expect(err).NotTo(HaveOccurred())
+
+			connector := getConnector(ctx, nn)
+			Expect(connector).NotTo(BeNil())
+			Expect(connector.Annotations).To(HaveKeyWithValue(offsetsAnnotation, "reset"))
+
+			Expect(recorder.Events).To(Receive(ContainSubstring("FailedResetOffsets")))
 		})
 	})
 

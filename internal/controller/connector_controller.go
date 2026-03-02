@@ -16,15 +16,18 @@ package controller
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"reflect"
 	"strings"
 	"time"
 
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -39,7 +42,13 @@ const (
 	connectorFinalizer         = "kafka-connect.b1zzu.net/connector"
 	connectorRestartAnnotation = "kafka-connect.b1zzu.net/restart"
 
-	connectorStatusFailed = "FAILED"
+	connectorStatusRunning = "RUNNING"
+	connectorStatusPaused  = "PAUSED"
+	connectorStatusStopped = "STOPPED"
+	connectorStatusFailed  = "FAILED"
+
+	offsetsAnnotation   = "kafka-connect.b1zzu.net/offsets"
+	offsetsConfigMapKey = "offsets.json"
 )
 
 type connectorReconcileFunc func(ctx context.Context, connector *kcv1alpha1.Connector) (*kcv1alpha1.Connector, error)
@@ -67,7 +76,8 @@ func (e *ConnectorReconciliationError) Error() string {
 // ConnectorReconciler reconciles a Connector object
 type ConnectorReconciler struct {
 	client.Client
-	Scheme *runtime.Scheme
+	Scheme   *runtime.Scheme
+	Recorder record.EventRecorder
 
 	// NewKafkaConnectClientFunc creates a Kafka Connect client for the given connector.
 	NewKafkaConnectClientFunc func(connector *kcv1alpha1.Connector) *kafkaconnect.Client
@@ -76,6 +86,8 @@ type ConnectorReconciler struct {
 // +kubebuilder:rbac:groups=kafka-connect.b1zzu.net,resources=connectors,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=kafka-connect.b1zzu.net,resources=connectors/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=kafka-connect.b1zzu.net,resources=connectors/finalizers,verbs=update
+// +kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch;create;update;patch
+// +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -102,6 +114,7 @@ func (r *ConnectorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		r.reconcileConnector,
 		r.reconcileConnectorState,
 		r.reconcileConnectorRestart,
+		r.reconcileConnectorOffsets,
 		r.reconcileConnectorStatus,
 	} {
 		connector, err = reconcile(ctx, connector)
@@ -217,9 +230,9 @@ func (r *ConnectorReconciler) reconcileConnector(ctx context.Context, connector 
 
 		switch desiredState {
 		case kcv1alpha1.ConnectorStatePaused:
-			newConnector.InitialState = "PAUSED"
+			newConnector.InitialState = connectorStatusPaused
 		case kcv1alpha1.ConnectorStateStopped:
-			newConnector.InitialState = "STOPPED"
+			newConnector.InitialState = connectorStatusStopped
 		}
 
 		err = kafkaConnect.CreateConnector(ctx, newConnector)
@@ -375,6 +388,196 @@ func (r *ConnectorReconciler) reconcileConnectorRestart(ctx context.Context, con
 	}
 
 	// Return nil to restart reconciliation
+	return nil, nil
+}
+
+func (r *ConnectorReconciler) reconcileConnectorOffsets(ctx context.Context, connector *kcv1alpha1.Connector) (*kcv1alpha1.Connector, error) {
+	log := logf.FromContext(ctx)
+
+	annotation := connector.Annotations[offsetsAnnotation]
+	if annotation == "" {
+		return connector, nil
+	}
+
+	log.Info("Reconciling connector offsets", "operation", annotation)
+
+	switch annotation {
+	case "export":
+		return r.reconcileExportOffsets(ctx, connector)
+	case "import":
+		return r.reconcileImportOffsets(ctx, connector)
+	case "reset":
+		return r.reconcileResetOffsets(ctx, connector)
+	default:
+		r.Recorder.Eventf(connector, corev1.EventTypeWarning, "FailedOffsets", "Unknown offsets annotation value: %s", annotation)
+		return r.removeOffsetsAnnotation(ctx, connector)
+	}
+}
+
+func (r *ConnectorReconciler) reconcileExportOffsets(ctx context.Context, connector *kcv1alpha1.Connector) (*kcv1alpha1.Connector, error) {
+	log := logf.FromContext(ctx)
+
+	if connector.Spec.ExportOffsets == nil {
+		r.Recorder.Event(connector, corev1.EventTypeWarning, "FailedExportOffsets", "spec.exportOffsets.configMapRef is required for export")
+		return r.removeOffsetsAnnotation(ctx, connector)
+	}
+
+	kafkaConnect := r.NewKafkaConnectClientFunc(connector)
+	offsets, err := kafkaConnect.GetConnectorOffsets(ctx, connector.Name)
+	if err != nil {
+		r.Recorder.Eventf(connector, corev1.EventTypeWarning, "FailedExportOffsets", "Failed to get offsets: %v", err)
+		return nil, fmt.Errorf("failed to get connector offsets: %w", err)
+	}
+
+	offsetsJSON, err := json.Marshal(offsets)
+	if err != nil {
+		r.Recorder.Eventf(connector, corev1.EventTypeWarning, "FailedExportOffsets", "Failed to marshal offsets: %v", err)
+		return nil, fmt.Errorf("failed to marshal offsets: %w", err)
+	}
+
+	cmName := connector.Spec.ExportOffsets.ConfigMapRef.Name
+	cm := &corev1.ConfigMap{}
+	err = r.Get(ctx, client.ObjectKey{Name: cmName, Namespace: connector.Namespace}, cm)
+	if err != nil {
+		if !apierrors.IsNotFound(err) {
+			r.Recorder.Eventf(connector, corev1.EventTypeWarning, "FailedExportOffsets", "Failed to get ConfigMap: %v", err)
+			return nil, fmt.Errorf("failed to get ConfigMap: %w", err)
+		}
+
+		// Create ConfigMap
+		cm = &corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      cmName,
+				Namespace: connector.Namespace,
+			},
+			Data: map[string]string{
+				offsetsConfigMapKey: string(offsetsJSON),
+			},
+		}
+		if err := r.Create(ctx, cm); err != nil {
+			r.Recorder.Eventf(connector, corev1.EventTypeWarning, "FailedExportOffsets", "Failed to create ConfigMap: %v", err)
+			return nil, fmt.Errorf("failed to create ConfigMap: %w", err)
+		}
+	} else {
+		// Update ConfigMap
+		cm.Data = map[string]string{
+			offsetsConfigMapKey: string(offsetsJSON),
+		}
+		if err := r.Update(ctx, cm); err != nil {
+			r.Recorder.Eventf(connector, corev1.EventTypeWarning, "FailedExportOffsets", "Failed to update ConfigMap: %v", err)
+			return nil, fmt.Errorf("failed to update ConfigMap: %w", err)
+		}
+	}
+
+	log.Info("Exported connector offsets", "configMap", cmName)
+	r.Recorder.Eventf(connector, corev1.EventTypeNormal, "ExportedOffsets", "Exported offsets to ConfigMap %s", cmName)
+
+	connector.Status.LastExportedOffsetsAt = &metav1.Time{Time: time.Now()}
+	if err := r.Status().Update(ctx, connector); err != nil {
+		return nil, fmt.Errorf("failed to update status with export timestamp: %w", err)
+	}
+
+	return r.removeOffsetsAnnotation(ctx, connector)
+}
+
+func (r *ConnectorReconciler) reconcileImportOffsets(ctx context.Context, connector *kcv1alpha1.Connector) (*kcv1alpha1.Connector, error) {
+	log := logf.FromContext(ctx)
+
+	if connector.Spec.ImportOffsets == nil {
+		r.Recorder.Event(connector, corev1.EventTypeWarning, "FailedImportOffsets", "spec.importOffsets.configMapRef is required for import")
+		return r.removeOffsetsAnnotation(ctx, connector)
+	}
+
+	// Validate connector is stopped
+	kafkaConnect := r.NewKafkaConnectClientFunc(connector)
+	status, err := kafkaConnect.GetConnectorStatus(ctx, connector.Name)
+	if err != nil {
+		r.Recorder.Eventf(connector, corev1.EventTypeWarning, "FailedImportOffsets", "Failed to get connector status: %v", err)
+		return nil, fmt.Errorf("failed to get connector status: %w", err)
+	}
+
+	if status.Connector.State != connectorStatusStopped {
+		r.Recorder.Eventf(connector, corev1.EventTypeWarning, "FailedImportOffsets", "Connector must be stopped to import offsets, current state: %s", status.Connector.State)
+		// Keep annotation for retry
+		return connector, nil
+	}
+
+	// Read ConfigMap
+	cmName := connector.Spec.ImportOffsets.ConfigMapRef.Name
+	cm := &corev1.ConfigMap{}
+	err = r.Get(ctx, client.ObjectKey{Name: cmName, Namespace: connector.Namespace}, cm)
+	if err != nil {
+		r.Recorder.Eventf(connector, corev1.EventTypeWarning, "FailedImportOffsets", "Failed to get ConfigMap %s: %v", cmName, err)
+		return nil, fmt.Errorf("failed to get ConfigMap: %w", err)
+	}
+
+	offsetsJSON, ok := cm.Data[offsetsConfigMapKey]
+	if !ok {
+		r.Recorder.Eventf(connector, corev1.EventTypeWarning, "FailedImportOffsets", "ConfigMap %s missing key %s", cmName, offsetsConfigMapKey)
+		return nil, fmt.Errorf("ConfigMap %s missing key %s", cmName, offsetsConfigMapKey)
+	}
+
+	offsets := &kafkaconnect.ConnectorOffsets{}
+	if err := json.Unmarshal([]byte(offsetsJSON), offsets); err != nil {
+		r.Recorder.Eventf(connector, corev1.EventTypeWarning, "FailedImportOffsets", "Failed to parse offsets from ConfigMap: %v", err)
+		return nil, fmt.Errorf("failed to parse offsets from ConfigMap: %w", err)
+	}
+
+	if err := kafkaConnect.PatchConnectorOffsets(ctx, connector.Name, offsets); err != nil {
+		r.Recorder.Eventf(connector, corev1.EventTypeWarning, "FailedImportOffsets", "Failed to import offsets: %v", err)
+		return nil, fmt.Errorf("failed to patch connector offsets: %w", err)
+	}
+
+	log.Info("Imported connector offsets", "configMap", cmName)
+	r.Recorder.Eventf(connector, corev1.EventTypeNormal, "ImportedOffsets", "Imported offsets from ConfigMap %s", cmName)
+
+	connector.Status.LastImportedOffsetsAt = &metav1.Time{Time: time.Now()}
+	if err := r.Status().Update(ctx, connector); err != nil {
+		return nil, fmt.Errorf("failed to update status with import timestamp: %w", err)
+	}
+
+	return r.removeOffsetsAnnotation(ctx, connector)
+}
+
+func (r *ConnectorReconciler) reconcileResetOffsets(ctx context.Context, connector *kcv1alpha1.Connector) (*kcv1alpha1.Connector, error) {
+	log := logf.FromContext(ctx)
+
+	// Validate connector is stopped
+	kafkaConnect := r.NewKafkaConnectClientFunc(connector)
+	status, err := kafkaConnect.GetConnectorStatus(ctx, connector.Name)
+	if err != nil {
+		r.Recorder.Eventf(connector, corev1.EventTypeWarning, "FailedResetOffsets", "Failed to get connector status: %v", err)
+		return nil, fmt.Errorf("failed to get connector status: %w", err)
+	}
+
+	if status.Connector.State != connectorStatusStopped {
+		r.Recorder.Eventf(connector, corev1.EventTypeWarning, "FailedResetOffsets", "Connector must be stopped to reset offsets, current state: %s", status.Connector.State)
+		// Keep annotation for retry
+		return connector, nil
+	}
+
+	if err := kafkaConnect.DeleteConnectorOffsets(ctx, connector.Name); err != nil {
+		r.Recorder.Eventf(connector, corev1.EventTypeWarning, "FailedResetOffsets", "Failed to reset offsets: %v", err)
+		return nil, fmt.Errorf("failed to delete connector offsets: %w", err)
+	}
+
+	log.Info("Reset connector offsets")
+	r.Recorder.Event(connector, corev1.EventTypeNormal, "ResetOffsets", "Reset connector offsets")
+
+	connector.Status.LastResetOffsetsAt = &metav1.Time{Time: time.Now()}
+	if err := r.Status().Update(ctx, connector); err != nil {
+		return nil, fmt.Errorf("failed to update status with reset timestamp: %w", err)
+	}
+
+	return r.removeOffsetsAnnotation(ctx, connector)
+}
+
+func (r *ConnectorReconciler) removeOffsetsAnnotation(ctx context.Context, connector *kcv1alpha1.Connector) (*kcv1alpha1.Connector, error) {
+	delete(connector.Annotations, offsetsAnnotation)
+	if err := r.Update(ctx, connector); err != nil {
+		return nil, fmt.Errorf("failed to remove offsets annotation: %w", err)
+	}
+	// Return nil to restart reconciliation with updated resource
 	return nil, nil
 }
 
@@ -563,7 +766,7 @@ func mapConnectorStatusToCondition(status *kafkaconnect.ConnectorStatus) metav1.
 	}
 
 	switch status.Connector.State {
-	case "RUNNING":
+	case connectorStatusRunning:
 		failedTasks := countFailedTasks(status.Tasks)
 		if failedTasks > 0 {
 			condition.Status = metav1.ConditionFalse
@@ -574,11 +777,11 @@ func mapConnectorStatusToCondition(status *kafkaconnect.ConnectorStatus) metav1.
 			condition.Reason = "Running"
 			condition.Message = fmt.Sprintf("Connector is running with %d task(s)", len(status.Tasks))
 		}
-	case "PAUSED":
+	case connectorStatusPaused:
 		condition.Status = metav1.ConditionFalse
 		condition.Reason = "Paused"
 		condition.Message = "Connector is paused"
-	case "STOPPED":
+	case connectorStatusStopped:
 		condition.Status = metav1.ConditionFalse
 		condition.Reason = "Stopped"
 		condition.Message = "Connector is stopped"
