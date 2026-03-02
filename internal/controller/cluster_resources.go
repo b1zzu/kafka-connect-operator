@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"maps"
 	"sort"
+	"strconv"
 	"strings"
 
 	kcv1alpha1 "github.com/b1zzu/kafka-connect-operator/api/v1alpha1"
@@ -46,15 +47,30 @@ func marshalProperties(props map[string]string) string {
 	return b.String()
 }
 
-func log4j2Config() map[string]string {
-	return map[string]string{
+func log4j2ConfigForCluster(cluster *kcv1alpha1.Cluster) map[string]string {
+	rootLevel := "INFO"
+	if cluster.Spec.Logging != nil && cluster.Spec.Logging.Level != nil {
+		rootLevel = *cluster.Spec.Logging.Level
+	}
+
+	props := map[string]string{
 		"appender.0.type":              "Console",
 		"appender.0.name":              "CONSOLE",
 		"appender.0.direct":            "true",
 		"appender.0.layout.type":       "JsonTemplateLayout",
-		"rootLogger.level":             "INFO",
+		"rootLogger.level":             rootLevel,
 		"rootLogger.appenderRef.0.ref": "CONSOLE",
 	}
+
+	if cluster.Spec.Logging != nil {
+		for i, l := range cluster.Spec.Logging.Loggers {
+			key := strconv.Itoa(i)
+			props["logger."+key+".name"] = l.Name
+			props["logger."+key+".level"] = l.Level
+		}
+	}
+
+	return props
 }
 
 func deploymentForCluster(cluster *kcv1alpha1.Cluster) *appsv1ac.DeploymentApplyConfiguration {
@@ -376,9 +392,10 @@ func configMapForCluster(cluster *kcv1alpha1.Cluster) (*corev1ac.ConfigMapApplyC
 		return nil, err
 	}
 
+	// TODO: Chaning logging level configuration should not require a restart
 	data := map[string]string{
 		"connect.properties":        marshalProperties(configs),
-		"connect-log4j2.properties": marshalProperties(log4j2Config()),
+		"connect-log4j2.properties": marshalProperties(log4j2ConfigForCluster(cluster)),
 	}
 	if cluster.Spec.Metrics != nil && cluster.Spec.Metrics.JMXExporter != nil {
 		data["jmx-exporter-config.yaml"] = "rules:\n- pattern: \".*\"\n"
