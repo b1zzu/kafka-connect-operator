@@ -49,8 +49,6 @@ jobs:
           tags: |
             type=raw,value=latest,enable={{is_default_branch}}
             type=raw,value=${{ steps.version.outputs.msk_iam_auth_version }},enable={{is_default_branch}}
-            type=raw,value={{sha}}-${{ github.run_number }}
-            type=semver,pattern={{version}}
 
       - name: Build and push MSK IAM Auth image
         uses: docker/build-push-action@v6
