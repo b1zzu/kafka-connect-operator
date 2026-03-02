@@ -8,6 +8,7 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 
 ### Features
 
+- Apply logging level changes without pod restarts using Log4j2 hot-reload (#61)
 - Added manual restart support for connectors via annotations (#59)
 - Made logging levels configurable per connector and cluster (#58)
 - Preconfigured cluster to log to console in JSON format using Log4j2 layout template (#55, #56)

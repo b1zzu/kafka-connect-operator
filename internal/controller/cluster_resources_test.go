@@ -1094,6 +1094,15 @@ var _ = Describe("Cluster Resources", func() {
 			Expect(log4jConfig).NotTo(ContainSubstring("RollingFile"))
 		})
 
+		It("should include monitorInterval=30 in log4j2 properties for hot-reload", func() {
+			cluster := newCluster(nil)
+			cm, err := configMapForCluster(cluster)
+			Expect(err).NotTo(HaveOccurred())
+
+			log4jConfig := cm.Data["connect-log4j2.properties"]
+			Expect(log4jConfig).To(ContainSubstring("monitorInterval=30"))
+		})
+
 		It("should not have jmx-exporter-config.yaml key when metrics is nil", func() {
 			cluster := newCluster(nil)
 			cm, err := configMapForCluster(cluster)

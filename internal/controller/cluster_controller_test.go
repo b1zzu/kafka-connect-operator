@@ -292,4 +292,60 @@ var _ = Describe("Cluster Controller", func() {
 			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: name + "-connect", Namespace: "default"}, dep)).To(Succeed())
 		})
 	})
+
+	Describe("hashConfigMap", func() {
+		baseConfigMap := func() *corev1.ConfigMap {
+			return &corev1.ConfigMap{
+				Data: map[string]string{
+					"connect.properties":        "bootstrap.servers=kafka:9092\n",
+					"connect-log4j2.properties": "rootLogger.level=INFO\n",
+				},
+			}
+		}
+
+		It("should change when connect.properties changes", func() {
+			cm1 := baseConfigMap()
+			hash1 := hashConfigMap(cm1)
+
+			cm2 := baseConfigMap()
+			cm2.Data["connect.properties"] = "bootstrap.servers=kafka:9093\n"
+			hash2 := hashConfigMap(cm2)
+
+			Expect(hash1).NotTo(Equal(hash2))
+		})
+
+		It("should change when jmx-exporter-config.yaml changes", func() {
+			cm1 := baseConfigMap()
+			cm1.Data["jmx-exporter-config.yaml"] = "rules:\n- pattern: \".*\"\n"
+			hash1 := hashConfigMap(cm1)
+
+			cm2 := baseConfigMap()
+			cm2.Data["jmx-exporter-config.yaml"] = "rules:\n- pattern: \"foo\"\n"
+			hash2 := hashConfigMap(cm2)
+
+			Expect(hash1).NotTo(Equal(hash2))
+		})
+
+		It("should NOT change when connect-log4j2.properties changes", func() {
+			cm1 := baseConfigMap()
+			hash1 := hashConfigMap(cm1)
+
+			cm2 := baseConfigMap()
+			cm2.Data["connect-log4j2.properties"] = "rootLogger.level=DEBUG\n"
+			hash2 := hashConfigMap(cm2)
+
+			Expect(hash1).To(Equal(hash2))
+		})
+
+		It("should NOT change when an unknown key is added", func() {
+			cm1 := baseConfigMap()
+			hash1 := hashConfigMap(cm1)
+
+			cm2 := baseConfigMap()
+			cm2.Data["unknown-key"] = "some-value"
+			hash2 := hashConfigMap(cm2)
+
+			Expect(hash1).To(Equal(hash2))
+		})
+	})
 })
