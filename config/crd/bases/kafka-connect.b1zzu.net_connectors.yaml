@@ -226,6 +226,16 @@ spec:
               lastResetOffsetsAt:
                 format: date-time
                 type: string
+              lastRestartAt:
+                description: lastRestartAt is the timestamp of the last connector
+                  or task restart.
+                format: date-time
+                type: string
+              restartCount:
+                description: restartCount is the total number of restarts performed
+                  on this connector.
+                format: int32
+                type: integer
               tasks:
                 description: tasks represents the state of individual connector tasks
                   as reported by Kafka Connect.
