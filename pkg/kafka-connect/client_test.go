@@ -16,6 +16,8 @@ package kafkaconnect
 
 import (
 	"context"
+	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -116,5 +118,135 @@ func TestRestartTask_Error(t *testing.T) {
 	}
 	if got := err.Error(); got == "" {
 		t.Fatal("expected non-empty error message")
+	}
+}
+
+const testConnectorOffsetsPath = "/connectors/my-connector/offsets"
+
+func TestGetConnectorOffsets_Success(t *testing.T) {
+	expected := &ConnectorOffsets{
+		Offsets: []ConnectorOffset{
+			{
+				Partition: map[string]any{"kafka_topic": "topic", "kafka_partition": float64(0)},
+				Offset:    map[string]any{"kafka_offset": float64(12345)},
+			},
+		},
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Errorf("expected GET, got %s", r.Method)
+		}
+		if r.URL.Path != testConnectorOffsetsPath {
+			t.Errorf("unexpected path: %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(expected)
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL)
+	offsets, err := client.GetConnectorOffsets(context.Background(), "my-connector")
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if len(offsets.Offsets) != 1 {
+		t.Fatalf("expected 1 offset, got %d", len(offsets.Offsets))
+	}
+}
+
+func TestGetConnectorOffsets_Error(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte("internal error"))
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL)
+	_, err := client.GetConnectorOffsets(context.Background(), "my-connector")
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+}
+
+func TestPatchConnectorOffsets_Success(t *testing.T) {
+	offsets := &ConnectorOffsets{
+		Offsets: []ConnectorOffset{
+			{
+				Partition: map[string]any{"kafka_topic": "topic", "kafka_partition": float64(0)},
+				Offset:    map[string]any{"kafka_offset": float64(100)},
+			},
+		},
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPatch {
+			t.Errorf("expected PATCH, got %s", r.Method)
+		}
+		if r.URL.Path != testConnectorOffsetsPath {
+			t.Errorf("unexpected path: %s", r.URL.Path)
+		}
+		body, _ := io.ReadAll(r.Body)
+		var received ConnectorOffsets
+		if err := json.Unmarshal(body, &received); err != nil {
+			t.Errorf("failed to decode body: %v", err)
+		}
+		if len(received.Offsets) != 1 {
+			t.Errorf("expected 1 offset in body, got %d", len(received.Offsets))
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL)
+	err := client.PatchConnectorOffsets(context.Background(), "my-connector", offsets)
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+}
+
+func TestPatchConnectorOffsets_Error(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusConflict)
+		_, _ = w.Write([]byte("connector must be stopped"))
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL)
+	err := client.PatchConnectorOffsets(context.Background(), "my-connector", &ConnectorOffsets{})
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+}
+
+func TestDeleteConnectorOffsets_Success(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodDelete {
+			t.Errorf("expected DELETE, got %s", r.Method)
+		}
+		if r.URL.Path != testConnectorOffsetsPath {
+			t.Errorf("unexpected path: %s", r.URL.Path)
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL)
+	err := client.DeleteConnectorOffsets(context.Background(), "my-connector")
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+}
+
+func TestDeleteConnectorOffsets_Error(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusConflict)
+		_, _ = w.Write([]byte("connector must be stopped"))
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL)
+	err := client.DeleteConnectorOffsets(context.Background(), "my-connector")
+	if err == nil {
+		t.Fatal("expected error, got nil")
 	}
 }

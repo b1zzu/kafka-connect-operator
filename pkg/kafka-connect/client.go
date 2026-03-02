@@ -36,6 +36,15 @@ type Connector struct {
 	InitialState string            `json:"initial_state,omitempty"`
 }
 
+type ConnectorOffsets struct {
+	Offsets []ConnectorOffset `json:"offsets"`
+}
+
+type ConnectorOffset struct {
+	Partition map[string]any `json:"partition"`
+	Offset    map[string]any `json:"offset"`
+}
+
 type ConnectorStatus struct {
 	Name      string                   `json:"name"`
 	Connector ConnectorStatusConnector `json:"connector"`
@@ -305,6 +314,88 @@ func (c *Client) RestartConnector(ctx context.Context, name string) error {
 	if res.StatusCode != 200 && res.StatusCode != 204 {
 		rb, _ := io.ReadAll(res.Body)
 		return fmt.Errorf("failed to restart connector with status: %s; body: %s", res.Status, string(rb))
+	}
+
+	return nil
+}
+
+func (c *Client) GetConnectorOffsets(ctx context.Context, name string) (*ConnectorOffsets, error) {
+	url := fmt.Sprintf("%s/connectors/%s/offsets", c.endpoint, name)
+
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	res, err := c.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get connector offsets: %w", err)
+	}
+	defer func() { _ = res.Body.Close() }()
+
+	if res.StatusCode != 200 {
+		rb, _ := io.ReadAll(res.Body)
+		return nil, fmt.Errorf("failed to get connector offsets with status: %s; body: %s", res.Status, string(rb))
+	}
+
+	offsets := &ConnectorOffsets{}
+	d := json.NewDecoder(res.Body)
+	err = d.Decode(offsets)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode connector offsets response: %w", err)
+	}
+
+	return offsets, nil
+}
+
+func (c *Client) PatchConnectorOffsets(ctx context.Context, name string, offsets *ConnectorOffsets) error {
+	url := fmt.Sprintf("%s/connectors/%s/offsets", c.endpoint, name)
+
+	body := &bytes.Buffer{}
+	e := json.NewEncoder(body)
+	err := e.Encode(offsets)
+	if err != nil {
+		return fmt.Errorf("failed to encode connector offsets for patch: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "PATCH", url, body)
+	if err != nil {
+		return err
+	}
+
+	req.Header.Add("Content-Type", "application/json")
+
+	res, err := c.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to patch connector offsets: %w", err)
+	}
+	defer func() { _ = res.Body.Close() }()
+
+	if res.StatusCode != 200 {
+		rb, _ := io.ReadAll(res.Body)
+		return fmt.Errorf("failed to patch connector offsets with status: %s; body: %s", res.Status, string(rb))
+	}
+
+	return nil
+}
+
+func (c *Client) DeleteConnectorOffsets(ctx context.Context, name string) error {
+	url := fmt.Sprintf("%s/connectors/%s/offsets", c.endpoint, name)
+
+	req, err := http.NewRequestWithContext(ctx, "DELETE", url, nil)
+	if err != nil {
+		return err
+	}
+
+	res, err := c.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to delete connector offsets: %w", err)
+	}
+	defer func() { _ = res.Body.Close() }()
+
+	if res.StatusCode != 200 && res.StatusCode != 204 {
+		rb, _ := io.ReadAll(res.Body)
+		return fmt.Errorf("failed to delete connector offsets with status: %s; body: %s", res.Status, string(rb))
 	}
 
 	return nil

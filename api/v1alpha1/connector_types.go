@@ -29,6 +29,14 @@ const (
 	ConnectorStateStopped ConnectorState = "stopped"
 )
 
+// OffsetsSpec configures the ConfigMap reference for offset operations (export or import).
+// This field alone has no effect. To trigger an operation, set the annotation
+// kafka-connect.b1zzu.net/offsets to "export", "import", or "reset".
+type OffsetsSpec struct {
+	// Reference to the ConfigMap used for the offset operation.
+	ConfigMapRef corev1.LocalObjectReference `json:"configMapRef"`
+}
+
 // ConnectorSpec defines the desired state of Connector
 type ConnectorSpec struct {
 	// The name of the Kafka Connect cluster hosting the connector.
@@ -45,6 +53,19 @@ type ConnectorSpec struct {
 	// +kubebuilder:default=running
 	// +optional
 	State ConnectorState `json:"state,omitempty"`
+
+	// Configuration for exporting offsets to a ConfigMap.
+	// This field alone has no effect. To trigger an export,
+	// set the annotation kafka-connect.b1zzu.net/offsets: export
+	// +optional
+	ExportOffsets *OffsetsSpec `json:"exportOffsets,omitempty"`
+
+	// Configuration for importing offsets from a ConfigMap.
+	// This field alone has no effect. To trigger an import,
+	// set the annotation kafka-connect.b1zzu.net/offsets: import
+	// The connector must be in the stopped state before importing.
+	// +optional
+	ImportOffsets *OffsetsSpec `json:"importOffsets,omitempty"`
 }
 
 // ConnectorStatus defines the observed state of Connector.
@@ -70,6 +91,13 @@ type ConnectorStatus struct {
 	// tasks represents the state of individual connector tasks as reported by Kafka Connect.
 	// +optional
 	Tasks []TaskStateStatus `json:"tasks,omitempty"`
+
+	// +optional
+	LastExportedOffsetsAt *metav1.Time `json:"lastExportedOffsetsAt,omitempty"`
+	// +optional
+	LastImportedOffsetsAt *metav1.Time `json:"lastImportedOffsetsAt,omitempty"`
+	// +optional
+	LastResetOffsetsAt *metav1.Time `json:"lastResetOffsetsAt,omitempty"`
 }
 
 // ConnectorStateStatus represents the state of the connector as reported by Kafka Connect.
