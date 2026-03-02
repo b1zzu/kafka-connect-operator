@@ -316,6 +316,18 @@ spec:
 
 When a connector is created with state `paused` or `stopped`, the operator passes `initial_state` to the Kafka Connect API so the connector never starts running. This is useful for offset migration workflows where you need to configure offsets before the connector starts.
 
+### Restart
+
+**Automatic restart:** The operator automatically restarts connectors and tasks that are in `FAILED` state when the desired state is `running`. No user action is required — the operator detects the failure during reconciliation, restarts the affected connector or tasks, and requeues for status verification.
+
+**Manual restart:** To manually trigger a restart of a connector (e.g. to pick up external configuration changes), annotate the Connector CR:
+
+```bash
+kubectl annotate connector my-connector kafka-connect.b1zzu.net/restart=true
+```
+
+The operator will restart the connector and automatically remove the annotation afterward.
+
 ### Network Security
 
 The operator automatically creates NetworkPolicies for each Kafka Connect cluster to secure the REST API (port 8083). By default, only the operator and other pods in the same cluster can access the Kafka Connect API.

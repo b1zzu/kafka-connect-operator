@@ -35,8 +35,9 @@ import (
 )
 
 const (
-	typeRunningConnector = "Running"
-	connectorFinalizer   = "kafka-connect.b1zzu.net/connector"
+	typeRunningConnector       = "Running"
+	connectorFinalizer         = "kafka-connect.b1zzu.net/connector"
+	connectorRestartAnnotation = "kafka-connect.b1zzu.net/restart"
 
 	connectorStatusFailed = "FAILED"
 )
@@ -100,6 +101,7 @@ func (r *ConnectorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		r.reconcileConnectorFinalizer,
 		r.reconcileConnector,
 		r.reconcileConnectorState,
+		r.reconcileConnectorRestart,
 		r.reconcileConnectorStatus,
 	} {
 		connector, err = reconcile(ctx, connector)
@@ -349,6 +351,30 @@ func (r *ConnectorReconciler) reconcileConnectorState(ctx context.Context, conne
 		return nil, fmt.Errorf("failed to update status after state change: %w", err)
 	}
 
+	return nil, nil
+}
+
+func (r *ConnectorReconciler) reconcileConnectorRestart(ctx context.Context, connector *kcv1alpha1.Connector) (*kcv1alpha1.Connector, error) {
+	log := logf.FromContext(ctx)
+
+	if connector.Annotations[connectorRestartAnnotation] != "true" {
+		return connector, nil
+	}
+
+	log.Info("Restarting connector (manual restart requested)")
+
+	kafkaConnect := r.NewKafkaConnectClientFunc(connector)
+	if err := kafkaConnect.RestartConnector(ctx, connector.Name); err != nil {
+		return nil, &ConnectorReconciliationError{err: err, msg: "failed to restart connector", connector: connector}
+	}
+
+	// Remove the restart annotation
+	delete(connector.Annotations, connectorRestartAnnotation)
+	if err := r.Update(ctx, connector); err != nil {
+		return nil, fmt.Errorf("failed to remove restart annotation: %w", err)
+	}
+
+	// Return nil to restart reconciliation
 	return nil, nil
 }
 
