@@ -45,7 +45,7 @@ jobs:
             type=raw,value=latest,enable=${{ github.event_name == 'release' }}
 
       - name: Build and push container image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           platforms: linux/arm64,linux/amd64
