@@ -1027,6 +1027,25 @@ spec:
                     - TRACE
                     - ALL
                     type: string
+                  log4jJsonLayout:
+                    description: |-
+                      Log4jJsonLayout configures the Log4j JSON Template Layout library
+                      used for structured JSON logging output.
+                    properties:
+                      image:
+                        default: ghcr.io/b1zzu/kafka-connect-operator/log4j-layout-template-json:2.25.3
+                        description: Image is the OCI image containing the Log4j JSON
+                          Template Layout JAR.
+                        type: string
+                      pullPolicy:
+                        description: Pull policy for the Log4j JSON Template Layout
+                          image.
+                        enum:
+                        - Always
+                        - Never
+                        - IfNotPresent
+                        type: string
+                    type: object
                   loggers:
                     description: Loggers is a list of logger level overrides for specific
                       logger names.

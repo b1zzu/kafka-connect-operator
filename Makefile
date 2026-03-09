@@ -1,5 +1,11 @@
 # Image URL to use all building/pushing image targets
-IMG ?= controller:latest
+IMG ?= kafka-connect-operator:latest
+
+SAMPLE_PLUGINS_IMG ?= kafka-connect-operator/sample-plugins:latest
+JMX_EXPORTER_IMG ?= kafka-connect-operator/jmx-exporter:latest
+LOG4J_LAYOUT_IMG ?= kafka-connect-operator/log4j-layout-template-json:latest
+MSK_IAM_AUTH_IMG ?= kafka-connect-operator/msk-iam-auth:latest
+KAFKA_CONNECT_DATAGEN_IMG ?= kafka-connect-operator/kafka-connect-datagen:latest
 
 # Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
 ifeq (,$(shell go env GOBIN))
@@ -123,7 +129,13 @@ docker-build: ## Build docker image with the manager.
 docker-push: ## Push docker image with the manager.
 	$(CONTAINER_TOOL) push ${IMG}
 
-JMX_EXPORTER_IMG ?= ghcr.io/b1zzu/kafka-connect-operator/jmx-exporter:1.5.0
+.PHONY: docker-build-sample-plugins
+docker-build-sample-plugins: ## Build sample-plugins OCI image.
+	$(CONTAINER_TOOL) build -t ${SAMPLE_PLUGINS_IMG} containers/sample-plugins
+
+.PHONY: docker-push-sample-plugins
+docker-push-sample-plugins: ## Push sample-plugins OCI image.
+	$(CONTAINER_TOOL) push ${SAMPLE_PLUGINS_IMG}
 
 .PHONY: docker-build-jmx-exporter
 docker-build-jmx-exporter: ## Build JMX Exporter OCI image.
@@ -133,8 +145,6 @@ docker-build-jmx-exporter: ## Build JMX Exporter OCI image.
 docker-push-jmx-exporter: ## Push JMX Exporter OCI image.
 	$(CONTAINER_TOOL) push ${JMX_EXPORTER_IMG}
 
-LOG4J_LAYOUT_IMG ?= ghcr.io/b1zzu/kafka-connect-operator/log4j-layout-template-json:2.25.3
-
 .PHONY: docker-build-log4j-layout
 docker-build-log4j-layout: ## Build Log4j Layout Template JSON OCI image.
 	$(CONTAINER_TOOL) build -t ${LOG4J_LAYOUT_IMG} containers/log4j-layout-template-json
@@ -143,8 +153,6 @@ docker-build-log4j-layout: ## Build Log4j Layout Template JSON OCI image.
 docker-push-log4j-layout: ## Push Log4j Layout Template JSON OCI image.
 	$(CONTAINER_TOOL) push ${LOG4J_LAYOUT_IMG}
 
-MSK_IAM_AUTH_IMG ?= ghcr.io/b1zzu/kafka-connect-operator/msk-iam-auth:2.3.5
-
 .PHONY: docker-build-msk-iam-auth
 docker-build-msk-iam-auth: ## Build MSK IAM Auth OCI image.
 	$(CONTAINER_TOOL) build -t ${MSK_IAM_AUTH_IMG} containers/msk-iam-auth
@@ -152,8 +160,6 @@ docker-build-msk-iam-auth: ## Build MSK IAM Auth OCI image.
 .PHONY: docker-push-msk-iam-auth
 docker-push-msk-iam-auth: ## Push MSK IAM Auth OCI image.
 	$(CONTAINER_TOOL) push ${MSK_IAM_AUTH_IMG}
-
-KAFKA_CONNECT_DATAGEN_IMG ?= ghcr.io/b1zzu/kafka-connect-operator/kafka-connect-datagen:0.6.6
 
 .PHONY: docker-build-kafka-connect-datagen
 docker-build-kafka-connect-datagen: ## Build Kafka Connect Datagen OCI image.

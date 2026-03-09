@@ -1,0 +1,17 @@
+apiVersion: kafka-connect.b1zzu.net/v1alpha1
+kind: Cluster
+metadata:
+  name: my-cluster
+spec:
+  plugins:
+    - name: sample-plugins
+      image: example.com/kafka-connect-operator/sample-plugins:latest
+      pullPolicy: Never
+  logging:
+    log4jJsonLayout:
+      image: example.com/kafka-connect-operator/log4j-layout-template-json:latest
+      pullPolicy: Never
+  metrics:
+    jmxExporter:
+      image: example.com/kafka-connect-operator/jmx-exporter:latest
+      pullPolicy: Never
