@@ -221,6 +221,24 @@ type LoggingConfig struct {
 	// +listType=map
 	// +listMapKey=name
 	Loggers []LoggingLoggerConfig `json:"loggers,omitempty"`
+
+	// Log4jJsonLayout configures the Log4j JSON Template Layout library
+	// used for structured JSON logging output.
+	// +optional
+	Log4jJsonLayout *Log4jJsonLayoutConfig `json:"log4jJsonLayout,omitempty"`
+}
+
+// Log4jJsonLayoutConfig configures the Log4j JSON Template Layout library.
+type Log4jJsonLayoutConfig struct {
+	// Image is the OCI image containing the Log4j JSON Template Layout JAR.
+	// +optional
+	// +kubebuilder:default="ghcr.io/b1zzu/kafka-connect-operator/log4j-layout-template-json:2.25.3"
+	Image *string `json:"image,omitempty"`
+
+	// Pull policy for the Log4j JSON Template Layout image.
+	// +optional
+	// +kubebuilder:validation:Enum=Always;Never;IfNotPresent
+	PullPolicy *corev1.PullPolicy `json:"pullPolicy,omitempty"`
 }
 
 // LoggingLoggerConfig defines a log level override for a specific logger.

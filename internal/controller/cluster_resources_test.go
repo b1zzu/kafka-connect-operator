@@ -895,6 +895,56 @@ var _ = Describe("Cluster Resources", func() {
 			Expect(*log4jMount.ReadOnly).To(BeTrue())
 		})
 
+		It("should use custom log4j-layout image when specified", func() {
+			customImage := "example.com/custom/log4j-layout:1.0.0"
+			pullPolicy := corev1.PullNever
+			cluster := &kcv1alpha1.Cluster{
+				Spec: kcv1alpha1.ClusterSpec{
+					Config: map[string]string{"bootstrap.servers": "localhost:9092"},
+					Logging: &kcv1alpha1.LoggingConfig{
+						Log4jJsonLayout: &kcv1alpha1.Log4jJsonLayoutConfig{
+							Image:      &customImage,
+							PullPolicy: &pullPolicy,
+						},
+					},
+				},
+			}
+			dep := deploymentForCluster(cluster)
+
+			var log4jVol *corev1ac.VolumeApplyConfiguration
+			for i := range dep.Spec.Template.Spec.Volumes {
+				if *dep.Spec.Template.Spec.Volumes[i].Name == log4jLayoutVolName {
+					log4jVol = &dep.Spec.Template.Spec.Volumes[i]
+				}
+			}
+			Expect(log4jVol).NotTo(BeNil())
+			Expect(*log4jVol.Image.Reference).To(Equal(customImage))
+			Expect(*log4jVol.Image.PullPolicy).To(Equal(corev1.PullNever))
+		})
+
+		It("should use default log4j-layout image when logging is set without log4jJsonLayout", func() {
+			level := "DEBUG"
+			cluster := &kcv1alpha1.Cluster{
+				Spec: kcv1alpha1.ClusterSpec{
+					Config: map[string]string{"bootstrap.servers": "localhost:9092"},
+					Logging: &kcv1alpha1.LoggingConfig{
+						Level: &level,
+					},
+				},
+			}
+			dep := deploymentForCluster(cluster)
+
+			var log4jVol *corev1ac.VolumeApplyConfiguration
+			for i := range dep.Spec.Template.Spec.Volumes {
+				if *dep.Spec.Template.Spec.Volumes[i].Name == log4jLayoutVolName {
+					log4jVol = &dep.Spec.Template.Spec.Volumes[i]
+				}
+			}
+			Expect(log4jVol).NotTo(BeNil())
+			Expect(*log4jVol.Image.Reference).To(Equal("ghcr.io/b1zzu/kafka-connect-operator/log4j-layout-template-json:2.25.3"))
+			Expect(log4jVol.Image.PullPolicy).To(BeNil())
+		})
+
 		It("should always have CLASSPATH with log4j-layout-template-json", func() {
 			cluster := newCluster(nil)
 			dep := deploymentForCluster(cluster)

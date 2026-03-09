@@ -1,0 +1,5 @@
+resources:
+  - ../samples
+
+patches:
+  - path: cluster_patch.yaml

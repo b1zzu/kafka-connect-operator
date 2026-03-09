@@ -141,9 +141,20 @@ func deploymentForCluster(cluster *kcv1alpha1.Cluster) *appsv1ac.DeploymentApply
 
 	// Build log4j-layout-template-json volume and mount (always present)
 	log4jLayoutImage := "ghcr.io/b1zzu/kafka-connect-operator/log4j-layout-template-json:2.25.3"
+	if cluster.Spec.Logging != nil && cluster.Spec.Logging.Log4jJsonLayout != nil &&
+		cluster.Spec.Logging.Log4jJsonLayout.Image != nil {
+		log4jLayoutImage = *cluster.Spec.Logging.Log4jJsonLayout.Image
+	}
+
+	imgVolSrc := corev1ac.ImageVolumeSource().WithReference(log4jLayoutImage)
+	if cluster.Spec.Logging != nil && cluster.Spec.Logging.Log4jJsonLayout != nil &&
+		cluster.Spec.Logging.Log4jJsonLayout.PullPolicy != nil {
+		imgVolSrc = imgVolSrc.WithPullPolicy(*cluster.Spec.Logging.Log4jJsonLayout.PullPolicy)
+	}
+
 	log4jLayoutVolume := corev1ac.Volume().
 		WithName("log4j-layout-template-json").
-		WithImage(corev1ac.ImageVolumeSource().WithReference(log4jLayoutImage))
+		WithImage(imgVolSrc)
 	log4jLayoutMount := corev1ac.VolumeMount().
 		WithName("log4j-layout-template-json").
 		WithMountPath("/opt/log4j-layout-template-json").

@@ -96,7 +96,7 @@ var _ = Describe("Manager", Ordered, func() {
 		Expect(err).NotTo(HaveOccurred(), "Kafka cluster did not become ready")
 
 		By("applying sample CRs")
-		cmd = exec.Command("kubectl", "apply", "-k", "config/samples", "-n", "default")
+		cmd = exec.Command("kubectl", "apply", "-k", "config/e2e", "-n", "default")
 		_, err = utils.Run(cmd)
 		Expect(err).NotTo(HaveOccurred(), "Failed to apply sample CRs")
 	})
@@ -105,7 +105,7 @@ var _ = Describe("Manager", Ordered, func() {
 	// and deleting the namespace.
 	AfterAll(func() {
 		By("deleting sample CRs")
-		cmd := exec.Command("kubectl", "delete", "-k", "config/samples",
+		cmd := exec.Command("kubectl", "delete", "-k", "config/e2e",
 			"-n", "default", "--ignore-not-found")
 		_, _ = utils.Run(cmd)
 
