@@ -51,7 +51,7 @@ jobs:
             type=raw,value=${{ steps.version.outputs.log4j_version }},enable={{is_default_branch}}
 
       - name: Build and push Log4j Layout Template JSON image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: containers/log4j-layout-template-json
           platforms: linux/amd64,linux/arm64

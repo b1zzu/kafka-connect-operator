@@ -51,7 +51,7 @@ jobs:
             type=raw,value=${{ steps.version.outputs.connect_datagen_version }},enable={{is_default_branch}}
 
       - name: Build and push Kafka Connect Datagen image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: containers/kafka-connect-datagen
           platforms: linux/amd64,linux/arm64
