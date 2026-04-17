@@ -111,9 +111,9 @@
     },
     {
       "customType": "regex",
-      "description": "Update AWS Advanced JDBC Wrapper version in aws-advanced-jdbc-wrapper Dockerfile",
+      "description": "Update AWS Advanced JDBC Wrapper version in debezium-postgres Dockerfile",
       "managerFilePatterns": [
-        "/^containers/aws-advanced-jdbc-wrapper/Dockerfile$/"
+        "/^containers/debezium-postgres/Dockerfile$/"
       ],
       "matchStrings": [
         "ARG AWS_JDBC_WRAPPER_VERSION=(?<currentValue>\\S+)"
@@ -203,13 +203,6 @@
         "containers/debezium-postgres/Dockerfile"
       ],
       "groupName": "debezium-postgres dockerfile"
-    },
-    {
-      "description": "Group all aws-advanced-jdbc-wrapper Dockerfile updates",
-      "matchFileNames": [
-        "containers/aws-advanced-jdbc-wrapper/Dockerfile"
-      ],
-      "groupName": "aws-advanced-jdbc-wrapper dockerfile"
     }
   ]
 }
