@@ -1,0 +1,62 @@
+name: Build and Push Debezium PostgreSQL Image
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'containers/debezium-postgres/**'
+  pull_request:
+    paths:
+      - 'containers/debezium-postgres/**'
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}/debezium-postgres
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract Debezium version from Dockerfile
+        id: version
+        run: |
+          version=$(grep -oP 'ARG DEBEZIUM_VERSION=\K\S+' containers/debezium-postgres/Dockerfile)
+          echo "debezium_version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Extract metadata (tags, labels)
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=${{ steps.version.outputs.debezium_version }},enable={{is_default_branch}}
+
+      - name: Build and push Debezium PostgreSQL image
+        uses: docker/build-push-action@v7
+        with:
+          context: containers/debezium-postgres
+          platforms: linux/amd64,linux/arm64
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

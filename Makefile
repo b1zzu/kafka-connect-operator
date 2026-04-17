@@ -6,6 +6,8 @@ JMX_EXPORTER_IMG ?= kafka-connect-operator/jmx-exporter:latest
 LOG4J_LAYOUT_IMG ?= kafka-connect-operator/log4j-layout-template-json:latest
 MSK_IAM_AUTH_IMG ?= kafka-connect-operator/msk-iam-auth:latest
 KAFKA_CONNECT_DATAGEN_IMG ?= kafka-connect-operator/kafka-connect-datagen:latest
+DEBEZIUM_POSTGRES_IMG ?= kafka-connect-operator/debezium-postgres:latest
+AWS_JDBC_WRAPPER_IMG ?= kafka-connect-operator/aws-advanced-jdbc-wrapper:latest
 
 # Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
 ifeq (,$(shell go env GOBIN))
@@ -168,6 +170,22 @@ docker-build-kafka-connect-datagen: ## Build Kafka Connect Datagen OCI image.
 .PHONY: docker-push-kafka-connect-datagen
 docker-push-kafka-connect-datagen: ## Push Kafka Connect Datagen OCI image.
 	$(CONTAINER_TOOL) push ${KAFKA_CONNECT_DATAGEN_IMG}
+
+.PHONY: docker-build-debezium-postgres
+docker-build-debezium-postgres: ## Build Debezium PostgreSQL OCI image.
+	$(CONTAINER_TOOL) build -t ${DEBEZIUM_POSTGRES_IMG} containers/debezium-postgres
+
+.PHONY: docker-push-debezium-postgres
+docker-push-debezium-postgres: ## Push Debezium PostgreSQL OCI image.
+	$(CONTAINER_TOOL) push ${DEBEZIUM_POSTGRES_IMG}
+
+.PHONY: docker-build-aws-jdbc-wrapper
+docker-build-aws-jdbc-wrapper: ## Build AWS Advanced JDBC Wrapper OCI image.
+	$(CONTAINER_TOOL) build -t ${AWS_JDBC_WRAPPER_IMG} containers/aws-advanced-jdbc-wrapper
+
+.PHONY: docker-push-aws-jdbc-wrapper
+docker-push-aws-jdbc-wrapper: ## Push AWS Advanced JDBC Wrapper OCI image.
+	$(CONTAINER_TOOL) push ${AWS_JDBC_WRAPPER_IMG}
 
 # PLATFORMS defines the target platforms for the manager image be built to provide support to multiple
 # architectures. (i.e. make docker-buildx IMG=myregistry/mypoperator:0.0.1). To use this option you need to:
