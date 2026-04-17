@@ -254,7 +254,8 @@ func deploymentForCluster(cluster *kcv1alpha1.Cluster) *appsv1ac.DeploymentApply
 			WithName("KAFKA_OPTS").
 			WithValue("-javaagent:/opt/jmx-exporter/jmx_prometheus_javaagent.jar=9404:/config/jmx-exporter-config.yaml"))
 	}
-	classpathEntries := []string{"/opt/log4j-layout-template-json/*"}
+	classpathEntries := make([]string, 0, 1+len(cluster.Spec.Libraries))
+	classpathEntries = append(classpathEntries, "/opt/log4j-layout-template-json/*")
 	for _, library := range cluster.Spec.Libraries {
 		classpathEntries = append(classpathEntries, fmt.Sprintf("/libraries/%s/*", library.Name))
 	}
