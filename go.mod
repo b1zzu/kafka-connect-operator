@@ -1,6 +1,6 @@
 module github.com/b1zzu/kafka-connect-operator
 
-go 1.25.3
+go 1.25.7
 
 require (
 	github.com/onsi/ginkgo/v2 v2.28.1

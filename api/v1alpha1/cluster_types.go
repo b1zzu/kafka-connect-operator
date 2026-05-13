@@ -20,8 +20,16 @@ import (
 	"k8s.io/apimachinery/pkg/util/intstr"
 )
 
+// EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
+// NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
+
 // ClusterSpec defines the desired state of Cluster
 type ClusterSpec struct {
+	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
+	// Important: Run "make" to regenerate code after modifying this file
+	// The following markers will use OpenAPI v3 schema to validate the value
+	// More info: https://book.kubebuilder.io/reference/markers/crd-validation.html
+
 	// Number of Kafka Connect replicas to run
 	// +optional
 	// +kubebuilder:validation:Minimum:=0
@@ -254,6 +262,9 @@ type LoggingLoggerConfig struct {
 
 // ClusterStatus defines the observed state of Cluster.
 type ClusterStatus struct {
+	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
+	// Important: Run "make" to regenerate code after modifying this file
+
 	// For Kubernetes API conventions, see:
 	// https://github.com/kubernetes/community/blob/master/contributors/devel/sig-architecture/api-conventions.md#typical-status-properties
 
