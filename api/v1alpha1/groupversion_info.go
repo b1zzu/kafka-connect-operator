@@ -1,4 +1,6 @@
 /*
+Copyright 2026.
+
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
@@ -23,11 +25,15 @@ import (
 )
 
 var (
-	// GroupVersion is group version used to register these objects.
-	GroupVersion = schema.GroupVersion{Group: "kafka-connect.b1zzu.net", Version: "v1alpha1"}
+	// SchemeGroupVersion is group version used to register these objects.
+	// This name is used by applyconfiguration generators (e.g. controller-gen).
+	SchemeGroupVersion = schema.GroupVersion{Group: "kafka-connect.b1zzu.net", Version: "v1alpha1"}
+
+	// GroupVersion is an alias for SchemeGroupVersion, for backward compatibility.
+	GroupVersion = SchemeGroupVersion
 
 	// SchemeBuilder is used to add go types to the GroupVersionKind scheme.
-	SchemeBuilder = &scheme.Builder{GroupVersion: GroupVersion}
+	SchemeBuilder = &scheme.Builder{GroupVersion: SchemeGroupVersion}
 
 	// AddToScheme adds the types in this group-version to the given scheme.
 	AddToScheme = SchemeBuilder.AddToScheme
