@@ -750,7 +750,7 @@ func (r *ConnectorReconciler) updateStatusCondition(
 // NewDefaultKafkaConnectClientFunc returns a factory that creates Kafka Connect
 // clients using the in-cluster service endpoint.
 func NewDefaultKafkaConnectClientFunc(connector *kcv1alpha1.Connector) *kafkaconnect.Client {
-	endpoint := fmt.Sprintf("http://%s-connect.%s:8083", connector.Spec.ClusterRef.Name, connector.Namespace)
+	endpoint := fmt.Sprintf("http://%s.%s:8083", connector.Spec.ClusterRef.Name, connector.Namespace)
 	return kafkaconnect.NewClient(endpoint)
 }
 

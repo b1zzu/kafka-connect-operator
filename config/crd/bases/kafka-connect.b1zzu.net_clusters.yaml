@@ -966,7 +966,7 @@ spec:
                   the Deployment
                 type: object
               image:
-                default: docker.io/apache/kafka:4.2.0
+                default: docker.io/apache/kafka:4.3.0
                 description: Image used to deploy Kafka Connect, it should be based
                   on docker.io/apache/kafka
                 type: string

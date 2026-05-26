@@ -138,7 +138,7 @@ var _ = Describe("Cluster Controller", func() {
 
 			// Service should not exist yet (reconciliation stopped after condition init)
 			svc := &corev1.Service{}
-			err := k8sClient.Get(ctx, types.NamespacedName{Name: name + "-connect", Namespace: "default"}, svc)
+			err := k8sClient.Get(ctx, types.NamespacedName{Name: name, Namespace: "default"}, svc)
 			Expect(errors.IsNotFound(err)).To(BeTrue())
 		})
 	})
@@ -170,21 +170,21 @@ var _ = Describe("Cluster Controller", func() {
 
 			By("checking the Service")
 			svc := &corev1.Service{}
-			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: name + "-connect", Namespace: "default"}, svc)).To(Succeed())
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: name, Namespace: "default"}, svc)).To(Succeed())
 			Expect(svc.Spec.Ports).To(HaveLen(1))
 			Expect(svc.Spec.Ports[0].Port).To(Equal(int32(8083)))
 
 			By("checking the NetworkPolicy")
 			np := &netv1.NetworkPolicy{}
-			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: name + "-connect", Namespace: "default"}, np)).To(Succeed())
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: name, Namespace: "default"}, np)).To(Succeed())
 
 			By("checking the ServiceAccount")
 			sa := &corev1.ServiceAccount{}
-			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: name + "-connect", Namespace: "default"}, sa)).To(Succeed())
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: name, Namespace: "default"}, sa)).To(Succeed())
 
 			By("checking the ConfigMap")
 			cm := &corev1.ConfigMap{}
-			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: name + "-connect-config", Namespace: "default"}, cm)).To(Succeed())
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: name + "-config", Namespace: "default"}, cm)).To(Succeed())
 			Expect(cm.Data).To(HaveKey("connect.properties"))
 			Expect(cm.Data["connect.properties"]).To(ContainSubstring("bootstrap.servers"))
 			Expect(cm.Data).To(HaveKey("connect-log4j2.properties"))
@@ -192,7 +192,7 @@ var _ = Describe("Cluster Controller", func() {
 
 			By("checking the Deployment")
 			dep := &appsv1.Deployment{}
-			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: name + "-connect", Namespace: "default"}, dep)).To(Succeed())
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: name, Namespace: "default"}, dep)).To(Succeed())
 
 			By("checking the Cluster status configHash")
 			cluster := &kafkaconnectv1alpha1.Cluster{}
@@ -239,7 +239,7 @@ var _ = Describe("Cluster Controller", func() {
 
 			// Deployment should not have been created
 			dep := &appsv1.Deployment{}
-			err := k8sClient.Get(ctx, types.NamespacedName{Name: name + "-connect", Namespace: "default"}, dep)
+			err := k8sClient.Get(ctx, types.NamespacedName{Name: name, Namespace: "default"}, dep)
 			Expect(errors.IsNotFound(err)).To(BeTrue())
 		})
 	})
@@ -274,24 +274,24 @@ var _ = Describe("Cluster Controller", func() {
 
 			By("checking that NetworkPolicy does NOT exist")
 			np := &netv1.NetworkPolicy{}
-			err := k8sClient.Get(ctx, types.NamespacedName{Name: name + "-connect", Namespace: "default"}, np)
+			err := k8sClient.Get(ctx, types.NamespacedName{Name: name, Namespace: "default"}, np)
 			Expect(errors.IsNotFound(err)).To(BeTrue())
 
 			By("checking the Service exists")
 			svc := &corev1.Service{}
-			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: name + "-connect", Namespace: "default"}, svc)).To(Succeed())
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: name, Namespace: "default"}, svc)).To(Succeed())
 
 			By("checking the ServiceAccount exists")
 			sa := &corev1.ServiceAccount{}
-			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: name + "-connect", Namespace: "default"}, sa)).To(Succeed())
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: name, Namespace: "default"}, sa)).To(Succeed())
 
 			By("checking the ConfigMap exists")
 			cm := &corev1.ConfigMap{}
-			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: name + "-connect-config", Namespace: "default"}, cm)).To(Succeed())
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: name + "-config", Namespace: "default"}, cm)).To(Succeed())
 
 			By("checking the Deployment exists")
 			dep := &appsv1.Deployment{}
-			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: name + "-connect", Namespace: "default"}, dep)).To(Succeed())
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: name, Namespace: "default"}, dep)).To(Succeed())
 		})
 	})
 

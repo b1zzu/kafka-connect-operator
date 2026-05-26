@@ -333,7 +333,7 @@ var _ = Describe("Cluster Resources", func() {
 			dep := deploymentForCluster(cluster)
 
 			Expect(dep.Spec.Template.Spec.ServiceAccountName).NotTo(BeNil())
-			Expect(*dep.Spec.Template.Spec.ServiceAccountName).To(Equal("my-cluster-connect"))
+			Expect(*dep.Spec.Template.Spec.ServiceAccountName).To(Equal(testClusterName))
 		})
 
 		It("should always set KAFKA_LOG4J_OPTS pointing to the custom Log4j2 config", func() {
@@ -972,7 +972,7 @@ var _ = Describe("Cluster Resources", func() {
 			}
 			sa := serviceAccountForCluster(cluster)
 
-			Expect(*sa.Name).To(Equal("my-cluster-connect"))
+			Expect(*sa.Name).To(Equal(testClusterName))
 			Expect(*sa.Namespace).To(Equal("default"))
 		})
 
@@ -1284,7 +1284,7 @@ var _ = Describe("Cluster Resources", func() {
 			}
 			pdb := podDisruptionBudgetForCluster(cluster)
 
-			Expect(*pdb.Name).To(Equal("my-cluster-connect"))
+			Expect(*pdb.Name).To(Equal(testClusterName))
 			Expect(*pdb.Namespace).To(Equal("default"))
 		})
 
