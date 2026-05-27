@@ -143,6 +143,9 @@ func (r *ClusterReconciler) handleReconciliationError(ctx context.Context, err e
 	}
 
 	if rerr, ok := err.(*ClusterReconciliationError); ok {
+		if rerr.cluster == nil {
+			return fmt.Errorf("unexpected nil cluster in ClusterReconciliationError; after error: %w", rerr)
+		}
 
 		err = r.updateStatusCondition(ctx, rerr.cluster, metav1.Condition{
 			Type:    typeAvailableCluster,
@@ -241,14 +244,22 @@ func (r *ClusterReconciler) updateStatusCondition(
 }
 
 func (r *ClusterReconciler) serverSideApply(ctx context.Context, cluster *kcv1alpha1.Cluster, obj runtime.ApplyConfiguration) (*kcv1alpha1.Cluster, error) {
+	key := types.NamespacedName{Name: cluster.Name, Namespace: cluster.Namespace}
+
 	err := r.Apply(ctx, obj, &client.ApplyOptions{
 		FieldManager: serverSideApplyManager,
 	})
 	if err != nil {
-		return nil, err
+		// Try to refetch the Cluster if Apply fails
+		c, gerr := r.getCluster(ctx, key)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get Cluster with error: %w; after error: %w", gerr, err)
+		}
+
+		return c, err
 	}
 
-	return r.getCluster(ctx, types.NamespacedName{Name: cluster.Name, Namespace: cluster.Namespace})
+	return r.getCluster(ctx, key)
 }
 
 func (r *ClusterReconciler) reconcileService(ctx context.Context, cluster *kcv1alpha1.Cluster) (*kcv1alpha1.Cluster, error) {
