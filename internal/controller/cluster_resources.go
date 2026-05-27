@@ -201,6 +201,7 @@ func deploymentForCluster(cluster *kcv1alpha1.Cluster) *appsv1ac.DeploymentApply
 	podAnnotations["config/hash"] = configHash
 
 	deploymentAnnotation := cluster.Spec.DeploymentAnnotations
+	deploymentLabels := cluster.Spec.DeploymentLabels
 
 	var replicas int32 = 1
 	if cluster.Spec.Replicas != nil {
@@ -341,6 +342,7 @@ func deploymentForCluster(cluster *kcv1alpha1.Cluster) *appsv1ac.DeploymentApply
 	return appsv1ac.Deployment(name, cluster.Namespace).
 		WithOwnerReferences(ownerReferenceForCluster(cluster)).
 		WithAnnotations(deploymentAnnotation).
+		WithLabels(deploymentLabels).
 		WithSpec(appsv1ac.DeploymentSpec().
 			WithReplicas(replicas).
 			WithSelector(metav1ac.LabelSelector().WithMatchLabels(labels)).

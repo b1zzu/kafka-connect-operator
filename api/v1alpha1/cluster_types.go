@@ -97,6 +97,10 @@ type ClusterSpec struct {
 	// +optional
 	DeploymentAnnotations map[string]string `json:"deploymentAnnotations,omitempty"`
 
+	// DeploymentLabels defines custom labels for the Deployment
+	// +optional
+	DeploymentLabels map[string]string `json:"deploymentLabels,omitempty"`
+
 	// PodAnnotations defines custom annotations for the Pods.
 	// Merged with internal annotations; internal keys take precedence.
 	// +optional
