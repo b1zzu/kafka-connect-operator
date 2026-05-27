@@ -250,10 +250,10 @@ func (r *ClusterReconciler) serverSideApply(ctx context.Context, cluster *kcv1al
 		FieldManager: serverSideApplyManager,
 	})
 	if err != nil {
-		// Try to refetch the Cluster if Apply fails
-		c, gerr := r.getCluster(ctx, key)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get Cluster with error: %w; after error: %w", gerr, err)
+		// Try to refetch the Cluster if Apply fails to update the Cluster status
+		c, e := r.getCluster(ctx, key)
+		if e != nil {
+			return nil, fmt.Errorf("failed to get Cluster with error: %w; after error: %w", e, err)
 		}
 
 		return c, err
