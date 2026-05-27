@@ -207,7 +207,7 @@ func deploymentForCluster(cluster *kcv1alpha1.Cluster) *appsv1ac.DeploymentApply
 		replicas = *cluster.Spec.Replicas
 	}
 
-	name := fmt.Sprintf("%s-connect", cluster.Name)
+	name := cluster.Name
 
 	volumes := append([]*corev1ac.VolumeApplyConfiguration{
 		corev1ac.Volume().
@@ -396,7 +396,7 @@ func kafkaConnectConfigsForCluster(cluster *kcv1alpha1.Cluster) (map[string]stri
 }
 
 func configMapNameForCluster(cluster *kcv1alpha1.Cluster) string {
-	return fmt.Sprintf("%s-connect-config", cluster.Name)
+	return fmt.Sprintf("%s-config", cluster.Name)
 }
 
 func configMapForCluster(cluster *kcv1alpha1.Cluster) (*corev1ac.ConfigMapApplyConfiguration, error) {
@@ -422,7 +422,7 @@ func configMapForCluster(cluster *kcv1alpha1.Cluster) (*corev1ac.ConfigMapApplyC
 func serviceForCluster(cluster *kcv1alpha1.Cluster) *corev1ac.ServiceApplyConfiguration {
 	labels := selectorLabelsForCluster(cluster)
 
-	name := fmt.Sprintf("%s-connect", cluster.Name)
+	name := cluster.Name
 
 	serviceAnnotations := cluster.Spec.ServiceAnnotations
 
@@ -448,7 +448,7 @@ func networkPolicyForCluster(cluster *kcv1alpha1.Cluster, operatorNamespace stri
 		"kubernetes.io/metadata.name": operatorNamespace,
 	}
 
-	name := fmt.Sprintf("%s-connect", cluster.Name)
+	name := cluster.Name
 
 	ingressRules := []*netv1ac.NetworkPolicyIngressRuleApplyConfiguration{
 		// Rule 1: Allow operator access
@@ -496,7 +496,7 @@ func networkPolicyForCluster(cluster *kcv1alpha1.Cluster, operatorNamespace stri
 }
 
 func serviceAccountNameForCluster(cluster *kcv1alpha1.Cluster) string {
-	return fmt.Sprintf("%s-connect", cluster.Name)
+	return cluster.Name
 }
 
 func serviceAccountForCluster(cluster *kcv1alpha1.Cluster) *corev1ac.ServiceAccountApplyConfiguration {
@@ -517,7 +517,7 @@ func podDisruptionBudgetForCluster(cluster *kcv1alpha1.Cluster) *policyv1ac.PodD
 		maxUnavailable = *cluster.Spec.MaxUnavailable
 	}
 
-	name := fmt.Sprintf("%s-connect", cluster.Name)
+	name := cluster.Name
 
 	return policyv1ac.PodDisruptionBudget(name, cluster.Namespace).
 		WithOwnerReferences(ownerReferenceForCluster(cluster)).

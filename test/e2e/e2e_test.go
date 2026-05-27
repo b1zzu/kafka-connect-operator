@@ -196,7 +196,7 @@ var _ = Describe("Manager", Ordered, func() {
 			}
 
 			By("Fetching Kafka Connect pod logs")
-			cmd = exec.Command("kubectl", "logs", "deployment/my-cluster-connect",
+			cmd = exec.Command("kubectl", "logs", "deployment/my-cluster",
 				"-n", "default", "--tail=100")
 			connectLogs, err := utils.Run(cmd)
 			if err == nil {
@@ -363,7 +363,7 @@ var _ = Describe("Manager", Ordered, func() {
 		It("should deploy Connect and reach Connector Running state", func() {
 			By("waiting for the Connect deployment to be available")
 			verifyConnectDeployment := func(g Gomega) {
-				cmd := exec.Command("kubectl", "get", "deployment", "my-cluster-connect",
+				cmd := exec.Command("kubectl", "get", "deployment", "my-cluster",
 					"-n", "default",
 					"-o", "jsonpath={.status.conditions[?(@.type=='Available')].status}")
 				output, err := utils.Run(cmd)
