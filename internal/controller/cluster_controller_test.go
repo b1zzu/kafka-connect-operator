@@ -336,7 +336,7 @@ var _ = Describe("Cluster Controller", func() {
 		It("should return nil when error is nil", func() {
 			r := newReconciler()
 			result := r.handleReconciliationError(ctx, nil)
-			Expect(result).To(BeNil())
+			Expect(result).ToNot(HaveOccurred())
 		})
 
 		It("should return error as-is when error is not ClusterReconciliationError", func() {
