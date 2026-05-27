@@ -1,5 +1,5 @@
 # Image URL to use all building/pushing image targets
-IMG ?= kafka-connect-operator:latest
+IMG ?= ghcr.io/b1zzu/kafka-connect-operator:latest
 
 SAMPLE_PLUGINS_IMG ?= kafka-connect-operator/sample-plugins:latest
 JMX_EXPORTER_IMG ?= kafka-connect-operator/jmx-exporter:latest
