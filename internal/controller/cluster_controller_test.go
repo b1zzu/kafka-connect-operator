@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"fmt"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -292,6 +293,57 @@ var _ = Describe("Cluster Controller", func() {
 			By("checking the Deployment exists")
 			dep := &appsv1.Deployment{}
 			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: name, Namespace: "default"}, dep)).To(Succeed())
+		})
+	})
+
+	Describe("handleReconciliationError", func() {
+		newReconciler := func() *ClusterReconciler {
+			return &ClusterReconciler{
+				Client: &gvkFixClient{Client: k8sClient, scheme: k8sClient.Scheme()},
+				Scheme: k8sClient.Scheme(),
+			}
+		}
+
+		It("should not panic when ClusterReconciliationError.cluster is nil", func() {
+			r := newReconciler()
+			nn := types.NamespacedName{Name: "test-cluster", Namespace: "default"}
+
+			createCluster(ctx, "test-cluster", kafkaconnectv1alpha1.ClusterSpec{
+				Config: map[string]string{
+					"bootstrap.servers": "kafka:9092",
+					"group.id":          "test-group",
+				},
+			})
+			defer func() {
+				cluster := &kafkaconnectv1alpha1.Cluster{}
+				_ = k8sClient.Get(ctx, nn, cluster)
+				_ = k8sClient.Delete(ctx, cluster)
+			}()
+
+			reconcileN(ctx, r, nn, 1)
+
+			err := &ClusterReconciliationError{
+				err:     nil,
+				msg:     "test user error",
+				cluster: nil,
+			}
+
+			result := r.handleReconciliationError(ctx, err)
+			Expect(result).To(HaveOccurred())
+			Expect(result.Error()).To(ContainSubstring("unexpected nil cluster"))
+		})
+
+		It("should return nil when error is nil", func() {
+			r := newReconciler()
+			result := r.handleReconciliationError(ctx, nil)
+			Expect(result).To(BeNil())
+		})
+
+		It("should return error as-is when error is not ClusterReconciliationError", func() {
+			r := newReconciler()
+			originalErr := fmt.Errorf("some other error")
+			result := r.handleReconciliationError(ctx, originalErr)
+			Expect(result).To(Equal(originalErr))
 		})
 	})
 
