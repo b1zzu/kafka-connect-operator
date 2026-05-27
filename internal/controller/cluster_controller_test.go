@@ -25,7 +25,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	netv1 "k8s.io/api/networking/v1"
-	"k8s.io/apimachinery/pkg/api/errors"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -140,7 +140,7 @@ var _ = Describe("Cluster Controller", func() {
 			// Service should not exist yet (reconciliation stopped after condition init)
 			svc := &corev1.Service{}
 			err := k8sClient.Get(ctx, types.NamespacedName{Name: name, Namespace: "default"}, svc)
-			Expect(errors.IsNotFound(err)).To(BeTrue())
+			Expect(apierrors.IsNotFound(err)).To(BeTrue())
 		})
 	})
 
@@ -241,7 +241,7 @@ var _ = Describe("Cluster Controller", func() {
 			// Deployment should not have been created
 			dep := &appsv1.Deployment{}
 			err := k8sClient.Get(ctx, types.NamespacedName{Name: name, Namespace: "default"}, dep)
-			Expect(errors.IsNotFound(err)).To(BeTrue())
+			Expect(apierrors.IsNotFound(err)).To(BeTrue())
 		})
 	})
 
@@ -276,7 +276,7 @@ var _ = Describe("Cluster Controller", func() {
 			By("checking that NetworkPolicy does NOT exist")
 			np := &netv1.NetworkPolicy{}
 			err := k8sClient.Get(ctx, types.NamespacedName{Name: name, Namespace: "default"}, np)
-			Expect(errors.IsNotFound(err)).To(BeTrue())
+			Expect(apierrors.IsNotFound(err)).To(BeTrue())
 
 			By("checking the Service exists")
 			svc := &corev1.Service{}
@@ -344,6 +344,33 @@ var _ = Describe("Cluster Controller", func() {
 			originalErr := fmt.Errorf("some other error")
 			result := r.handleReconciliationError(ctx, originalErr)
 			Expect(result).To(Equal(originalErr))
+		})
+	})
+
+	Describe("serverSideApply", func() {
+		It("should not panic and return cluster when Apply succeeds", func() {
+			cluster := &kafkaconnectv1alpha1.Cluster{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "ssa-test-cluster",
+					Namespace: "default",
+				},
+				Spec: kafkaconnectv1alpha1.ClusterSpec{
+					Config: map[string]string{
+						"bootstrap.servers": "kafka:9092",
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, cluster)).To(Succeed())
+			defer k8sClient.Delete(ctx, cluster)
+
+			r := &ClusterReconciler{
+				Client: k8sClient,
+				Scheme: k8sClient.Scheme(),
+			}
+
+			result, err := r.serverSideApply(ctx, cluster, serviceForCluster(cluster))
+			Expect(err).To(Succeed())
+			Expect(result).NotTo(BeNil())
 		})
 	})
 
