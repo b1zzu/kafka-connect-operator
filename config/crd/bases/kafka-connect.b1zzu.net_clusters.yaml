@@ -965,6 +965,11 @@ spec:
                 description: DeploymentAnnotations defines custom annotations for
                   the Deployment
                 type: object
+              deploymentLabels:
+                additionalProperties:
+                  type: string
+                description: DeploymentLabels defines custom labels for the Deployment
+                type: object
               image:
                 default: docker.io/apache/kafka:4.3.0
                 description: Image used to deploy Kafka Connect, it should be based

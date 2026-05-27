@@ -204,6 +204,10 @@ spec:
   deploymentAnnotations:
     prometheus.io/scrape: "true"
 
+  # Custom labels for the Deployment (optional)
+  deploymentLabels:
+    app: kafka-connect
+
   # Custom annotations for the Pods (optional)
   # Merged with internal annotations; internal keys take precedence.
   podAnnotations:
