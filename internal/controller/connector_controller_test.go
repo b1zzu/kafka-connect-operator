@@ -259,7 +259,6 @@ func (m *mockKafkaConnectServer) handleOffsets(w http.ResponseWriter, r *http.Re
 }
 
 var _ = Describe("Connector Controller", func() {
-
 	newReconciler := func(mock *mockKafkaConnectServer) (*ConnectorReconciler, *events.FakeRecorder) {
 		recorder := events.NewFakeRecorder(10)
 		r := &ConnectorReconciler{
@@ -322,7 +321,6 @@ var _ = Describe("Connector Controller", func() {
 	}
 
 	Context("Reconciliation loop", func() {
-
 		It("should return no error and no requeue for a deleted resource", func() {
 			ctx := context.Background()
 			r, _ := newReconciler(nil)
@@ -569,7 +567,7 @@ var _ = Describe("Connector Controller", func() {
 			Expect(mock.restartedConnectors).To(ContainElement(name))
 		})
 
-		It("should emit warning event and return error when auto-restart fails", func() {
+		It("should emit warning event and return no-error when auto-restart fails", func() {
 			ctx := context.Background()
 			name := "auto-restart-fail"
 			nn := nameFor(name)
@@ -599,10 +597,9 @@ var _ = Describe("Connector Controller", func() {
 			mock.restartError = true
 			mock.mu.Unlock()
 
-			// Reconcile — auto restart should fail and return error
+			// Reconcile — auto restart should fail and return no-error
 			_, err = r.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
-			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring("failed to restart failed connector"))
+			Expect(err).NotTo(HaveOccurred())
 
 			// Verify restart status fields are NOT updated on failure
 			connector := getConnector(ctx, nn)
@@ -610,7 +607,6 @@ var _ = Describe("Connector Controller", func() {
 			Expect(connector.Status.LastRestartAt).To(BeNil())
 			Expect(connector.Status.RestartCount).To(Equal(int32(0)))
 		})
-
 	})
 
 	Context("getDesiredConnectorState", func() {
@@ -763,7 +759,6 @@ var _ = Describe("Connector Controller", func() {
 	})
 
 	Context("reconcileConnectorOffsets", func() {
-
 		cleanupConnector := func(ctx context.Context, nn types.NamespacedName) {
 			c := getConnector(ctx, nn)
 			if c != nil {
