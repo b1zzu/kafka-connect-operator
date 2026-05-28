@@ -37,6 +37,7 @@ import (
 
 	kcv1alpha1 "github.com/b1zzu/kafka-connect-operator/api/v1alpha1"
 	kafkaconnect "github.com/b1zzu/kafka-connect-operator/pkg/kafka-connect"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 )
 
 const (
@@ -218,6 +219,11 @@ func (r *ConnectorReconciler) reconcileConnector(ctx context.Context, connector 
 		return nil, &ConnectorReconciliationError{err: err, msg: "failed to get connector", connector: connector}
 	}
 
+	desiredConfig, err := unmarshalConnectorConfig(connector.Spec.Config)
+	if err != nil {
+		return nil, &ConnectorReconciliationError{err: err, msg: "failed to unmarshal the Connector config", connector: connector}
+	}
+
 	// Connector doesn't exist, create it
 	if existingConnector == nil {
 		log.Info("Creating connector")
@@ -227,7 +233,7 @@ func (r *ConnectorReconciler) reconcileConnector(ctx context.Context, connector 
 		// Create the connector
 		newConnector := &kafkaconnect.Connector{
 			Name:   connector.Name,
-			Config: connector.Spec.Config,
+			Config: desiredConfig,
 		}
 
 		switch desiredState {
@@ -258,7 +264,6 @@ func (r *ConnectorReconciler) reconcileConnector(ctx context.Context, connector 
 	}
 
 	actualConfig := existingConnector.Config
-	desiredConfig := connector.Spec.Config
 
 	// Remove the name from the actualConfig otherwise it will
 	// enter in an infinite update loop because the desired config
@@ -292,6 +297,27 @@ func (r *ConnectorReconciler) reconcileConnector(ctx context.Context, connector 
 
 	// Config matches, continue to status sync
 	return connector, nil
+}
+
+func unmarshalConnectorConfig(jsonConfig map[string]apiextensionsv1.JSON) (map[string]any, error) {
+	config := make(map[string]any, len(jsonConfig))
+	for k, jsonVal := range jsonConfig {
+
+		var val any
+		err := json.Unmarshal(jsonVal.Raw, &val)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse key %s with error: %w", k, err)
+		}
+
+		switch v := val.(type) {
+		case bool, float64, string:
+			config[k] = v
+		default:
+			return nil, fmt.Errorf("unsupported type for key %s, only bool, number or string are valid", k)
+		}
+	}
+
+	return config, nil
 }
 
 // Reconcile the state of the connector, the state is weather the connector should be running, paused or stopped
@@ -613,6 +639,8 @@ func (r *ConnectorReconciler) reconcileConnectorStatus(ctx context.Context, conn
 	// Restart failed connectors/tasks when desired state is running
 	desiredState := getDesiredConnectorState(connector)
 	if desiredState == kcv1alpha1.ConnectorStateRunning {
+		// TODO: Add property to skip/disable auto-restart
+		// TODO: There must be a grace timeout between the last update and the frist restart, configurable for now with an ENVIRONMENT variable, default 5 minutes
 		r.restartFailedConnectorAndTasks(ctx, kafkaConnect, connector, status)
 	}
 
@@ -771,7 +799,7 @@ func NewDefaultKafkaConnectClientFunc(connector *kcv1alpha1.Connector) *kafkacon
 	return kafkaconnect.NewClient(endpoint)
 }
 
-func connectorConfigsEqual(actual, desired map[string]string) bool {
+func connectorConfigsEqual(actual, desired map[string]any) bool {
 	if len(actual) != len(desired) {
 		return false
 	}

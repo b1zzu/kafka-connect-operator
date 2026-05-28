@@ -16,6 +16,7 @@ package v1alpha1
 
 import (
 	corev1 "k8s.io/api/core/v1"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -55,7 +56,7 @@ type ConnectorSpec struct {
 	// Sink: https://kafka.apache.org/41/configuration/kafka-connect-configs/#sink-connector-configs
 	// MirrorMaker: https://kafka.apache.org/41/configuration/mirrormaker-configs/
 	// +optional
-	Config map[string]string `json:"config"`
+	Config map[string]apiextensionsv1.JSON `json:"config,omitempty"`
 
 	// The desired state of the connector: running, paused, or stopped.
 	// +kubebuilder:default=running

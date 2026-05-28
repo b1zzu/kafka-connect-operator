@@ -31,9 +31,9 @@ type Client struct {
 }
 
 type Connector struct {
-	Name         string            `json:"name"`
-	Config       map[string]string `json:"config"`
-	InitialState string            `json:"initial_state,omitempty"`
+	Name         string         `json:"name"`
+	Config       map[string]any `json:"config"`
+	InitialState string         `json:"initial_state,omitempty"`
 }
 
 type ConnectorOffsets struct {
@@ -173,7 +173,7 @@ func (c *Client) GetConnectorStatus(ctx context.Context, name string) (*Connecto
 	return status, nil
 }
 
-func (c *Client) UpdateConnectorConfig(ctx context.Context, name string, config map[string]string) error {
+func (c *Client) UpdateConnectorConfig(ctx context.Context, name string, config map[string]any) error {
 	url := fmt.Sprintf("%s/connectors/%s/config", c.endpoint, name)
 
 	body := &bytes.Buffer{}

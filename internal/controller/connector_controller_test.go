@@ -29,6 +29,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -291,11 +292,19 @@ var _ = Describe("Connector Controller", func() {
 		Expect(k8sClient.Create(ctx, connector)).To(Succeed())
 	}
 
-	createConnector := func(ctx context.Context, name string, clusterRef string, config map[string]string, annotations map[string]string) {
+	createConnector := func(ctx context.Context, name string, clusterRef string, config map[string]apiextensionsv1.JSON, annotations map[string]string) {
 		createConnectorWithSpec(ctx, name, annotations, kafkaconnectv1alpha1.ConnectorSpec{
 			ClusterRef: corev1.LocalObjectReference{Name: clusterRef},
 			Config:     config,
 		})
+	}
+
+	stringConfig := func(cfg map[string]string) map[string]apiextensionsv1.JSON {
+		result := make(map[string]apiextensionsv1.JSON, len(cfg))
+		for k, v := range cfg {
+			result[k] = apiextensionsv1.JSON{Raw: fmt.Appendf(nil, "%q", v)}
+		}
+		return result
 	}
 
 	reconcileN := func(ctx context.Context, r *ConnectorReconciler, nn types.NamespacedName, n int) (ctrl.Result, error) {
@@ -337,7 +346,7 @@ var _ = Describe("Connector Controller", func() {
 			name := "init-conditions"
 			nn := nameFor(name)
 
-			createConnector(ctx, name, "my-cluster", map[string]string{"connector.class": "FileStreamSource"}, nil)
+			createConnector(ctx, name, "my-cluster", stringConfig(map[string]string{"connector.class": "FileStreamSource"}), nil)
 			DeferCleanup(func() {
 				c := getConnector(ctx, nn)
 				if c != nil {
@@ -374,7 +383,7 @@ var _ = Describe("Connector Controller", func() {
 			mock := newMockKafkaConnectServer()
 			DeferCleanup(mock.Close)
 
-			createConnector(ctx, name, "my-cluster", map[string]string{"connector.class": "FileStreamSource"}, nil)
+			createConnector(ctx, name, "my-cluster", stringConfig(map[string]string{"connector.class": "FileStreamSource"}), nil)
 			DeferCleanup(func() {
 				c := getConnector(ctx, nn)
 				if c != nil {
@@ -413,7 +422,7 @@ var _ = Describe("Connector Controller", func() {
 			mock := newMockKafkaConnectServer()
 			DeferCleanup(mock.Close)
 
-			createConnector(ctx, name, "my-cluster", map[string]string{"connector.class": "FileStreamSource"}, nil)
+			createConnector(ctx, name, "my-cluster", stringConfig(map[string]string{"connector.class": "FileStreamSource"}), nil)
 
 			r, _ := newReconciler(mock)
 
@@ -446,7 +455,7 @@ var _ = Describe("Connector Controller", func() {
 			mock := newMockKafkaConnectServer()
 			DeferCleanup(mock.Close)
 
-			createConnector(ctx, name, "my-cluster", map[string]string{"connector.class": "FileStreamSource"}, map[string]string{
+			createConnector(ctx, name, "my-cluster", stringConfig(map[string]string{"connector.class": "FileStreamSource"}), map[string]string{
 				"kafka-connect.b1zzu.net/restart": "true",
 			})
 			DeferCleanup(func() {
@@ -490,7 +499,7 @@ var _ = Describe("Connector Controller", func() {
 			mock.restartError = true
 			DeferCleanup(mock.Close)
 
-			createConnector(ctx, name, "my-cluster", map[string]string{"connector.class": "FileStreamSource"}, map[string]string{
+			createConnector(ctx, name, "my-cluster", stringConfig(map[string]string{"connector.class": "FileStreamSource"}), map[string]string{
 				"kafka-connect.b1zzu.net/restart": "true",
 			})
 			DeferCleanup(func() {
@@ -528,7 +537,7 @@ var _ = Describe("Connector Controller", func() {
 			mock := newMockKafkaConnectServer()
 			DeferCleanup(mock.Close)
 
-			createConnector(ctx, name, "my-cluster", map[string]string{"connector.class": "FileStreamSource"}, nil)
+			createConnector(ctx, name, "my-cluster", stringConfig(map[string]string{"connector.class": "FileStreamSource"}), nil)
 			DeferCleanup(func() {
 				c := getConnector(ctx, nn)
 				if c != nil {
@@ -575,7 +584,7 @@ var _ = Describe("Connector Controller", func() {
 			mock := newMockKafkaConnectServer()
 			DeferCleanup(mock.Close)
 
-			createConnector(ctx, name, "my-cluster", map[string]string{"connector.class": "FileStreamSource"}, nil)
+			createConnector(ctx, name, "my-cluster", stringConfig(map[string]string{"connector.class": "FileStreamSource"}), nil)
 			DeferCleanup(func() {
 				c := getConnector(ctx, nn)
 				if c != nil {
@@ -776,7 +785,7 @@ var _ = Describe("Connector Controller", func() {
 			mock := newMockKafkaConnectServer()
 			DeferCleanup(mock.Close)
 
-			createConnector(ctx, name, "my-cluster", map[string]string{"connector.class": "FileStreamSource"}, nil)
+			createConnector(ctx, name, "my-cluster", stringConfig(map[string]string{"connector.class": "FileStreamSource"}), nil)
 			DeferCleanup(func() { cleanupConnector(ctx, nn) })
 
 			r, _ := newReconciler(mock)
@@ -814,7 +823,7 @@ var _ = Describe("Connector Controller", func() {
 				offsetsAnnotation: "export",
 			}, kafkaconnectv1alpha1.ConnectorSpec{
 				ClusterRef: corev1.LocalObjectReference{Name: "my-cluster"},
-				Config:     map[string]string{"connector.class": "FileStreamSource"},
+				Config:     stringConfig(map[string]string{"connector.class": "FileStreamSource"}),
 				ExportOffsets: &kafkaconnectv1alpha1.OffsetsSpec{
 					ConfigMapRef: corev1.LocalObjectReference{Name: "offsets-export-cm"},
 				},
@@ -864,7 +873,7 @@ var _ = Describe("Connector Controller", func() {
 				offsetsAnnotation: "export",
 			}, kafkaconnectv1alpha1.ConnectorSpec{
 				ClusterRef: corev1.LocalObjectReference{Name: "my-cluster"},
-				Config:     map[string]string{"connector.class": "FileStreamSource"},
+				Config:     stringConfig(map[string]string{"connector.class": "FileStreamSource"}),
 				// No ExportOffsets set
 			})
 			DeferCleanup(func() { cleanupConnector(ctx, nn) })
@@ -911,7 +920,7 @@ var _ = Describe("Connector Controller", func() {
 				offsetsAnnotation: "import",
 			}, kafkaconnectv1alpha1.ConnectorSpec{
 				ClusterRef: corev1.LocalObjectReference{Name: "my-cluster"},
-				Config:     map[string]string{"connector.class": "FileStreamSource"},
+				Config:     stringConfig(map[string]string{"connector.class": "FileStreamSource"}),
 				State:      kafkaconnectv1alpha1.ConnectorStateStopped,
 				ImportOffsets: &kafkaconnectv1alpha1.OffsetsSpec{
 					ConfigMapRef: corev1.LocalObjectReference{Name: "offsets-import-cm"},
@@ -969,7 +978,7 @@ var _ = Describe("Connector Controller", func() {
 				offsetsAnnotation: "import",
 			}, kafkaconnectv1alpha1.ConnectorSpec{
 				ClusterRef: corev1.LocalObjectReference{Name: "my-cluster"},
-				Config:     map[string]string{"connector.class": "FileStreamSource"},
+				Config:     stringConfig(map[string]string{"connector.class": "FileStreamSource"}),
 				State:      kafkaconnectv1alpha1.ConnectorStateRunning,
 				ImportOffsets: &kafkaconnectv1alpha1.OffsetsSpec{
 					ConfigMapRef: corev1.LocalObjectReference{Name: "offsets-import-notstop-cm"},
@@ -1012,7 +1021,7 @@ var _ = Describe("Connector Controller", func() {
 				offsetsAnnotation: "reset",
 			}, kafkaconnectv1alpha1.ConnectorSpec{
 				ClusterRef: corev1.LocalObjectReference{Name: "my-cluster"},
-				Config:     map[string]string{"connector.class": "FileStreamSource"},
+				Config:     stringConfig(map[string]string{"connector.class": "FileStreamSource"}),
 				State:      kafkaconnectv1alpha1.ConnectorStateStopped,
 			})
 			DeferCleanup(func() { cleanupConnector(ctx, nn) })
@@ -1052,7 +1061,7 @@ var _ = Describe("Connector Controller", func() {
 				offsetsAnnotation: "reset",
 			}, kafkaconnectv1alpha1.ConnectorSpec{
 				ClusterRef: corev1.LocalObjectReference{Name: "my-cluster"},
-				Config:     map[string]string{"connector.class": "FileStreamSource"},
+				Config:     stringConfig(map[string]string{"connector.class": "FileStreamSource"}),
 				State:      kafkaconnectv1alpha1.ConnectorStateRunning,
 			})
 			DeferCleanup(func() { cleanupConnector(ctx, nn) })
@@ -1067,6 +1076,111 @@ var _ = Describe("Connector Controller", func() {
 			Expect(connector.Annotations).To(HaveKeyWithValue(offsetsAnnotation, "reset"))
 
 			Expect(recorder.Events).To(Receive(ContainSubstring("FailedResetOffsets")))
+		})
+	})
+
+	Context("unmarshalConnectorConfig", func() {
+		It("should unmarshal string config values", func() {
+			jsonConfig := map[string]apiextensionsv1.JSON{
+				"connector.class": {Raw: []byte(`"FileStreamSource"`)},
+				"topics":          {Raw: []byte(`"topic1,topic2"`)},
+			}
+
+			result, err := unmarshalConnectorConfig(jsonConfig)
+
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result).To(HaveKeyWithValue("connector.class", "FileStreamSource"))
+			Expect(result).To(HaveKeyWithValue("topics", "topic1,topic2"))
+		})
+
+		It("should unmarshal number config values", func() {
+			jsonConfig := map[string]apiextensionsv1.JSON{
+				"max.batch.size": {Raw: []byte(`2048`)},
+				"flush.timeout":  {Raw: []byte(`10000`)},
+			}
+
+			result, err := unmarshalConnectorConfig(jsonConfig)
+
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result).To(HaveKeyWithValue("max.batch.size", float64(2048)))
+			Expect(result).To(HaveKeyWithValue("flush.timeout", float64(10000)))
+		})
+
+		It("should unmarshal boolean config values", func() {
+			jsonConfig := map[string]apiextensionsv1.JSON{
+				"errors.tolerance": {Raw: []byte(`"all"`)},
+				"enable":           {Raw: []byte(`true`)},
+				"ssl.enable":       {Raw: []byte(`false`)},
+			}
+
+			result, err := unmarshalConnectorConfig(jsonConfig)
+
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result).To(HaveKeyWithValue("errors.tolerance", "all"))
+			Expect(result).To(HaveKeyWithValue("enable", true))
+			Expect(result).To(HaveKeyWithValue("ssl.enable", false))
+		})
+
+		It("should handle mixed config types", func() {
+			jsonConfig := map[string]apiextensionsv1.JSON{
+				"connector.class": {Raw: []byte(`"org.example.Connector"`)},
+				"tasks.max":       {Raw: []byte(`5`)},
+				"errors.retry":    {Raw: []byte(`true`)},
+				"buffer.size":     {Raw: []byte(`8192`)},
+			}
+
+			result, err := unmarshalConnectorConfig(jsonConfig)
+
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result).To(HaveLen(4))
+			Expect(result["connector.class"]).To(Equal("org.example.Connector"))
+			Expect(result["tasks.max"]).To(Equal(float64(5)))
+			Expect(result["errors.retry"]).To(BeTrue())
+			Expect(result["buffer.size"]).To(Equal(float64(8192)))
+		})
+
+		It("should return error for unsupported types", func() {
+			jsonConfig := map[string]apiextensionsv1.JSON{
+				"config": {Raw: []byte(`{"key": "value"}`)},
+			}
+
+			result, err := unmarshalConnectorConfig(jsonConfig)
+
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("unsupported type"))
+			Expect(err.Error()).To(ContainSubstring("config"))
+			Expect(result).To(BeNil())
+		})
+
+		It("should return error for invalid JSON", func() {
+			jsonConfig := map[string]apiextensionsv1.JSON{
+				"config": {Raw: []byte(`not valid json`)},
+			}
+
+			result, err := unmarshalConnectorConfig(jsonConfig)
+
+			Expect(err).To(HaveOccurred())
+			Expect(result).To(BeNil())
+		})
+
+		It("should return empty map for empty config", func() {
+			jsonConfig := map[string]apiextensionsv1.JSON{}
+
+			result, err := unmarshalConnectorConfig(jsonConfig)
+
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result).To(BeEmpty())
+		})
+
+		It("should return error for arrays", func() {
+			jsonConfig := map[string]apiextensionsv1.JSON{
+				"topics": {Raw: []byte(`["topic1", "topic2"]`)},
+			}
+
+			result, err := unmarshalConnectorConfig(jsonConfig)
+
+			Expect(err).To(HaveOccurred())
+			Expect(result).To(BeNil())
 		})
 	})
 

@@ -59,7 +59,7 @@ spec:
                 x-kubernetes-map-type: atomic
               config:
                 additionalProperties:
-                  type: string
+                  x-kubernetes-preserve-unknown-fields: true
                 description: |-
                   Connector configs:
                   Source: https://kafka.apache.org/41/configuration/kafka-connect-configs/#source-connector-configs
