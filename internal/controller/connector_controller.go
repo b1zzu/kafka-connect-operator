@@ -294,6 +294,8 @@ func (r *ConnectorReconciler) reconcileConnector(ctx context.Context, connector 
 	return connector, nil
 }
 
+// Reconcile the state of the connector, the state is weather the connector should be running, paused or stopped
+// and it's controlled using annotations.
 func (r *ConnectorReconciler) reconcileConnectorState(ctx context.Context, connector *kcv1alpha1.Connector) (*kcv1alpha1.Connector, error) {
 	log := logf.FromContext(ctx)
 
@@ -596,6 +598,9 @@ func (r *ConnectorReconciler) removeOffsetsAnnotation(ctx context.Context, conne
 func (r *ConnectorReconciler) reconcileConnectorStatus(ctx context.Context, connector *kcv1alpha1.Connector) (*kcv1alpha1.Connector, error) {
 	log := logf.FromContext(ctx)
 
+	// Save current status before applying changes
+	previousStatus := connector.Status.DeepCopy()
+
 	// Create Kafka Connect client
 	kafkaConnect := r.NewKafkaConnectClientFunc(connector)
 
@@ -607,41 +612,9 @@ func (r *ConnectorReconciler) reconcileConnectorStatus(ctx context.Context, conn
 
 	// Restart failed connectors/tasks when desired state is running
 	desiredState := getDesiredConnectorState(connector)
-	restarted := false
-
 	if desiredState == kcv1alpha1.ConnectorStateRunning {
-		if status.Connector.State == connectorStatusFailed {
-			log.Info("Restarting failed connector")
-			if err := kafkaConnect.RestartConnector(ctx, connector.Name); err != nil {
-				r.Recorder.Eventf(connector, nil, corev1.EventTypeWarning, "FailedRestart", "Restart", "Failed to restart failed connector: %v", err)
-				return nil, fmt.Errorf("failed to restart failed connector: %w", err)
-			}
-			r.Recorder.Eventf(connector, nil, corev1.EventTypeWarning, "Restarted", "Restart", "Restarted failed connector")
-			restarted = true
-		}
-
-		var failedTaskIDs []int
-		for _, task := range status.Tasks {
-			if task.State == connectorStatusFailed {
-				failedTaskIDs = append(failedTaskIDs, task.ID)
-			}
-		}
-
-		if len(failedTaskIDs) > 0 {
-			log.Info("Restarting failed tasks", "taskIDs", failedTaskIDs)
-			for _, taskID := range failedTaskIDs {
-				if err := kafkaConnect.RestartTask(ctx, connector.Name, taskID); err != nil {
-					r.Recorder.Eventf(connector, nil, corev1.EventTypeWarning, "FailedRestart", "Restart", "Failed to restart task %d: %v", taskID, err)
-					return nil, fmt.Errorf("failed to restart task %d: %w", taskID, err)
-				}
-			}
-			r.Recorder.Eventf(connector, nil, corev1.EventTypeWarning, "Restarted", "Restart", "Restarted %d failed task(s)", len(failedTaskIDs))
-			restarted = true
-		}
+		r.restartFailedConnectorAndTasks(ctx, kafkaConnect, connector, status)
 	}
-
-	// Save current status before applying changes
-	previousStatus := connector.Status.DeepCopy()
 
 	// Populate connector and task status from Kafka Connect
 	connector.Status.Connector = &kcv1alpha1.ConnectorStateStatus{
@@ -660,13 +633,6 @@ func (r *ConnectorReconciler) reconcileConnectorStatus(ctx context.Context, conn
 		}
 	}
 
-	// Update restart status if any restarts were performed
-	if restarted {
-		now := metav1.Now()
-		connector.Status.LastRestartAt = &now
-		connector.Status.RestartCount++
-	}
-
 	// Set condition
 	newCondition := mapConnectorStatusToCondition(status)
 	newCondition.ObservedGeneration = connector.Generation
@@ -682,6 +648,57 @@ func (r *ConnectorReconciler) reconcileConnectorStatus(ctx context.Context, conn
 	}
 
 	return connector, nil
+}
+
+// Try to restart the connector if in failed state and each failed task,
+// if successfully restarted it will update the LastRestartAt and RestartCount
+func (r *ConnectorReconciler) restartFailedConnectorAndTasks(
+	ctx context.Context,
+	kafkaConnect *kafkaconnect.Client,
+	connector *kcv1alpha1.Connector,
+	status *kafkaconnect.ConnectorStatus,
+) {
+	log := logf.FromContext(ctx)
+
+	restarted := false
+
+	if status.Connector.State == connectorStatusFailed {
+		log.Info("Restarting failed connector")
+		if err := kafkaConnect.RestartConnector(ctx, connector.Name); err != nil {
+			r.Recorder.Eventf(connector, nil, corev1.EventTypeWarning, "FailedRestart", "Restart", "Failed to restart failed connector: %v", err)
+			log.Info("Failed to restart failed connector", "error", err.Error())
+			return
+		}
+		r.Recorder.Eventf(connector, nil, corev1.EventTypeWarning, "Restarted", "Restart", "Restarted failed connector")
+		restarted = true
+	}
+
+	var failedTaskIDs []int
+	for _, task := range status.Tasks {
+		if task.State == connectorStatusFailed {
+			failedTaskIDs = append(failedTaskIDs, task.ID)
+		}
+	}
+
+	if len(failedTaskIDs) > 0 {
+		log.Info("Restarting failed tasks", "taskIDs", failedTaskIDs)
+		for _, taskID := range failedTaskIDs {
+			if err := kafkaConnect.RestartTask(ctx, connector.Name, taskID); err != nil {
+				r.Recorder.Eventf(connector, nil, corev1.EventTypeWarning, "FailedRestart", "Restart", "Failed to restart task %d: %v", taskID, err)
+				log.Info("Failed to restart failed task", "taskID", taskID, "error", err.Error())
+				return
+			}
+		}
+		r.Recorder.Eventf(connector, nil, corev1.EventTypeWarning, "Restarted", "Restart", "Restarted %d failed task(s)", len(failedTaskIDs))
+		restarted = true
+	}
+
+	// Update restart status if any restarts were performed
+	if restarted {
+		now := metav1.Now()
+		connector.Status.LastRestartAt = &now
+		connector.Status.RestartCount++
+	}
 }
 
 func (r *ConnectorReconciler) reconcileConnectorFinalizer(ctx context.Context, connector *kcv1alpha1.Connector) (*kcv1alpha1.Connector, error) {
@@ -807,6 +824,7 @@ func mapConnectorStatusToCondition(status *kafkaconnect.ConnectorStatus) metav1.
 		condition.Status = metav1.ConditionFalse
 		condition.Reason = "Failed"
 		condition.Message = fmt.Sprintf("Connector failed with trace: %s", strings.ReplaceAll(status.Connector.Trace, "\n\t", "\n"))
+	// TODO: Handle Unasigned
 	default:
 		condition.Status = metav1.ConditionUnknown
 		condition.Reason = "Unknown"
