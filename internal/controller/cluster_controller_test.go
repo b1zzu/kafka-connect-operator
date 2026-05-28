@@ -60,7 +60,6 @@ func (c *gvkFixClient) Get(ctx context.Context, key client.ObjectKey, obj client
 }
 
 var _ = Describe("Cluster Controller", func() {
-
 	newReconciler := func() *ClusterReconciler {
 		return &ClusterReconciler{
 			Client: &gvkFixClient{Client: k8sClient, scheme: k8sClient.Scheme()},
@@ -361,7 +360,7 @@ var _ = Describe("Cluster Controller", func() {
 				},
 			}
 			Expect(k8sClient.Create(ctx, cluster)).To(Succeed())
-			defer k8sClient.Delete(ctx, cluster)
+			defer func() { Expect(k8sClient.Delete(ctx, cluster)).To(Succeed()) }()
 
 			r := &ClusterReconciler{
 				Client: k8sClient,
