@@ -87,7 +87,11 @@ func (m *mockKafkaConnectServer) ServeHTTP(w http.ResponseWriter, r *http.Reques
 		case 2:
 			m.handleConnector(w, r, parts[1])
 		case 3:
-			m.handleConnectorAction(w, r, parts[1], parts[2])
+			if parts[2] == "config" {
+				m.handleConnectorConfig(w, r, parts[1])
+			} else {
+				m.handleConnectorAction(w, r, parts[1], parts[2])
+			}
 		case 5:
 			// POST /connectors/{name}/tasks/{id}/restart
 			if parts[2] == "tasks" && parts[4] == "restart" && r.Method == http.MethodPost {
@@ -138,6 +142,29 @@ func (m *mockKafkaConnectServer) handleConnector(w http.ResponseWriter, r *http.
 		delete(m.connectors, name)
 		delete(m.connectorStates, name)
 		w.WriteHeader(http.StatusNoContent)
+	default:
+		http.Error(w, fmt.Sprintf("unhandled: %s %s", r.Method, r.URL.Path), http.StatusNotImplemented)
+	}
+}
+
+func (m *mockKafkaConnectServer) handleConnectorConfig(w http.ResponseWriter, r *http.Request, name string) {
+	c, ok := m.connectors[name]
+	if !ok {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	switch r.Method {
+	case http.MethodPut:
+		var config map[string]string
+		if err := json.NewDecoder(r.Body).Decode(&config); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		c.Config = config
+		m.connectors[name] = c
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(config)
 	default:
 		http.Error(w, fmt.Sprintf("unhandled: %s %s", r.Method, r.URL.Path), http.StatusNotImplemented)
 	}
@@ -262,10 +289,12 @@ var _ = Describe("Connector Controller", func() {
 	newReconciler := func(mock *mockKafkaConnectServer) (*ConnectorReconciler, *events.FakeRecorder) {
 		recorder := events.NewFakeRecorder(10)
 		r := &ConnectorReconciler{
-			Client:                    k8sClient,
-			Scheme:                    k8sClient.Scheme(),
-			Recorder:                  recorder,
-			NewKafkaConnectClientFunc: NewDefaultKafkaConnectClientFunc,
+			Client:                        k8sClient,
+			Scheme:                        k8sClient.Scheme(),
+			Recorder:                      recorder,
+			NewKafkaConnectClientFunc:     NewDefaultKafkaConnectClientFunc,
+			ReconcileInterval:             time.Minute,
+			RestartFailedConnectorBackoff: 5 * time.Minute,
 		}
 		if mock != nil {
 			r.NewKafkaConnectClientFunc = func(connector *kafkaconnectv1alpha1.Connector) *kafkaconnect.Client {
@@ -403,6 +432,11 @@ var _ = Describe("Connector Controller", func() {
 			Expect(cond.Status).To(Equal(metav1.ConditionTrue))
 			Expect(cond.Reason).To(Equal("Running"))
 			Expect(cond.ObservedGeneration).To(Equal(connector.Generation))
+
+			// LastUpdatedAt should be set on create
+			Expect(connector.Status.LastUpdatedAt).NotTo(BeNil())
+			createdAt := *connector.Status.LastUpdatedAt
+			Expect(createdAt.Time).To(BeTemporally("~", time.Now(), 5*time.Second))
 		})
 
 		It("should delete the connector and remove the finalizer", func() {
@@ -431,6 +465,13 @@ var _ = Describe("Connector Controller", func() {
 
 			// Reconcile once more to process the deletion
 			result, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+			Expect(err).NotTo(HaveOccurred())
+			// Finalizer removal triggers status update, so returns RequeueAfter
+			Expect(result.RequeueAfter).To(Equal(time.Minute))
+
+			// After finalizer is removed, connector is eligible for deletion
+			// Reconcile again to finalize
+			result, err = r.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
 			Expect(err).NotTo(HaveOccurred())
 			Expect(result).To(Equal(ctrl.Result{}))
 
@@ -538,22 +579,37 @@ var _ = Describe("Connector Controller", func() {
 				}
 			})
 
-			r, _ := newReconciler(mock)
+			// Use a reconciler with very short backoff (1ms) so it elapses quickly
+			recorder := events.NewFakeRecorder(10)
+			r := &ConnectorReconciler{
+				Client:                        k8sClient,
+				Scheme:                        k8sClient.Scheme(),
+				Recorder:                      recorder,
+				NewKafkaConnectClientFunc:     NewDefaultKafkaConnectClientFunc,
+				ReconcileInterval:             time.Minute,
+				RestartFailedConnectorBackoff: 1 * time.Millisecond,
+			}
+			r.NewKafkaConnectClientFunc = func(connector *kafkaconnectv1alpha1.Connector) *kafkaconnect.Client {
+				return kafkaconnect.NewClient(mock.server.URL)
+			}
 
 			// Reconcile 4 times: init conditions, add finalizer, create connector, restart loop
 			_, err := reconcileN(ctx, r, nn, 4)
 			Expect(err).NotTo(HaveOccurred())
 
+			// Wait for backoff to elapse
+			time.Sleep(10 * time.Millisecond)
+
 			// Now set mock to return FAILED status
 			mock.mu.Lock()
-			mock.connectorStatus = "FAILED"
+			mock.connectorStatus = connectorStatusFailed
 			mock.mu.Unlock()
 
 			// Reconcile once more — auto restart should happen
 			result, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
 			Expect(err).NotTo(HaveOccurred())
-			// Status was updated (restarted flag triggered DeepEqual diff), so returns empty result
-			Expect(result).To(Equal(ctrl.Result{}))
+			// Status was updated (restart triggered), so returns RequeueAfter
+			Expect(result.RequeueAfter).To(Equal(time.Minute))
 
 			// Verify restart status fields
 			connector := getConnector(ctx, nn)
@@ -593,7 +649,7 @@ var _ = Describe("Connector Controller", func() {
 
 			// Now set mock to return FAILED status and make restart fail
 			mock.mu.Lock()
-			mock.connectorStatus = "FAILED"
+			mock.connectorStatus = connectorStatusFailed
 			mock.restartError = true
 			mock.mu.Unlock()
 
@@ -606,6 +662,161 @@ var _ = Describe("Connector Controller", func() {
 			Expect(connector).NotTo(BeNil())
 			Expect(connector.Status.LastRestartAt).To(BeNil())
 			Expect(connector.Status.RestartCount).To(Equal(int32(0)))
+		})
+
+		It("should update LastUpdatedAt when connector config is changed", func() {
+			ctx := context.Background()
+			name := "config-update"
+			nn := nameFor(name)
+
+			mock := newMockKafkaConnectServer()
+			DeferCleanup(mock.Close)
+
+			createConnector(ctx, name, "my-cluster", map[string]string{"connector.class": "FileStreamSource", "key": "value1"}, nil)
+			DeferCleanup(func() {
+				c := getConnector(ctx, nn)
+				if c != nil {
+					c.Finalizers = nil
+					_ = k8sClient.Update(ctx, c)
+					_ = k8sClient.Delete(ctx, c)
+				}
+			})
+
+			r, _ := newReconciler(mock)
+
+			// Reconcile to completion to get connector created and synced
+			_, err := reconcileN(ctx, r, nn, 5)
+			Expect(err).NotTo(HaveOccurred())
+
+			connector := getConnector(ctx, nn)
+			Expect(connector).NotTo(BeNil())
+			firstUpdatedAt := connector.Status.LastUpdatedAt
+			Expect(firstUpdatedAt).NotTo(BeNil())
+
+			// Update config with a delay to ensure timestamp changes
+			time.Sleep(10 * time.Millisecond) // Ensure new timestamp is different
+			connector.Spec.Config["key"] = "value2"
+			Expect(k8sClient.Update(ctx, connector)).To(Succeed())
+
+			// Reconcile to apply the change
+			_, err = r.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+			Expect(err).NotTo(HaveOccurred())
+
+			// Verify LastUpdatedAt has been updated (or is at least equal, due to Kubernetes timestamp precision)
+			updatedConnector := getConnector(ctx, nn)
+			Expect(updatedConnector.Status.LastUpdatedAt).NotTo(BeNil())
+			// After config update, LastUpdatedAt should be >= original timestamp
+			isAfterOrEqual := updatedConnector.Status.LastUpdatedAt.Unix() >= firstUpdatedAt.Unix() ||
+				updatedConnector.Status.LastUpdatedAt.Equal(firstUpdatedAt)
+			Expect(isAfterOrEqual).To(BeTrue(), "LastUpdatedAt should be >= first update time")
+		})
+
+		It("should skip auto-restart when connector was recently created", func() {
+			ctx := context.Background()
+			name := "skip-restart-recent"
+			nn := nameFor(name)
+
+			mock := newMockKafkaConnectServer()
+			DeferCleanup(mock.Close)
+
+			createConnector(ctx, name, "my-cluster", map[string]string{"connector.class": "FileStreamSource"}, nil)
+			DeferCleanup(func() {
+				c := getConnector(ctx, nn)
+				if c != nil {
+					c.Finalizers = nil
+					_ = k8sClient.Update(ctx, c)
+					_ = k8sClient.Delete(ctx, c)
+				}
+			})
+
+			// Use a reconciler with a long backoff window (1 hour) for testing
+			recorder := events.NewFakeRecorder(10)
+			r := &ConnectorReconciler{
+				Client:                        k8sClient,
+				Scheme:                        k8sClient.Scheme(),
+				Recorder:                      recorder,
+				NewKafkaConnectClientFunc:     NewDefaultKafkaConnectClientFunc,
+				ReconcileInterval:             time.Minute,
+				RestartFailedConnectorBackoff: 1 * time.Hour,
+			}
+			r.NewKafkaConnectClientFunc = func(connector *kafkaconnectv1alpha1.Connector) *kafkaconnect.Client {
+				return kafkaconnect.NewClient(mock.server.URL)
+			}
+
+			// Reconcile to completion to get connector created
+			_, err := reconcileN(ctx, r, nn, 5)
+			Expect(err).NotTo(HaveOccurred())
+
+			connector := getConnector(ctx, nn)
+			Expect(connector).NotTo(BeNil())
+
+			// Immediately set mock to return FAILED status (still within backoff window)
+			mock.mu.Lock()
+			mock.connectorStatus = connectorStatusFailed
+			mock.mu.Unlock()
+
+			// Reconcile — auto restart should be skipped because LastUpdatedAt is recent (within 1 hour)
+			_, err = r.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+			Expect(err).NotTo(HaveOccurred())
+
+			// Verify restart was NOT called
+			mock.mu.Lock()
+			defer mock.mu.Unlock()
+			Expect(mock.restartedConnectors).NotTo(ContainElement(name))
+		})
+
+		It("should auto-restart failed connector after backoff has elapsed", func() {
+			ctx := context.Background()
+			name := "restart-after-backoff"
+			nn := nameFor(name)
+
+			mock := newMockKafkaConnectServer()
+			DeferCleanup(mock.Close)
+
+			createConnector(ctx, name, "my-cluster", map[string]string{"connector.class": "FileStreamSource"}, nil)
+			DeferCleanup(func() {
+				c := getConnector(ctx, nn)
+				if c != nil {
+					c.Finalizers = nil
+					_ = k8sClient.Update(ctx, c)
+					_ = k8sClient.Delete(ctx, c)
+				}
+			})
+
+			// Use a reconciler with a very short backoff window (1ms) for testing
+			recorder := events.NewFakeRecorder(10)
+			r := &ConnectorReconciler{
+				Client:                        k8sClient,
+				Scheme:                        k8sClient.Scheme(),
+				Recorder:                      recorder,
+				NewKafkaConnectClientFunc:     NewDefaultKafkaConnectClientFunc,
+				ReconcileInterval:             time.Minute,
+				RestartFailedConnectorBackoff: 1 * time.Millisecond,
+			}
+			r.NewKafkaConnectClientFunc = func(connector *kafkaconnectv1alpha1.Connector) *kafkaconnect.Client {
+				return kafkaconnect.NewClient(mock.server.URL)
+			}
+
+			// Reconcile to completion to get connector created
+			_, err := reconcileN(ctx, r, nn, 5)
+			Expect(err).NotTo(HaveOccurred())
+
+			// Wait for backoff to elapse
+			time.Sleep(10 * time.Millisecond)
+
+			// Set mock to return FAILED status
+			mock.mu.Lock()
+			mock.connectorStatus = connectorStatusFailed
+			mock.mu.Unlock()
+
+			// Reconcile — auto restart should happen because backoff has elapsed
+			_, err = r.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+			Expect(err).NotTo(HaveOccurred())
+
+			// Verify restart WAS called
+			mock.mu.Lock()
+			defer mock.mu.Unlock()
+			Expect(mock.restartedConnectors).To(ContainElement(name))
 		})
 	})
 

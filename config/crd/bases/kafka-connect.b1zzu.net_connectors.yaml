@@ -231,6 +231,11 @@ spec:
                   or task restart.
                 format: date-time
                 type: string
+              lastUpdatedAt:
+                description: LastUpdatedAt is the timestamp of the last update (inc.
+                  when it was created) of the the connector.
+                format: date-time
+                type: string
               restartCount:
                 description: restartCount is the total number of restarts performed
                   on this connector.

@@ -81,6 +81,14 @@ type ConnectorReconciler struct {
 	Scheme   *runtime.Scheme
 	Recorder events.EventRecorder
 
+	// ReconcileInterval is the interval between each reconcile loop
+	// to monitor the status of the connector.
+	ReconcileInterval time.Duration
+
+	// RestartFailedConnectorBackoff is the time to wait before attempting
+	// to restart a failed connector after it was updated.
+	RestartFailedConnectorBackoff time.Duration
+
 	// NewKafkaConnectClientFunc creates a Kafka Connect client for the given connector.
 	NewKafkaConnectClientFunc func(connector *kcv1alpha1.Connector) *kafkaconnect.Client
 }
@@ -120,14 +128,17 @@ func (r *ConnectorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		r.reconcileConnectorStatus,
 	} {
 		connector, err = reconcile(ctx, connector)
-		if err != nil || connector == nil {
+		if err != nil {
 			return ctrl.Result{}, r.handleReconciliationError(ctx, err)
+		}
+		if connector == nil {
+			return ctrl.Result{RequeueAfter: r.ReconcileInterval}, nil
 		}
 	}
 
 	log.Info("Reconcile completed")
 	// Monitor the connector status every minute
-	return ctrl.Result{RequeueAfter: time.Minute}, nil
+	return ctrl.Result{RequeueAfter: r.ReconcileInterval}, nil
 }
 
 func (r *ConnectorReconciler) handleReconciliationError(ctx context.Context, err error) error {
@@ -242,6 +253,8 @@ func (r *ConnectorReconciler) reconcileConnector(ctx context.Context, connector 
 			return nil, &ConnectorReconciliationError{err: err, msg: "failed to create connector", connector: connector}
 		}
 
+		now := metav1.Now()
+		connector.Status.LastUpdatedAt = &now
 		err = r.updateStatusCondition(ctx, connector, metav1.Condition{
 			Type:   typeRunningConnector,
 			Status: metav1.ConditionFalse,
@@ -275,6 +288,8 @@ func (r *ConnectorReconciler) reconcileConnector(ctx context.Context, connector 
 			return nil, &ConnectorReconciliationError{err: err, msg: "failed to update connector config", connector: connector}
 		}
 
+		now := metav1.Now()
+		connector.Status.LastUpdatedAt = &now
 		err := r.updateStatusCondition(ctx, connector, metav1.Condition{
 			Type:   typeRunningConnector,
 			Status: metav1.ConditionFalse,
@@ -659,6 +674,12 @@ func (r *ConnectorReconciler) restartFailedConnectorAndTasks(
 	status *kafkaconnect.ConnectorStatus,
 ) {
 	log := logf.FromContext(ctx)
+
+	lastUpdatedAt := connector.Status.LastUpdatedAt
+	if lastUpdatedAt != nil && lastUpdatedAt.After(time.Now().Add(-r.RestartFailedConnectorBackoff)) {
+		log.Info("Skip restart of recently updated Connector")
+		return
+	}
 
 	restarted := false
 

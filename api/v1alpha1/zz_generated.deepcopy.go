@@ -377,6 +377,10 @@ func (in *ConnectorStatus) DeepCopyInto(out *ConnectorStatus) {
 		*out = make([]TaskStateStatus, len(*in))
 		copy(*out, *in)
 	}
+	if in.LastUpdatedAt != nil {
+		in, out := &in.LastUpdatedAt, &out.LastUpdatedAt
+		*out = (*in).DeepCopy()
+	}
 	if in.LastRestartAt != nil {
 		in, out := &in.LastRestartAt, &out.LastRestartAt
 		*out = (*in).DeepCopy()

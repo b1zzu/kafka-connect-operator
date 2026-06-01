@@ -196,7 +196,7 @@ var _ = Describe("Manager", Ordered, func() {
 			}
 
 			By("Fetching Kafka Connect pod logs")
-			cmd = exec.Command("kubectl", "logs", "deployment/my-cluster",
+			cmd = exec.Command("kubectl", "logs", "deployment/my-cluster-connect",
 				"-n", "default", "--tail=100")
 			connectLogs, err := utils.Run(cmd)
 			if err == nil {
@@ -216,7 +216,7 @@ var _ = Describe("Manager", Ordered, func() {
 			}
 
 			By("Fetching Cluster CR status")
-			cmd = exec.Command("kubectl", "get", "cluster", "my-cluster",
+			cmd = exec.Command("kubectl", "get", "cluster", "my-cluster-connect",
 				"-n", "default", "-o", "yaml")
 			clusterStatus, err := utils.Run(cmd)
 			if err == nil {
@@ -363,7 +363,7 @@ var _ = Describe("Manager", Ordered, func() {
 		It("should deploy Connect and reach Connector Running state", func() {
 			By("waiting for the Connect deployment to be available")
 			verifyConnectDeployment := func(g Gomega) {
-				cmd := exec.Command("kubectl", "get", "deployment", "my-cluster",
+				cmd := exec.Command("kubectl", "get", "deployment", "my-cluster-connect",
 					"-n", "default",
 					"-o", "jsonpath={.status.conditions[?(@.type=='Available')].status}")
 				output, err := utils.Run(cmd)
@@ -397,7 +397,7 @@ var _ = Describe("Manager", Ordered, func() {
 			var connectPodIP string
 			getConnectPodIP := func(g Gomega) {
 				cmd := exec.Command("kubectl", "get", "pods",
-					"-l", "app.kubernetes.io/name=kafka-connect,app.kubernetes.io/instance=my-cluster",
+					"-l", "app.kubernetes.io/name=kafka-connect,app.kubernetes.io/instance=my-cluster-connect",
 					"-n", "default",
 					"-o", "jsonpath={.items[0].status.podIP}")
 				output, err := utils.Run(cmd)

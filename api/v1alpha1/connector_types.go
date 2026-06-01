@@ -106,6 +106,10 @@ type ConnectorStatus struct {
 	// +optional
 	Tasks []TaskStateStatus `json:"tasks,omitempty"`
 
+	// LastUpdatedAt is the timestamp of the last update (inc. when it was created) of the the connector.
+	// +optional
+	LastUpdatedAt *metav1.Time `json:"lastUpdatedAt,omitempty"`
+
 	// lastRestartAt is the timestamp of the last connector or task restart.
 	// +optional
 	LastRestartAt *metav1.Time `json:"lastRestartAt,omitempty"`
