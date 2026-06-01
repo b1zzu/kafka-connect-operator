@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
@@ -209,10 +210,12 @@ func main() {
 		os.Exit(1)
 	}
 	if err := (&controller.ConnectorReconciler{
-		Client:                    mgr.GetClient(),
-		Scheme:                    mgr.GetScheme(),
-		Recorder:                  mgr.GetEventRecorder("connector-controller"),
-		NewKafkaConnectClientFunc: controller.NewDefaultKafkaConnectClientFunc,
+		Client:                        mgr.GetClient(),
+		Scheme:                        mgr.GetScheme(),
+		Recorder:                      mgr.GetEventRecorder("connector-controller"),
+		ReconcileInterval:             time.Minute,
+		RestartFailedConnectorBackoff: 5 * time.Minute,
+		NewKafkaConnectClientFunc:     controller.NewDefaultKafkaConnectClientFunc,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "connector")
 		os.Exit(1)
