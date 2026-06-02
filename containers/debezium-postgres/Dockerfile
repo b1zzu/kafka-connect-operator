@@ -1,6 +1,6 @@
 FROM --platform=$BUILDPLATFORM docker.io/busybox AS download
 
-ARG DEBEZIUM_VERSION=3.5.1.Final
+ARG DEBEZIUM_VERSION=3.5.2.Final
 ARG AWS_JDBC_WRAPPER_VERSION=4.0.1
 
 RUN wget -q -O /tmp/debezium-connector-postgres.tar.gz \
