@@ -47,6 +47,9 @@ const (
 
 	// serverSideApplyManager the manager id set when performing Server-Side Apply
 	serverSideApplyManager = "kafka-connect-operator"
+
+	pauseReconciliationAnnotation = "kafka-connect.b1zzu.net/pause-reconciliation"
+	pauseReconciliationTrue       = "true"
 )
 
 // ClusterReconciliationError when returned triggerd a Cluster status
@@ -111,6 +114,14 @@ func (r *ClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	if cluster == nil {
 		// The Cluster resource was deleted
 		return ctrl.Result{}, nil
+	}
+
+	// Skip reconciliation loop if paused
+	if pause, ok := cluster.GetAnnotations()[pauseReconciliationAnnotation]; ok {
+		if pause == pauseReconciliationTrue {
+			log.Info("Skipping reconciliation, reconciliation is paused.")
+			return ctrl.Result{}, nil
+		}
 	}
 
 	// Set the status to Unknown when no status is available
