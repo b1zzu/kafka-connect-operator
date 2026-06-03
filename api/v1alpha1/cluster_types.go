@@ -134,6 +134,18 @@ type ClusterSpec struct {
 	// +optional
 	Resources *corev1.ResourceRequirements `json:"resources,omitempty"`
 
+	// StartupProbe defines an alternative startupProbe for the kafka-connect Container.
+	// +optional
+	StartupProbe *corev1.Probe `json:"startupProbe,omitempty"`
+
+	// LivenessProbe defines an alternative livenessProbe for the kafka-connect Container.
+	// +optional
+	LivenessProbe *corev1.Probe `json:"livenessProbe,omitempty"`
+
+	// ReadinessProbe defines an alternative readinessProbe for the kafka-connect Container.
+	// +optional
+	ReadinessProbe *corev1.Probe `json:"readinessProbe,omitempty"`
+
 	// MaxUnavailable specifies the maximum number of pods that can be unavailable
 	// during voluntary disruptions. Used in the PodDisruptionBudget.
 	// Can be an absolute number (e.g. 1) or a percentage (e.g. "25%").

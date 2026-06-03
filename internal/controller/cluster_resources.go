@@ -291,6 +291,52 @@ func deploymentForCluster(cluster *kcv1alpha1.Cluster) *appsv1ac.DeploymentApply
 		resources = cluster.Spec.Resources
 	}
 
+	// Build startup, liveness, and readiness probes
+	startupPrope := &corev1.Probe{
+		ProbeHandler: corev1.ProbeHandler{
+			HTTPGet: &corev1.HTTPGetAction{
+				Path: "/health",
+				Port: intstr.FromString("http"),
+			},
+		},
+		PeriodSeconds:    10,
+		TimeoutSeconds:   5,
+		FailureThreshold: 30,
+	}
+	if cluster.Spec.StartupProbe != nil {
+		startupPrope = cluster.Spec.StartupProbe
+	}
+
+	livenessProbe := &corev1.Probe{
+		ProbeHandler: corev1.ProbeHandler{
+			HTTPGet: &corev1.HTTPGetAction{
+				Path: "/health",
+				Port: intstr.FromString("http"),
+			},
+		},
+		PeriodSeconds:    10,
+		TimeoutSeconds:   5,
+		FailureThreshold: 3,
+	}
+	if cluster.Spec.LivenessProbe != nil {
+		livenessProbe = cluster.Spec.LivenessProbe
+	}
+
+	readinessProbe := &corev1.Probe{
+		ProbeHandler: corev1.ProbeHandler{
+			HTTPGet: &corev1.HTTPGetAction{
+				Path: "/health",
+				Port: intstr.FromString("http"),
+			},
+		},
+		PeriodSeconds:    5,
+		TimeoutSeconds:   3,
+		FailureThreshold: 3,
+	}
+	if cluster.Spec.ReadinessProbe != nil {
+		readinessProbe = cluster.Spec.ReadinessProbe
+	}
+
 	podSpec := corev1ac.PodSpec().
 		WithServiceAccountName(serviceAccountNameForCluster(cluster)).
 		WithSecurityContext(corev1ac.PodSecurityContext().
@@ -303,30 +349,9 @@ func deploymentForCluster(cluster *kcv1alpha1.Cluster) *appsv1ac.DeploymentApply
 			WithEnv(envVars...).
 			WithPorts(ports...).
 			WithResources(applycfg.ResourceRequirements(resources)).
-			WithStartupProbe(corev1ac.Probe().
-				WithHTTPGet(corev1ac.HTTPGetAction().
-					WithPath("/health").
-					WithPort(intstr.FromString("http"))).
-				WithPeriodSeconds(10).
-				WithTimeoutSeconds(5).
-				WithFailureThreshold(30),
-			).
-			WithLivenessProbe(corev1ac.Probe().
-				WithHTTPGet(corev1ac.HTTPGetAction().
-					WithPath("/health").
-					WithPort(intstr.FromString("http"))).
-				WithPeriodSeconds(10).
-				WithTimeoutSeconds(5).
-				WithFailureThreshold(3),
-			).
-			WithReadinessProbe(corev1ac.Probe().
-				WithHTTPGet(corev1ac.HTTPGetAction().
-					WithPath("/health").
-					WithPort(intstr.FromString("http"))).
-				WithPeriodSeconds(5).
-				WithTimeoutSeconds(3).
-				WithFailureThreshold(3),
-			).
+			WithStartupProbe(applycfg.Probe(startupPrope)).
+			WithLivenessProbe(applycfg.Probe(livenessProbe)).
+			WithReadinessProbe(applycfg.Probe(readinessProbe)).
 			WithVolumeMounts(volumeMounts...).
 			WithSecurityContext(corev1ac.SecurityContext().
 				WithRunAsNonRoot(true).
