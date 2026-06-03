@@ -1326,4 +1326,49 @@ var _ = Describe("Connector Controller", func() {
 			Expect(tasks[1].Trace).To(Equal("some stack trace"))
 		})
 	})
+
+	Context("When the pause-reconciliation annotation is set", func() {
+		It("should skip reconciliation and not initialize status conditions", func() {
+			ctx := context.Background()
+			name := "connector-paused"
+			nn := nameFor(name)
+
+			mock := newMockKafkaConnectServer()
+			DeferCleanup(mock.Close)
+
+			createConnectorWithSpec(ctx, name, map[string]string{
+				"kafka-connect.b1zzu.net/pause-reconciliation": "true",
+			}, kafkaconnectv1alpha1.ConnectorSpec{
+				ClusterRef: corev1.LocalObjectReference{Name: "my-cluster"},
+				Config:     map[string]string{"connector.class": "FileStreamSource"},
+			})
+			DeferCleanup(func() {
+				c := getConnector(ctx, nn)
+				if c != nil {
+					c.Finalizers = nil
+					_ = k8sClient.Update(ctx, c)
+					_ = k8sClient.Delete(ctx, c)
+				}
+			})
+
+			r, _ := newReconciler(mock)
+
+			// Reconcile should skip due to pause annotation
+			result, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result).To(Equal(ctrl.Result{}))
+
+			// Status conditions should not be initialized since reconciliation is skipped
+			connector := getConnector(ctx, nn)
+			Expect(connector).NotTo(BeNil())
+			Expect(connector.Status.Conditions).To(BeEmpty())
+			Expect(connector.Finalizers).To(BeEmpty())
+
+			// Connector should not be created in Kafka Connect
+			mock.mu.Lock()
+			_, exists := mock.connectors[name]
+			mock.mu.Unlock()
+			Expect(exists).To(BeFalse())
+		})
+	})
 })

@@ -428,4 +428,118 @@ var _ = Describe("Cluster Controller", func() {
 			Expect(hash1).To(Equal(hash2))
 		})
 	})
+
+	Context("When the pause-reconciliation annotation is set", func() {
+		const name = "cluster-paused"
+
+		BeforeEach(func() {
+			cluster := &kafkaconnectv1alpha1.Cluster{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      name,
+					Namespace: "default",
+					Annotations: map[string]string{
+						"kafka-connect.b1zzu.net/pause-reconciliation": "true",
+					},
+				},
+				Spec: kafkaconnectv1alpha1.ClusterSpec{
+					Config: map[string]string{
+						"bootstrap.servers": "kafka:9092",
+						"group.id":          "paused-group",
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, cluster)).To(Succeed())
+		})
+
+		AfterEach(func() {
+			cluster := &kafkaconnectv1alpha1.Cluster{}
+			Expect(k8sClient.Get(ctx, nameFor(name), cluster)).To(Succeed())
+			Expect(k8sClient.Delete(ctx, cluster)).To(Succeed())
+		})
+
+		It("should skip reconciliation and not initialize status conditions", func() {
+			r := newReconciler()
+			nn := nameFor(name)
+
+			// Reconcile should skip due to pause annotation
+			result, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result).To(Equal(ctrl.Result{}))
+
+			// Status conditions should not be initialized since reconciliation is skipped
+			cluster := &kafkaconnectv1alpha1.Cluster{}
+			Expect(k8sClient.Get(ctx, nn, cluster)).To(Succeed())
+			Expect(cluster.Status.Conditions).To(BeEmpty())
+
+			// Sub-resources should not be created
+			svc := &corev1.Service{}
+			err = k8sClient.Get(ctx, types.NamespacedName{Name: name, Namespace: "default"}, svc)
+			Expect(apierrors.IsNotFound(err)).To(BeTrue())
+
+			dep := &appsv1.Deployment{}
+			err = k8sClient.Get(ctx, types.NamespacedName{Name: name, Namespace: "default"}, dep)
+			Expect(apierrors.IsNotFound(err)).To(BeTrue())
+		})
+
+		It("should resume reconciliation when pause annotation is removed", func() {
+			r := newReconciler()
+			nn := nameFor(name)
+
+			// Reconcile should skip due to pause annotation
+			result, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result).To(Equal(ctrl.Result{}))
+
+			// Remove the pause annotation
+			cluster := &kafkaconnectv1alpha1.Cluster{}
+			Expect(k8sClient.Get(ctx, nn, cluster)).To(Succeed())
+			delete(cluster.Annotations, "kafka-connect.b1zzu.net/pause-reconciliation")
+			Expect(k8sClient.Update(ctx, cluster)).To(Succeed())
+
+			// Now reconcile should proceed normally
+			// 3 reconcile calls: 1) init conditions, 2) configHash update, 3) full pass
+			reconcileN(ctx, r, nn, 3)
+
+			// Status should be initialized
+			Expect(k8sClient.Get(ctx, nn, cluster)).To(Succeed())
+			Expect(cluster.Status.Conditions).To(HaveLen(1))
+			cond := meta.FindStatusCondition(cluster.Status.Conditions, "Available")
+			Expect(cond).NotTo(BeNil())
+
+			// Sub-resources should be created
+			svc := &corev1.Service{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: name, Namespace: "default"}, svc)).To(Succeed())
+
+			dep := &appsv1.Deployment{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: name, Namespace: "default"}, dep)).To(Succeed())
+		})
+
+		It("should not skip reconciliation when pause annotation is set to false", func() {
+			// Update the annotation to false
+			cluster := &kafkaconnectv1alpha1.Cluster{}
+			nn := nameFor(name)
+			Expect(k8sClient.Get(ctx, nn, cluster)).To(Succeed())
+			cluster.Annotations["kafka-connect.b1zzu.net/pause-reconciliation"] = "false"
+			Expect(k8sClient.Update(ctx, cluster)).To(Succeed())
+
+			r := newReconciler()
+
+			// Reconcile should proceed normally since annotation is not "true"
+			// 3 reconcile calls: 1) init conditions, 2) configHash update, 3) full pass
+			reconcileN(ctx, r, nn, 3)
+
+			// Status should be initialized
+			Expect(k8sClient.Get(ctx, nn, cluster)).To(Succeed())
+			Expect(cluster.Status.Conditions).To(HaveLen(1))
+			cond := meta.FindStatusCondition(cluster.Status.Conditions, "Available")
+			Expect(cond).NotTo(BeNil())
+
+			// Sub-resources should be created
+			svc := &corev1.Service{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: name, Namespace: "default"}, svc)).To(Succeed())
+
+			dep := &appsv1.Deployment{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: name, Namespace: "default"}, dep)).To(Succeed())
+		})
+	})
 })

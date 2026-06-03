@@ -280,6 +280,12 @@ spec:
   maxUnavailable: 1
 ```
 
+**Annotations:**
+
+| Annotation                                     | Values     | Description               |
+| ---------------------------------------------- | ---------- | ------------------------- |
+| `kafka-connect.b1zzu.net/pause-reconciliation` | `true`     | Pause reconciliation loop |
+
 ### Connector
 
 ```yaml
@@ -322,10 +328,11 @@ When a connector is created with state `paused` or `stopped`, the operator passe
 
 **Annotations:**
 
-| Annotation                        | Values                      | Description                                                                 |
-| --------------------------------- | --------------------------- | --------------------------------------------------------------------------- |
-| `kafka-connect.b1zzu.net/restart` | `true`                      | Trigger a manual connector restart                                          |
-| `kafka-connect.b1zzu.net/offsets` | `export`, `import`, `reset` | Trigger an offset operation (see [Offsets Management](#offsets-management)) |
+| Annotation                                     | Values                      | Description                                                                 |
+| ---------------------------------------------- | --------------------------- | --------------------------------------------------------------------------- |
+| `kafka-connect.b1zzu.net/pause-reconciliation` | `true`                      | Pause reconciliation loop                                                   |
+| `kafka-connect.b1zzu.net/restart`              | `true`                      | Trigger a manual connector restart                                          |
+| `kafka-connect.b1zzu.net/offsets`              | `export`, `import`, `reset` | Trigger an offset operation (see [Offsets Management](#offsets-management)) |
 
 Annotations are removed automatically after the operation completes. And the operation result is logged as a Kubernetes Event.
 
