@@ -198,6 +198,11 @@ var _ = Describe("Cluster Controller", func() {
 			cluster := &kafkaconnectv1alpha1.Cluster{}
 			Expect(k8sClient.Get(ctx, nn, cluster)).To(Succeed())
 			Expect(cluster.Status.ConfigHash).NotTo(BeNil())
+
+			By("checking that Ingress is NOT created")
+			ingress := &netv1.Ingress{}
+			err := k8sClient.Get(ctx, types.NamespacedName{Name: name, Namespace: "default"}, ingress)
+			Expect(apierrors.IsNotFound(err)).To(BeTrue())
 		})
 	})
 
@@ -426,6 +431,79 @@ var _ = Describe("Cluster Controller", func() {
 			hash2 := hashConfigMap(cm2)
 
 			Expect(hash1).To(Equal(hash2))
+		})
+	})
+
+	Context("When DevelopmentIngressHost is set", func() {
+		const name = "cluster-ingress"
+
+		BeforeEach(func() {
+			createCluster(ctx, name, kafkaconnectv1alpha1.ClusterSpec{
+				Config: map[string]string{
+					"bootstrap.servers": "kafka:9092",
+					"group.id":          "ingress-group",
+				},
+			})
+		})
+
+		AfterEach(func() {
+			cluster := &kafkaconnectv1alpha1.Cluster{}
+			Expect(k8sClient.Get(ctx, nameFor(name), cluster)).To(Succeed())
+			Expect(k8sClient.Delete(ctx, cluster)).To(Succeed())
+		})
+
+		It("should create Ingress with correct spec", func() {
+			host := "example.com"
+			r := &ClusterReconciler{
+				Client:                 &gvkFixClient{Client: k8sClient, scheme: k8sClient.Scheme()},
+				Scheme:                 k8sClient.Scheme(),
+				DevelopmentIngressHost: &host,
+			}
+			nn := nameFor(name)
+
+			reconcileN(ctx, r, nn, 3)
+
+			By("checking that Ingress exists")
+			ingress := &netv1.Ingress{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: name, Namespace: "default"}, ingress)).To(Succeed())
+
+			By("checking the Ingress host")
+			Expect(ingress.Spec.Rules).To(HaveLen(1))
+			Expect(ingress.Spec.Rules[0].Host).To(Equal("cluster-ingress-default.example.com"))
+
+			By("checking the Ingress backend")
+			Expect(ingress.Spec.Rules[0].HTTP).NotTo(BeNil())
+			Expect(ingress.Spec.Rules[0].HTTP.Paths).To(HaveLen(1))
+			Expect(ingress.Spec.Rules[0].HTTP.Paths[0].Path).To(Equal("/"))
+			Expect(*ingress.Spec.Rules[0].HTTP.Paths[0].PathType).To(Equal(netv1.PathTypePrefix))
+			Expect(ingress.Spec.Rules[0].HTTP.Paths[0].Backend.Service).NotTo(BeNil())
+			Expect(ingress.Spec.Rules[0].HTTP.Paths[0].Backend.Service.Name).To(Equal(name))
+			Expect(ingress.Spec.Rules[0].HTTP.Paths[0].Backend.Service.Port.Number).To(Equal(int32(8083)))
+		})
+
+		It("should delete Ingress when DevelopmentIngressHost is removed", func() {
+			// First, create the Ingress with host set
+			host := "example.com"
+			r1 := &ClusterReconciler{
+				Client:                 &gvkFixClient{Client: k8sClient, scheme: k8sClient.Scheme()},
+				Scheme:                 k8sClient.Scheme(),
+				DevelopmentIngressHost: &host,
+			}
+			nn := nameFor(name)
+
+			reconcileN(ctx, r1, nn, 3)
+
+			By("checking that Ingress exists")
+			ingress := &netv1.Ingress{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: name, Namespace: "default"}, ingress)).To(Succeed())
+
+			// Now reconcile with host unset to trigger deletion
+			r2 := newReconciler()
+			reconcileN(ctx, r2, nn, 1)
+
+			By("checking that Ingress was deleted")
+			err := k8sClient.Get(ctx, types.NamespacedName{Name: name, Namespace: "default"}, ingress)
+			Expect(apierrors.IsNotFound(err)).To(BeTrue())
 		})
 	})
 

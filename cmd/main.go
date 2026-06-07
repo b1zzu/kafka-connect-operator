@@ -177,6 +177,13 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Retrieve the KCO_DEVELOPMENT_INGRESS_HOST environment variable value
+	var developmentIngressHost *string
+	if h, ok := os.LookupEnv("KCO_DEVELOPMENT_INGRESS_HOST"); ok {
+		developmentIngressHost = &h
+		setupLog.Info("Warning: The development Ingress is going to be created exposing the Kafka Connect API outside the Kubernetes cluster", "host", developmentIngressHost)
+	}
+
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme:                 scheme,
 		Metrics:                metricsServerOptions,
@@ -202,9 +209,10 @@ func main() {
 	}
 
 	if err := (&controller.ClusterReconciler{
-		Client:    mgr.GetClient(),
-		Scheme:    mgr.GetScheme(),
-		Namespace: operatorNamespace,
+		Client:                 mgr.GetClient(),
+		Scheme:                 mgr.GetScheme(),
+		Namespace:              operatorNamespace,
+		DevelopmentIngressHost: developmentIngressHost,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "cluster")
 		os.Exit(1)

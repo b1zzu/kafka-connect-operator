@@ -32,6 +32,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	netv1ac "k8s.io/client-go/applyconfigurations/networking/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
@@ -81,6 +82,11 @@ type ClusterReconciler struct {
 	client.Client
 	Scheme    *runtime.Scheme
 	Namespace string
+
+	// DevelopmentIngressHostname if set an Ingress resource is created to expose the Cluster
+	// with the given host. Will not work if the Kubernetes cluster support NetworkPolicies and
+	// the NetworkPolicy resource is created (default behaviour)
+	DevelopmentIngressHost *string
 }
 
 // +kubebuilder:rbac:groups=kafka-connect.b1zzu.net,resources=clusters,verbs=get;list;watch;create;update;patch;delete
@@ -137,6 +143,7 @@ func (r *ClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		r.reconcilePodDisruptionBudget,
 		r.reconcileConfigMap,
 		r.reconcileDeployment,
+		r.reconcileDevelopmentIngress,
 	} {
 		cluster, err = reconcile(ctx, cluster)
 		if err != nil || cluster == nil {
@@ -420,5 +427,64 @@ func (r *ClusterReconciler) reconcileDeployment(ctx context.Context, cluster *kc
 	}
 
 	// Deployment applied and status unchanged
+	return cluster, nil
+}
+
+func (r *ClusterReconciler) reconcileDevelopmentIngress(ctx context.Context, cluster *kcv1alpha1.Cluster) (*kcv1alpha1.Cluster, error) {
+	log := logf.FromContext(ctx)
+
+	if r.DevelopmentIngressHost == nil {
+
+		ingress := &netv1.Ingress{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      cluster.Name,
+				Namespace: cluster.Namespace,
+			},
+		}
+
+		err := r.Client.Delete(ctx, ingress)
+		if err != nil {
+			if apierrors.IsNotFound(err) {
+				// Ingress does not exists and should not be created
+				return cluster, nil
+			}
+
+			// Unexpected delete error
+			return nil, &ClusterReconciliationError{err: err, msg: "failed to delete Ingress", cluster: cluster}
+		}
+
+		log.Info("Deleted Ingress")
+		return nil, nil
+	}
+
+	host := fmt.Sprintf("%s-%s.%s", cluster.Name, cluster.Namespace, *r.DevelopmentIngressHost)
+
+	ingressA := netv1ac.Ingress(cluster.Name, cluster.Namespace).
+		WithOwnerReferences(ownerReferenceForCluster(cluster)).
+		WithSpec(netv1ac.IngressSpec().
+			WithRules(netv1ac.IngressRule().
+				WithHost(host).
+				WithHTTP(netv1ac.HTTPIngressRuleValue().
+					WithPaths(netv1ac.HTTPIngressPath().
+						WithPathType(netv1.PathTypePrefix).
+						WithPath("/").
+						WithBackend(netv1ac.IngressBackend().
+							WithService(netv1ac.IngressServiceBackend().
+								WithName(cluster.Name).
+								WithPort(netv1ac.ServiceBackendPort().
+									WithNumber(8083),
+								),
+							),
+						),
+					),
+				),
+			),
+		)
+
+	cluster, err := r.serverSideApply(ctx, cluster, ingressA)
+	if err != nil {
+		return nil, &ClusterReconciliationError{err: err, msg: "failed to apply Ingress", cluster: cluster}
+	}
+
 	return cluster, nil
 }

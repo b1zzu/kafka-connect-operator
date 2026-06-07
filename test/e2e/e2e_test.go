@@ -261,6 +261,12 @@ var _ = Describe("Manager", Ordered, func() {
 				g.Expect(output).To(Equal("Running"), "Incorrect controller-manager pod status")
 			}
 			Eventually(verifyControllerUp).Should(Succeed())
+
+			By("validating that the ingress is not accidentally created")
+			cmd := exec.Command("kubectl", "get", "ingress", "my-cluster-connect", "-n", namespace)
+			_, err := utils.Run(cmd)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("NotFound"))
 		})
 
 		It("should ensure the metrics endpoint is serving metrics", func() {
