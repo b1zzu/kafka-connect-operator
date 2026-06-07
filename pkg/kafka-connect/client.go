@@ -64,6 +64,22 @@ type ConnectorStatusTask struct {
 	Trace    string `json:"trace,omitempty"`
 }
 
+type ResponseError struct {
+	Response *http.Response
+}
+
+func NewResponseError(res *http.Response) *ResponseError {
+	return &ResponseError{Response: res}
+}
+
+func (e *ResponseError) Error() string {
+	rb, _ := io.ReadAll(e.Response.Body)
+	if len(rb) == 0 {
+		rb = []byte("<empty>")
+	}
+	return fmt.Sprintf("response error with status: %s; body: %s", e.Response.Status, string(rb))
+}
+
 // NewClient create a a http client to interact with kafka connect.
 //
 // The endpoint is the kafka connect url prefix to each
@@ -79,8 +95,6 @@ func NewClient(endpoint string) *Client {
 	}
 }
 
-// TODO: Return a detail error structure with the parsed error body
-
 func (c *Client) GetConnector(ctx context.Context, name string) (*Connector, error) {
 	url := fmt.Sprintf("%s/connectors/%s", c.endpoint, name)
 
@@ -93,15 +107,13 @@ func (c *Client) GetConnector(ctx context.Context, name string) (*Connector, err
 	if err != nil {
 		return nil, fmt.Errorf("failed to get connector: %w", err)
 	}
-	defer func() { _ = res.Body.Close() }()
 
 	if res.StatusCode != 200 {
 		if res.StatusCode == 404 {
 			// connector not found
 			return nil, nil
 		}
-
-		return nil, fmt.Errorf("failed to get connector with status: %s", res.Status)
+		return nil, NewResponseError(res)
 	}
 
 	connector := &Connector{}
@@ -135,11 +147,9 @@ func (c *Client) CreateConnector(ctx context.Context, connector *Connector) erro
 	if err != nil {
 		return fmt.Errorf("failed to create connector: %w", err)
 	}
-	defer func() { _ = res.Body.Close() }()
 
 	if res.StatusCode != 201 && res.StatusCode != 200 {
-		rb, _ := io.ReadAll(res.Body)
-		return fmt.Errorf("failed to create connector with status: %s; body: %s", res.Status, string(rb))
+		return NewResponseError(res)
 	}
 
 	return nil
@@ -157,10 +167,9 @@ func (c *Client) GetConnectorStatus(ctx context.Context, name string) (*Connecto
 	if err != nil {
 		return nil, fmt.Errorf("failed to get connector status: %w", err)
 	}
-	defer func() { _ = res.Body.Close() }()
 
 	if res.StatusCode != 200 {
-		return nil, fmt.Errorf("failed to get connector status with status: %s", res.Status)
+		return nil, NewResponseError(res)
 	}
 
 	status := &ConnectorStatus{}
@@ -194,11 +203,9 @@ func (c *Client) UpdateConnectorConfig(ctx context.Context, name string, config 
 	if err != nil {
 		return fmt.Errorf("failed to update connector config: %w", err)
 	}
-	defer func() { _ = res.Body.Close() }()
 
 	if res.StatusCode != 200 && res.StatusCode != 201 {
-		rb, _ := io.ReadAll(res.Body)
-		return fmt.Errorf("failed to update connector config with status: %s; body: %s", res.Status, string(rb))
+		return NewResponseError(res)
 	}
 
 	return nil
@@ -216,16 +223,13 @@ func (c *Client) DeleteConnector(ctx context.Context, name string) error {
 	if err != nil {
 		return fmt.Errorf("failed to delete connector: %w", err)
 	}
-	defer func() { _ = res.Body.Close() }()
 
 	if res.StatusCode != 204 {
 		if res.StatusCode == 404 {
 			// connector already deleted
 			return nil
 		}
-
-		rb, _ := io.ReadAll(res.Body)
-		return fmt.Errorf("failed to delete connector with status: %s; body: %s", res.Status, string(rb))
+		return NewResponseError(res)
 	}
 
 	return nil
@@ -243,11 +247,9 @@ func (c *Client) PauseConnector(ctx context.Context, name string) error {
 	if err != nil {
 		return fmt.Errorf("failed to pause connector: %w", err)
 	}
-	defer func() { _ = res.Body.Close() }()
 
 	if res.StatusCode != 202 {
-		rb, _ := io.ReadAll(res.Body)
-		return fmt.Errorf("failed to pause connector with status: %s; body: %s", res.Status, string(rb))
+		return NewResponseError(res)
 	}
 
 	return nil
@@ -265,11 +267,9 @@ func (c *Client) ResumeConnector(ctx context.Context, name string) error {
 	if err != nil {
 		return fmt.Errorf("failed to resume connector: %w", err)
 	}
-	defer func() { _ = res.Body.Close() }()
 
 	if res.StatusCode != 202 {
-		rb, _ := io.ReadAll(res.Body)
-		return fmt.Errorf("failed to resume connector with status: %s; body: %s", res.Status, string(rb))
+		return NewResponseError(res)
 	}
 
 	return nil
@@ -287,11 +287,9 @@ func (c *Client) StopConnector(ctx context.Context, name string) error {
 	if err != nil {
 		return fmt.Errorf("failed to stop connector: %w", err)
 	}
-	defer func() { _ = res.Body.Close() }()
 
 	if res.StatusCode != 202 && res.StatusCode != 204 {
-		rb, _ := io.ReadAll(res.Body)
-		return fmt.Errorf("failed to stop connector with status: %s; body: %s", res.Status, string(rb))
+		return NewResponseError(res)
 	}
 
 	return nil
@@ -309,11 +307,9 @@ func (c *Client) RestartConnector(ctx context.Context, name string) error {
 	if err != nil {
 		return fmt.Errorf("failed to restart connector: %w", err)
 	}
-	defer func() { _ = res.Body.Close() }()
 
 	if res.StatusCode != 200 && res.StatusCode != 204 {
-		rb, _ := io.ReadAll(res.Body)
-		return fmt.Errorf("failed to restart connector with status: %s; body: %s", res.Status, string(rb))
+		return NewResponseError(res)
 	}
 
 	return nil
@@ -413,11 +409,9 @@ func (c *Client) RestartTask(ctx context.Context, name string, taskID int) error
 	if err != nil {
 		return fmt.Errorf("failed to restart task: %w", err)
 	}
-	defer func() { _ = res.Body.Close() }()
 
 	if res.StatusCode != 200 && res.StatusCode != 204 {
-		rb, _ := io.ReadAll(res.Body)
-		return fmt.Errorf("failed to restart task with status: %s; body: %s", res.Status, string(rb))
+		return NewResponseError(res)
 	}
 
 	return nil

@@ -7,7 +7,7 @@ metadata:
   name: datagen-orders
 spec:
   cluster:
-    name: my-cluster
+    name: my-cluster-connect
   config:
     connector.class: io.confluent.kafka.connect.datagen.DatagenConnector
     tasks.max: "2"

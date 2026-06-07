@@ -23,6 +23,62 @@ import (
 	"testing"
 )
 
+func TestCreateConnector_Success(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Errorf("expected POST, got %s", r.Method)
+		}
+		if r.URL.Path != "/connectors" {
+			t.Errorf("unexpected path: %s", r.URL.Path)
+		}
+		body, _ := io.ReadAll(r.Body)
+		var received Connector
+		if err := json.Unmarshal(body, &received); err != nil {
+			t.Errorf("failed to decode body: %v", err)
+		}
+		if received.Name != "my-connector" {
+			t.Errorf("expected my-connector as name in body, got %s", received.Name)
+		}
+		w.WriteHeader(http.StatusCreated)
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL)
+	err := client.CreateConnector(context.Background(), &Connector{
+		Name: "my-connector",
+		Config: map[string]string{
+			"connector.class": "com.example.Connector",
+		},
+		InitialState: "running",
+	})
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+}
+
+func TestCreateConnector_Error(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Errorf("expected POST, got %s", r.Method)
+		}
+		if r.URL.Path != "/connectors" {
+			t.Errorf("unexpected path: %s", r.URL.Path)
+		}
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte("bad request"))
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL)
+	err := client.CreateConnector(context.Background(), &Connector{Name: "my-connector"})
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if _, ok := err.(*ResponseError); !ok {
+		t.Fatalf("expected error of type *kafkaconnect.ResponseError, got %T", err)
+	}
+}
+
 func TestRestartConnector_Success(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
