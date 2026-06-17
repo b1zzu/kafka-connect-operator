@@ -1,4 +1,4 @@
-FROM docker.io/confluentinc/cp-kafka-connect-base:8.2.1 AS install
+FROM docker.io/confluentinc/cp-kafka-connect-base:8.3.0 AS install
 
 ARG CONNECT_DATAGEN_VERSION=0.7.1
 
