@@ -66,18 +66,20 @@ type ConnectorStatusTask struct {
 
 type ResponseError struct {
 	Response *http.Response
+	Body     []byte
 }
 
 func NewResponseError(res *http.Response) *ResponseError {
-	return &ResponseError{Response: res}
-}
-
-func (e *ResponseError) Error() string {
-	rb, _ := io.ReadAll(e.Response.Body)
+	rb, _ := io.ReadAll(res.Body)
 	if len(rb) == 0 {
 		rb = []byte("<empty>")
 	}
-	return fmt.Sprintf("response error with status: %s; body: %s", e.Response.Status, string(rb))
+
+	return &ResponseError{Response: res, Body: rb}
+}
+
+func (e *ResponseError) Error() string {
+	return fmt.Sprintf("response error with status: %s; body: %s", e.Response.Status, string(e.Body))
 }
 
 // NewClient create a a http client to interact with kafka connect.

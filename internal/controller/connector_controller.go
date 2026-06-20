@@ -107,6 +107,14 @@ type ConnectorReconciler struct {
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.23.1/pkg/reconcile
 func (r *ConnectorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	// TODO: The connector status should rappresent weather the connector is running or not according to the
+	// kafka connect api, and by the observed status weather the
+	//
+	// TODO: One Ready conidition, True when is running, Failse when it's paused, stopped,
+	// or failing, Unknown when it's reconciling
+	//
+	// TODO: Log events for state transitions, like from running to paused and viceversa
+
 	log := logf.FromContext(ctx)
 	log.Info("Start Reconcile loop")
 
@@ -157,6 +165,8 @@ func (r *ConnectorReconciler) handleReconciliationError(ctx context.Context, err
 	}
 
 	if rerr, ok := err.(*ConnectorReconciliationError); ok {
+		// TODO: Errors do not means the Connector is not running, for example failing to
+		//       update a connector reject the new version but the existin version is still running
 		err = r.updateStatusCondition(ctx, rerr.connector, metav1.Condition{
 			Type:    typeRunningConnector,
 			Status:  metav1.ConditionFalse,
@@ -263,6 +273,8 @@ func (r *ConnectorReconciler) reconcileConnector(ctx context.Context, connector 
 
 		err = kafkaConnect.CreateConnector(ctx, newConnector)
 		if err != nil {
+			// TODO: Use events to log error, codnitions should only reflect the connector status, but if the connector
+			//  is not created then the condition is still unknown
 			return nil, &ConnectorReconciliationError{err: err, msg: "failed to create connector", connector: connector}
 		}
 
@@ -806,6 +818,7 @@ func (r *ConnectorReconciler) reconcileConnectorFinalizer(ctx context.Context, c
 	return connector, nil
 }
 
+// TODO: Conditions should complement more detailed information about the observed status of an object written by a controller, rather than replace it.
 func (r *ConnectorReconciler) updateStatusCondition(
 	ctx context.Context,
 	connector *kcv1alpha1.Connector,
