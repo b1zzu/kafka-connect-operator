@@ -201,6 +201,7 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Cluster
 	if err := (&controller.ClusterReconciler{
 		Client:    mgr.GetClient(),
 		Scheme:    mgr.GetScheme(),
@@ -209,13 +210,30 @@ func main() {
 		setupLog.Error(err, "Failed to create controller", "controller", "cluster")
 		os.Exit(1)
 	}
+
+	// Connector
+	usePortFowradClient := false
+	if e, ok := os.LookupEnv("KCO_PORT_FORWARD_CLIENT"); ok {
+		if e == "true" {
+			setupLog.Info(
+				"Warn: The operator will attempt to setup a port-forard to connect to the Kafka Connect API",
+				"KCO_PORT_FORWARD_CLIENT", e)
+			usePortFowradClient = true
+		}
+	}
+
+	kafkaConnectClientFunc := controller.NewDefaultKafkaConnectClientFunc
+	if usePortFowradClient {
+		kafkaConnectClientFunc = controller.NewPortForwardKafkaConnectClientFunc
+	}
+
 	if err := (&controller.ConnectorReconciler{
 		Client:                        mgr.GetClient(),
 		Scheme:                        mgr.GetScheme(),
 		Recorder:                      mgr.GetEventRecorder("connector-controller"),
 		ReconcileInterval:             time.Minute,
 		RestartFailedConnectorBackoff: 5 * time.Minute,
-		NewKafkaConnectClientFunc:     controller.NewDefaultKafkaConnectClientFunc,
+		NewKafkaConnectClientFunc:     kafkaConnectClientFunc,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "connector")
 		os.Exit(1)

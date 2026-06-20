@@ -20,6 +20,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math/rand/v2"
+	"os/exec"
 	"reflect"
 	"strings"
 	"time"
@@ -90,7 +92,7 @@ type ConnectorReconciler struct {
 	RestartFailedConnectorBackoff time.Duration
 
 	// NewKafkaConnectClientFunc creates a Kafka Connect client for the given connector.
-	NewKafkaConnectClientFunc func(connector *kcv1alpha1.Connector) *kafkaconnect.Client
+	NewKafkaConnectClientFunc func(connector *kcv1alpha1.Connector) (*kafkaconnect.Client, error)
 }
 
 // +kubebuilder:rbac:groups=kafka-connect.b1zzu.net,resources=connectors,verbs=get;list;watch;create;update;patch;delete
@@ -229,7 +231,10 @@ func (r *ConnectorReconciler) reconcileConnector(ctx context.Context, connector 
 	log := logf.FromContext(ctx)
 
 	// Create Kafka Connect client
-	kafkaConnect := r.NewKafkaConnectClientFunc(connector)
+	kafkaConnect, err := r.NewKafkaConnectClientFunc(connector)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create the client: %w", err)
+	}
 
 	// Get existing connector from Kafka Connect
 	existingConnector, err := kafkaConnect.GetConnector(ctx, connector.Name)
@@ -324,7 +329,10 @@ func (r *ConnectorReconciler) reconcileConnectorState(ctx context.Context, conne
 
 	desiredState := getDesiredConnectorState(connector)
 
-	kafkaConnect := r.NewKafkaConnectClientFunc(connector)
+	kafkaConnect, err := r.NewKafkaConnectClientFunc(connector)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create the client: %w", err)
+	}
 
 	status, err := kafkaConnect.GetConnectorStatus(ctx, connector.Name)
 	if err != nil {
@@ -403,7 +411,11 @@ func (r *ConnectorReconciler) reconcileConnectorRestart(ctx context.Context, con
 
 	log.Info("Restarting connector (manual restart requested)")
 
-	kafkaConnect := r.NewKafkaConnectClientFunc(connector)
+	kafkaConnect, err := r.NewKafkaConnectClientFunc(connector)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create the client: %w", err)
+	}
+
 	if err := kafkaConnect.RestartConnector(ctx, connector.Name); err != nil {
 		r.Recorder.Eventf(connector, nil, corev1.EventTypeWarning, "FailedRestart", "Restart", "Failed to restart connector: %v", err)
 		return nil, fmt.Errorf("failed to restart connector: %w", err)
@@ -459,7 +471,11 @@ func (r *ConnectorReconciler) reconcileExportOffsets(ctx context.Context, connec
 		return r.removeOffsetsAnnotation(ctx, connector)
 	}
 
-	kafkaConnect := r.NewKafkaConnectClientFunc(connector)
+	kafkaConnect, err := r.NewKafkaConnectClientFunc(connector)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create the client: %w", err)
+	}
+
 	offsets, err := kafkaConnect.GetConnectorOffsets(ctx, connector.Name)
 	if err != nil {
 		r.Recorder.Eventf(connector, nil, corev1.EventTypeWarning, "FailedExportOffsets", "ExportOffsets", "Failed to get offsets: %v", err)
@@ -525,8 +541,12 @@ func (r *ConnectorReconciler) reconcileImportOffsets(ctx context.Context, connec
 		return r.removeOffsetsAnnotation(ctx, connector)
 	}
 
+	kafkaConnect, err := r.NewKafkaConnectClientFunc(connector)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create the client: %w", err)
+	}
+
 	// Validate connector is stopped
-	kafkaConnect := r.NewKafkaConnectClientFunc(connector)
 	status, err := kafkaConnect.GetConnectorStatus(ctx, connector.Name)
 	if err != nil {
 		r.Recorder.Eventf(connector, nil, corev1.EventTypeWarning, "FailedImportOffsets", "ImportOffsets", "Failed to get connector status: %v", err)
@@ -579,8 +599,12 @@ func (r *ConnectorReconciler) reconcileImportOffsets(ctx context.Context, connec
 func (r *ConnectorReconciler) reconcileResetOffsets(ctx context.Context, connector *kcv1alpha1.Connector) (*kcv1alpha1.Connector, error) {
 	log := logf.FromContext(ctx)
 
+	kafkaConnect, err := r.NewKafkaConnectClientFunc(connector)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create the client: %w", err)
+	}
+
 	// Validate connector is stopped
-	kafkaConnect := r.NewKafkaConnectClientFunc(connector)
 	status, err := kafkaConnect.GetConnectorStatus(ctx, connector.Name)
 	if err != nil {
 		r.Recorder.Eventf(connector, nil, corev1.EventTypeWarning, "FailedResetOffsets", "ResetOffsets", "Failed to get connector status: %v", err)
@@ -625,7 +649,10 @@ func (r *ConnectorReconciler) reconcileConnectorStatus(ctx context.Context, conn
 	previousStatus := connector.Status.DeepCopy()
 
 	// Create Kafka Connect client
-	kafkaConnect := r.NewKafkaConnectClientFunc(connector)
+	kafkaConnect, err := r.NewKafkaConnectClientFunc(connector)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create the client: %w", err)
+	}
 
 	// Get connector status from Kafka Connect
 	status, err := kafkaConnect.GetConnectorStatus(ctx, connector.Name)
@@ -738,9 +765,13 @@ func (r *ConnectorReconciler) reconcileConnectorFinalizer(ctx context.Context, c
 		// Connector is being deleted
 		log.Info("Deleting connector")
 
+		kafkaConnect, err := r.NewKafkaConnectClientFunc(connector)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create the client: %w", err)
+		}
+
 		// Delete the connector from Kafka Connect
-		kafkaConnect := r.NewKafkaConnectClientFunc(connector)
-		err := kafkaConnect.DeleteConnector(ctx, connector.Name)
+		err = kafkaConnect.DeleteConnector(ctx, connector.Name)
 		if err != nil {
 			return nil, &ConnectorReconciliationError{err: err, msg: "failed to delete connector", connector: connector}
 		}
@@ -795,9 +826,70 @@ func (r *ConnectorReconciler) updateStatusCondition(
 
 // NewDefaultKafkaConnectClientFunc returns a factory that creates Kafka Connect
 // clients using the in-cluster service endpoint.
-func NewDefaultKafkaConnectClientFunc(connector *kcv1alpha1.Connector) *kafkaconnect.Client {
+func NewDefaultKafkaConnectClientFunc(connector *kcv1alpha1.Connector) (*kafkaconnect.Client, error) {
 	endpoint := fmt.Sprintf("http://%s.%s:8083", connector.Spec.ClusterRef.Name, connector.Namespace)
-	return kafkaconnect.NewClient(endpoint)
+	return kafkaconnect.NewClient(endpoint), nil
+}
+
+type PortForwardProcess struct {
+	Port      int
+	IsRunning bool
+}
+
+var portForwardProcesses = map[string]*PortForwardProcess{}
+
+// NewPortForwardKafkaConnectClientFunc is a factory func that start the kubectl port-forward
+// in the bacgrkound and return the the Kafka Connect client using the port-forward as endpoint.
+func NewPortForwardKafkaConnectClientFunc(connector *kcv1alpha1.Connector) (*kafkaconnect.Client, error) {
+	log := logf.FromContext(context.TODO())
+
+	k := fmt.Sprintf("%s/%s", connector.Namespace, connector.Spec.ClusterRef.Name)
+	var process *PortForwardProcess
+	if p, ok := portForwardProcesses[k]; ok {
+		process = p
+	}
+
+	// Check if kubectl port-forward is running
+	if process != nil && !process.IsRunning {
+		process = nil
+	}
+
+	if process == nil {
+		process = &PortForwardProcess{
+			Port:      49152 + rand.N(65535-49152+1), // Random port between 49152 and 65535
+			IsRunning: false,
+		}
+
+		// Start a new kubectl port-forward process
+		cmd := exec.Command(
+			"kubectl", "port-forward",
+			"--namespace", connector.Namespace,
+			fmt.Sprintf("services/%s", connector.Spec.ClusterRef.Name),
+			fmt.Sprintf("%d:8083", process.Port))
+
+		// Run a bacgrkound goroutine to update the process when exit
+		log.Info("Starting kubect port-forward", "command", strings.Join(cmd.Args, " "))
+		go func() {
+			process.IsRunning = true
+			out, err := cmd.CombinedOutput()
+			log.Error(err, "Kubectl port-forward exit", "output", string(out))
+			process.IsRunning = false
+		}()
+
+		// Wait 1 second after starting to process to make sure the kubectl port-fowarding
+		// did not fail immediately
+		time.Sleep(time.Second)
+
+		if !process.IsRunning {
+			return nil, fmt.Errorf("failed to run kubectl port-forward on local port %d", process.Port)
+		}
+
+		portForwardProcesses[k] = process
+	}
+
+	// Kubectl port-forward is running from at-least 1 second
+	endpoint := fmt.Sprintf("http://localhost:%d", process.Port)
+	return kafkaconnect.NewClient(endpoint), nil
 }
 
 func connectorConfigsEqual(actual, desired map[string]string) bool {

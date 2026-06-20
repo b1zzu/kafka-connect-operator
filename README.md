@@ -634,24 +634,14 @@ Deploy the samples
 kubectl apply -k config/samples
 ```
 
-To test Connector deployments while running the controller locally you can fake the Kubernetes
-by adding this to your `/etc/hosts` where `my-cluster` is the name of the Kafka Connect Cluster
-and `default` the namespace where it's deployed:
-
-```
-127.0.0.1 my-cluster-connect.default
-```
-
 Then start the controller locally:
+
+> Note: Because the operator is running locally while the Kafka Connect cluster is running
+>       in kind. When the operator is started using `make run` it will attempt to run kubectl
+>       port-forward on a local random port as a child process.
 
 ```bash
 make run
-```
-
-Once the Kafka Connect cluster is ready, forward the rest port locally:
-
-```bash
-kubectl port-forward services/my-cluster-connect 8083:8083
 ```
 
 The sample will deploy a Kafka Connect cluster with the name `my-cluster` when you will start the manager locally.
