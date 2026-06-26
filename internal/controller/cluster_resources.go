@@ -75,7 +75,7 @@ func log4j2ConfigForCluster(cluster *kcv1alpha1.Cluster) map[string]string {
 }
 
 func deploymentForCluster(cluster *kcv1alpha1.Cluster) *appsv1ac.DeploymentApplyConfiguration {
-	image := "docker.io/apache/kafka:4.3.0"
+	image := "docker.io/apache/kafka:4.3.1"
 	if cluster.Spec.Image != nil {
 		image = *cluster.Spec.Image
 	}
