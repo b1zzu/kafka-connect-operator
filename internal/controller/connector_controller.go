@@ -126,7 +126,9 @@ func (r *ConnectorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	// Skip reconciliation loop if paused
 	if pause, ok := connector.GetAnnotations()[pauseReconciliationAnnotation]; ok {
 		if pause == pauseReconciliationTrue {
-			log.Info("Skipping reconciliation, reconciliation is paused.")
+			log.Info(fmt.Sprintf(
+				"Skipping reconciliation, because reconciliation is paused. Remove the '%s' annotation to unpause it.",
+				pauseReconciliationAnnotation))
 			return ctrl.Result{}, nil
 		}
 	}
