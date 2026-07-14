@@ -347,7 +347,7 @@ func (r *ConnectorReconciler) reconcileConnector(ctx context.Context, connector 
 }
 
 // Reconcile the state of the connector, the state is weather the connector should be running, paused or stopped
-// and it's controlled using annotations.
+// and it's controlled using the state property.
 func (r *ConnectorReconciler) reconcileConnectorState(ctx context.Context, connector *kcv1alpha1.Connector) (*kcv1alpha1.Connector, error) {
 	log := logf.FromContext(ctx)
 
@@ -360,7 +360,7 @@ func (r *ConnectorReconciler) reconcileConnectorState(ctx context.Context, conne
 
 	status, err := kafkaConnect.GetConnectorStatus(ctx, connector.Name)
 	if err != nil {
-		return nil, &ConnectorReconciliationError{err: err, msg: "failed to get connector status", connector: connector}
+		return nil, fmt.Errorf("failed to get the connector status: %w", err)
 	}
 
 	actualState := kcv1alpha1.ConnectorState(strings.ToLower(status.Connector.State))
@@ -374,7 +374,8 @@ func (r *ConnectorReconciler) reconcileConnectorState(ctx context.Context, conne
 	case kcv1alpha1.ConnectorStateRunning, kcv1alpha1.ConnectorStatePaused, kcv1alpha1.ConnectorStateStopped:
 		// known states, proceed with reconciliation
 	default:
-		log.Info("Skipping connector state reconciliation, connector is in unreconcilable state", "actual", actualState, "desired", desiredState)
+		log.Info("Skipping connector state reconciliation, connector is in an unreconcilable state",
+			"actual", actualState, "desired", desiredState)
 		return connector, nil
 	}
 
@@ -385,34 +386,49 @@ func (r *ConnectorReconciler) reconcileConnectorState(ctx context.Context, conne
 		log.Info("Resuming connector")
 		err = kafkaConnect.ResumeConnector(ctx, connector.Name)
 		if err != nil {
-			return nil, &ConnectorReconciliationError{err: err, msg: "failed to resume connector", connector: connector}
+			r.Recorder.Eventf(connector, nil, corev1.EventTypeWarning,
+				"Failed", "Resuming", "Failed to resume connector: %v", err)
+			return nil, fmt.Errorf("failed to resume connector: %w", err)
 		}
+
+		r.Recorder.Eventf(connector, nil, corev1.EventTypeNormal,
+			"Resumed", "Resumeing", "Connector resumed")
+
 	case kcv1alpha1.ConnectorStatePaused:
 		if actualState == kcv1alpha1.ConnectorStateStopped {
-			// Cannot pause a stopped connector directly; resume first, then requeue to pause
-			log.Info("Resuming connector before pausing")
-			err = kafkaConnect.ResumeConnector(ctx, connector.Name)
-			if err != nil {
-				return nil, &ConnectorReconciliationError{err: err, msg: "failed to resume connector before pausing", connector: connector}
-			}
+			r.Recorder.Eventf(connector, nil, corev1.EventTypeWarning,
+				"Error", "Pause", "Cannot pause the connector because it is already stopped")
+			log.Info("Cannot pause the connector because it is stopped")
+
+			// Ignore the desired state
+			return connector, nil
+
 		} else {
 			log.Info("Pausing connector")
 			err = kafkaConnect.PauseConnector(ctx, connector.Name)
 			if err != nil {
-				return nil, &ConnectorReconciliationError{err: err, msg: "failed to pause connector", connector: connector}
+				r.Recorder.Eventf(connector, nil, corev1.EventTypeWarning,
+					"Failed", "Pausing", "Failed to pause the connector: %v", err)
+				return nil, fmt.Errorf("failed to pause the connector: %w", err)
 			}
+
+			r.Recorder.Eventf(connector, nil, corev1.EventTypeNormal,
+				"Paused", "Pausing", "Connector paused")
 		}
 	case kcv1alpha1.ConnectorStateStopped:
 		log.Info("Stopping connector")
 		err = kafkaConnect.StopConnector(ctx, connector.Name)
 		if err != nil {
-			return nil, &ConnectorReconciliationError{err: err, msg: "failed to stop connector", connector: connector}
+			r.Recorder.Eventf(connector, nil, corev1.EventTypeWarning,
+				"Failed", "Stopping", "Failed to stop the connector: %v", err)
+			return nil, fmt.Errorf("failed to stop the connector: %w", err)
 		}
+
+		r.Recorder.Eventf(connector, nil, corev1.EventTypeNormal,
+			"Stopped", "Stopping", "Connector stopped")
 	}
 
 	// Update status to Unknown to trigger an immediate reconciliation via watch event.
-	// Use "StateChange" reason to ensure the condition differs from a previous "Reconciling"
-	// status (e.g., during stopped→paused transitions that require two state changes).
 	err = r.updateStatusCondition(ctx, connector, metav1.Condition{
 		Type:    typeRunningConnector,
 		Status:  metav1.ConditionUnknown,
