@@ -392,7 +392,7 @@ func (r *ConnectorReconciler) reconcileConnectorState(ctx context.Context, conne
 		}
 
 		r.Recorder.Eventf(connector, nil, corev1.EventTypeNormal,
-			"Resumed", "Resumeing", "Connector resumed")
+			"Resumed", "Resuming", "Connector resumed")
 
 	case kcv1alpha1.ConnectorStatePaused:
 		if actualState == kcv1alpha1.ConnectorStateStopped {
@@ -457,11 +457,13 @@ func (r *ConnectorReconciler) reconcileConnectorRestart(ctx context.Context, con
 	}
 
 	if err := kafkaConnect.RestartConnector(ctx, connector.Name); err != nil {
-		r.Recorder.Eventf(connector, nil, corev1.EventTypeWarning, "FailedRestart", "Restart", "Failed to restart connector: %v", err)
+		r.Recorder.Eventf(connector, nil, corev1.EventTypeWarning,
+			"FailedRestart", "Restart", "Failed to restart connector: %v", err)
 		return nil, fmt.Errorf("failed to restart connector: %w", err)
 	}
 
-	r.Recorder.Eventf(connector, nil, corev1.EventTypeNormal, "Restarted", "Restart", "Connector restarted successfully")
+	r.Recorder.Eventf(connector, nil, corev1.EventTypeNormal,
+		"Restarted", "Restart", "Connector restarted")
 
 	now := metav1.Now()
 	connector.Status.LastRestartAt = &now
