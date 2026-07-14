@@ -1,6 +1,6 @@
 FROM --platform=$BUILDPLATFORM docker.io/busybox AS download
 
-ARG LOG4J_VERSION=2.26.0
+ARG LOG4J_VERSION=2.26.1
 
 RUN wget -q -O /log4j-layout-template-json.jar \
       "https://repo1.maven.org/maven2/org/apache/logging/log4j/log4j-layout-template-json/${LOG4J_VERSION}/log4j-layout-template-json-${LOG4J_VERSION}.jar"
