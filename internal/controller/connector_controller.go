@@ -827,7 +827,7 @@ func (r *ConnectorReconciler) updateStatusCondition(
 	condition metav1.Condition,
 ) error {
 	log := logf.FromContext(ctx)
-	log.Info("Update Connector status condition", "type", condition.Type, "status", condition.Status)
+	log.V(1).Info("Update Connector status condition", "type", condition.Type, "status", condition.Status)
 
 	condition.ObservedGeneration = connector.Generation
 	meta.SetStatusCondition(&connector.Status.Conditions, condition)
