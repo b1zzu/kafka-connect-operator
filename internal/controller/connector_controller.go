@@ -221,6 +221,8 @@ func (r *ConnectorReconciler) initializeStatusConditions(ctx context.Context, co
 	log := logf.FromContext(ctx)
 
 	if len(connector.Status.Conditions) == 0 {
+		log.Info("Setting connector initial condition")
+
 		err := r.updateStatusCondition(ctx, connector, metav1.Condition{
 			Type:   typeRunningConnector,
 			Status: metav1.ConditionUnknown,
@@ -229,8 +231,6 @@ func (r *ConnectorReconciler) initializeStatusConditions(ctx context.Context, co
 		if err != nil {
 			return nil, fmt.Errorf("failed to initialize condition: %w", err)
 		}
-
-		log.Info("Resource initial condition updated successfully")
 
 		// The Connector resource was updated, it must be refetched or the reconciliation loop restarted
 		return nil, nil
@@ -249,36 +249,40 @@ func (r *ConnectorReconciler) reconcileConnector(ctx context.Context, connector 
 	}
 
 	// Get existing connector from Kafka Connect
-	existingConnector, err := kafkaConnect.GetConnector(ctx, connector.Name)
+	actualConnector, err := kafkaConnect.GetConnector(ctx, connector.Name)
 	if err != nil {
-		return nil, &ConnectorReconciliationError{err: err, msg: "failed to get connector", connector: connector}
+		return nil, fmt.Errorf("failed to get the connector: %w", err)
 	}
 
 	// Connector doesn't exist, create it
-	if existingConnector == nil {
+	if actualConnector == nil {
 		log.Info("Creating connector")
 
 		desiredState := getDesiredConnectorState(connector)
 
 		// Create the connector
-		newConnector := &kafkaconnect.Connector{
+		desiredConnector := &kafkaconnect.Connector{
 			Name:   connector.Name,
 			Config: connector.Spec.Config,
 		}
 
 		switch desiredState {
 		case kcv1alpha1.ConnectorStatePaused:
-			newConnector.InitialState = connectorStatusPaused
+			desiredConnector.InitialState = connectorStatusPaused
 		case kcv1alpha1.ConnectorStateStopped:
-			newConnector.InitialState = connectorStatusStopped
+			desiredConnector.InitialState = connectorStatusStopped
 		}
 
-		err = kafkaConnect.CreateConnector(ctx, newConnector)
+		err = kafkaConnect.CreateConnector(ctx, desiredConnector)
 		if err != nil {
-			// TODO: Use events to log error, codnitions should only reflect the connector status, but if the connector
-			//  is not created then the condition is still unknown
-			return nil, &ConnectorReconciliationError{err: err, msg: "failed to create connector", connector: connector}
+			r.Recorder.Eventf(connector, nil, corev1.EventTypeWarning,
+				"Failed", "Create", "Failed to create the connector: %v", err)
+
+			return nil, fmt.Errorf("failed to create the connector: %w", err)
 		}
+
+		r.Recorder.Eventf(connector, nil, corev1.EventTypeNormal,
+			"Created", "Create", "Connector created")
 
 		now := metav1.Now()
 		connector.Status.LastUpdatedAt = &now
@@ -291,13 +295,13 @@ func (r *ConnectorReconciler) reconcileConnector(ctx context.Context, connector 
 			return nil, fmt.Errorf("failed to update status: %w", err)
 		}
 
-		log.Info("Connector created successfully")
+		log.Info("Connector created successfully, starting now")
 
 		// Return nil to restart reconciliation and proceed to status sync
 		return nil, nil
 	}
 
-	actualConfig := existingConnector.Config
+	actualConfig := actualConnector.Config
 	desiredConfig := connector.Spec.Config
 
 	// Remove the name from the actualConfig otherwise it will
@@ -312,8 +316,14 @@ func (r *ConnectorReconciler) reconcileConnector(ctx context.Context, connector 
 		// Update the connector config
 		err = kafkaConnect.UpdateConnectorConfig(ctx, connector.Name, desiredConfig)
 		if err != nil {
-			return nil, &ConnectorReconciliationError{err: err, msg: "failed to update connector config", connector: connector}
+			r.Recorder.Eventf(connector, nil, corev1.EventTypeWarning,
+				"Failed", "UpdateConfig", "Failed to update the connector config: %v", err)
+
+			return nil, fmt.Errorf("failed to update the connector config: %w", err)
 		}
+
+		r.Recorder.Eventf(connector, nil, corev1.EventTypeNormal,
+			"Updated", "UpdateConfig", "Connector config updated")
 
 		now := metav1.Now()
 		connector.Status.LastUpdatedAt = &now
@@ -789,6 +799,9 @@ func (r *ConnectorReconciler) reconcileConnectorFinalizer(ctx context.Context, c
 		if err != nil {
 			return nil, &ConnectorReconciliationError{err: err, msg: "failed to delete connector", connector: connector}
 		}
+
+		// TODO: What if the connector was already deleted on kafka-connect, actually even better if we remove the finailizer only
+		// 				if we are sure the connector is gone, which should return a 404 or another specific error
 
 		log.Info("Connector deleted successfully, removing finalizer")
 
