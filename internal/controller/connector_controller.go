@@ -500,7 +500,8 @@ func (r *ConnectorReconciler) reconcileConnectorOffsets(ctx context.Context, con
 	case "reset":
 		return r.reconcileResetOffsets(ctx, connector)
 	default:
-		r.Recorder.Eventf(connector, nil, corev1.EventTypeWarning, "FailedOffsets", "ManageOffsets", "Unknown offsets annotation value: %s", annotation)
+		r.Recorder.Eventf(connector, nil, corev1.EventTypeWarning,
+			"ErrorOffsets", "ManagingOffsets", "Unknown offsets annotation value: %s", annotation)
 		return r.removeOffsetsAnnotation(ctx, connector)
 	}
 }
@@ -509,7 +510,8 @@ func (r *ConnectorReconciler) reconcileExportOffsets(ctx context.Context, connec
 	log := logf.FromContext(ctx)
 
 	if connector.Spec.ExportOffsets == nil {
-		r.Recorder.Eventf(connector, nil, corev1.EventTypeWarning, "FailedExportOffsets", "ExportOffsets", "spec.exportOffsets.configMapRef is required for export")
+		r.Recorder.Eventf(connector, nil, corev1.EventTypeWarning,
+			"ErrorExportOffsets", "ExportingOffsets", "spec.exportOffsets.configMapRef is required for export")
 		return r.removeOffsetsAnnotation(ctx, connector)
 	}
 
@@ -520,13 +522,15 @@ func (r *ConnectorReconciler) reconcileExportOffsets(ctx context.Context, connec
 
 	offsets, err := kafkaConnect.GetConnectorOffsets(ctx, connector.Name)
 	if err != nil {
-		r.Recorder.Eventf(connector, nil, corev1.EventTypeWarning, "FailedExportOffsets", "ExportOffsets", "Failed to get offsets: %v", err)
+		r.Recorder.Eventf(connector, nil, corev1.EventTypeWarning,
+			"FailedExportOffsets", "ExportingOffsets", "Failed to get offsets: %v", err)
 		return nil, fmt.Errorf("failed to get connector offsets: %w", err)
 	}
 
 	offsetsJSON, err := json.Marshal(offsets)
 	if err != nil {
-		r.Recorder.Eventf(connector, nil, corev1.EventTypeWarning, "FailedExportOffsets", "ExportOffsets", "Failed to marshal offsets: %v", err)
+		r.Recorder.Eventf(connector, nil, corev1.EventTypeWarning,
+			"FailedExportOffsets", "ExportingOffsets", "Failed to marshal offsets: %v", err)
 		return nil, fmt.Errorf("failed to marshal offsets: %w", err)
 	}
 
@@ -535,7 +539,8 @@ func (r *ConnectorReconciler) reconcileExportOffsets(ctx context.Context, connec
 	err = r.Get(ctx, client.ObjectKey{Name: cmName, Namespace: connector.Namespace}, cm)
 	if err != nil {
 		if !apierrors.IsNotFound(err) {
-			r.Recorder.Eventf(connector, nil, corev1.EventTypeWarning, "FailedExportOffsets", "ExportOffsets", "Failed to get ConfigMap: %v", err)
+			r.Recorder.Eventf(connector, nil, corev1.EventTypeWarning,
+				"FailedExportOffsets", "ExportingOffsets", "Failed to get ConfigMap: %v", err)
 			return nil, fmt.Errorf("failed to get ConfigMap: %w", err)
 		}
 
@@ -550,7 +555,8 @@ func (r *ConnectorReconciler) reconcileExportOffsets(ctx context.Context, connec
 			},
 		}
 		if err := r.Create(ctx, cm); err != nil {
-			r.Recorder.Eventf(connector, nil, corev1.EventTypeWarning, "FailedExportOffsets", "ExportOffsets", "Failed to create ConfigMap: %v", err)
+			r.Recorder.Eventf(connector, nil, corev1.EventTypeWarning,
+				"FailedExportOffsets", "ExportingOffsets", "Failed to create ConfigMap: %v", err)
 			return nil, fmt.Errorf("failed to create ConfigMap: %w", err)
 		}
 	} else {
@@ -559,13 +565,15 @@ func (r *ConnectorReconciler) reconcileExportOffsets(ctx context.Context, connec
 			offsetsConfigMapKey: string(offsetsJSON),
 		}
 		if err := r.Update(ctx, cm); err != nil {
-			r.Recorder.Eventf(connector, nil, corev1.EventTypeWarning, "FailedExportOffsets", "ExportOffsets", "Failed to update ConfigMap: %v", err)
+			r.Recorder.Eventf(connector, nil, corev1.EventTypeWarning,
+				"FailedExportOffsets", "ExportingOffsets", "Failed to update ConfigMap: %v", err)
 			return nil, fmt.Errorf("failed to update ConfigMap: %w", err)
 		}
 	}
 
 	log.Info("Exported connector offsets", "configMap", cmName)
-	r.Recorder.Eventf(connector, nil, corev1.EventTypeNormal, "ExportedOffsets", "ExportOffsets", "Exported offsets to ConfigMap %s", cmName)
+	r.Recorder.Eventf(connector, nil, corev1.EventTypeNormal,
+		"ExportedOffsets", "ExportingOffsets", "Exported offsets to ConfigMap %s", cmName)
 
 	connector.Status.LastExportedOffsetsAt = &metav1.Time{Time: time.Now()}
 	if err := r.Status().Update(ctx, connector); err != nil {
@@ -579,7 +587,8 @@ func (r *ConnectorReconciler) reconcileImportOffsets(ctx context.Context, connec
 	log := logf.FromContext(ctx)
 
 	if connector.Spec.ImportOffsets == nil {
-		r.Recorder.Eventf(connector, nil, corev1.EventTypeWarning, "FailedImportOffsets", "ImportOffsets", "spec.importOffsets.configMapRef is required for import")
+		r.Recorder.Eventf(connector, nil, corev1.EventTypeWarning,
+			"ErrorImportOffsets", "ImportingOffsets", "spec.importOffsets.configMapRef is required for import")
 		return r.removeOffsetsAnnotation(ctx, connector)
 	}
 
@@ -591,12 +600,14 @@ func (r *ConnectorReconciler) reconcileImportOffsets(ctx context.Context, connec
 	// Validate connector is stopped
 	status, err := kafkaConnect.GetConnectorStatus(ctx, connector.Name)
 	if err != nil {
-		r.Recorder.Eventf(connector, nil, corev1.EventTypeWarning, "FailedImportOffsets", "ImportOffsets", "Failed to get connector status: %v", err)
+		r.Recorder.Eventf(connector, nil, corev1.EventTypeWarning,
+			"FailedImportOffsets", "ImportingOffsets", "Failed to get connector status: %v", err)
 		return nil, fmt.Errorf("failed to get connector status: %w", err)
 	}
 
 	if status.Connector.State != connectorStatusStopped {
-		r.Recorder.Eventf(connector, nil, corev1.EventTypeWarning, "FailedImportOffsets", "ImportOffsets", "Connector must be stopped to import offsets, current state: %s", status.Connector.State)
+		r.Recorder.Eventf(connector, nil, corev1.EventTypeWarning,
+			"ErrorImportOffsets", "ImportingOffsets", "Connector must be stopped to import offsets, current state: %s", status.Connector.State)
 		// Keep annotation for retry
 		return connector, nil
 	}
@@ -606,29 +617,34 @@ func (r *ConnectorReconciler) reconcileImportOffsets(ctx context.Context, connec
 	cm := &corev1.ConfigMap{}
 	err = r.Get(ctx, client.ObjectKey{Name: cmName, Namespace: connector.Namespace}, cm)
 	if err != nil {
-		r.Recorder.Eventf(connector, nil, corev1.EventTypeWarning, "FailedImportOffsets", "ImportOffsets", "Failed to get ConfigMap %s: %v", cmName, err)
+		r.Recorder.Eventf(connector, nil, corev1.EventTypeWarning,
+			"ErrorImportOffsets", "ImportingOffsets", "Failed to get ConfigMap %s: %v", cmName, err)
 		return nil, fmt.Errorf("failed to get ConfigMap: %w", err)
 	}
 
 	offsetsJSON, ok := cm.Data[offsetsConfigMapKey]
 	if !ok {
-		r.Recorder.Eventf(connector, nil, corev1.EventTypeWarning, "FailedImportOffsets", "ImportOffsets", "ConfigMap %s missing key %s", cmName, offsetsConfigMapKey)
+		r.Recorder.Eventf(connector, nil, corev1.EventTypeWarning,
+			"ErrorImportOffsets", "ImportingOffsets", "ConfigMap %s missing key %s", cmName, offsetsConfigMapKey)
 		return nil, fmt.Errorf("ConfigMap %s missing key %s", cmName, offsetsConfigMapKey)
 	}
 
 	offsets := &kafkaconnect.ConnectorOffsets{}
 	if err := json.Unmarshal([]byte(offsetsJSON), offsets); err != nil {
-		r.Recorder.Eventf(connector, nil, corev1.EventTypeWarning, "FailedImportOffsets", "ImportOffsets", "Failed to parse offsets from ConfigMap: %v", err)
+		r.Recorder.Eventf(connector, nil, corev1.EventTypeWarning,
+			"ErrorImportOffsets", "ImportingOffsets", "Failed to parse offsets from ConfigMap: %v", err)
 		return nil, fmt.Errorf("failed to parse offsets from ConfigMap: %w", err)
 	}
 
 	if err := kafkaConnect.PatchConnectorOffsets(ctx, connector.Name, offsets); err != nil {
-		r.Recorder.Eventf(connector, nil, corev1.EventTypeWarning, "FailedImportOffsets", "ImportOffsets", "Failed to import offsets: %v", err)
+		r.Recorder.Eventf(connector, nil, corev1.EventTypeWarning,
+			"FailedImportOffsets", "ImportingOffsets", "Failed to import offsets: %v", err)
 		return nil, fmt.Errorf("failed to patch connector offsets: %w", err)
 	}
 
 	log.Info("Imported connector offsets", "configMap", cmName)
-	r.Recorder.Eventf(connector, nil, corev1.EventTypeNormal, "ImportedOffsets", "ImportOffsets", "Imported offsets from ConfigMap %s", cmName)
+	r.Recorder.Eventf(connector, nil, corev1.EventTypeNormal,
+		"ImportedOffsets", "ImportingOffsets", "Imported offsets from ConfigMap %s", cmName)
 
 	connector.Status.LastImportedOffsetsAt = &metav1.Time{Time: time.Now()}
 	if err := r.Status().Update(ctx, connector); err != nil {
@@ -649,23 +665,27 @@ func (r *ConnectorReconciler) reconcileResetOffsets(ctx context.Context, connect
 	// Validate connector is stopped
 	status, err := kafkaConnect.GetConnectorStatus(ctx, connector.Name)
 	if err != nil {
-		r.Recorder.Eventf(connector, nil, corev1.EventTypeWarning, "FailedResetOffsets", "ResetOffsets", "Failed to get connector status: %v", err)
+		r.Recorder.Eventf(connector, nil, corev1.EventTypeWarning,
+			"FailedResetOffsets", "ResettingOffsets", "Failed to get connector status: %v", err)
 		return nil, fmt.Errorf("failed to get connector status: %w", err)
 	}
 
 	if status.Connector.State != connectorStatusStopped {
-		r.Recorder.Eventf(connector, nil, corev1.EventTypeWarning, "FailedResetOffsets", "ResetOffsets", "Connector must be stopped to reset offsets, current state: %s", status.Connector.State)
+		r.Recorder.Eventf(connector, nil, corev1.EventTypeWarning,
+			"ErrorResetOffsets", "ResettingOffsets", "Connector must be stopped to reset offsets, current state: %s", status.Connector.State)
 		// Keep annotation for retry
 		return connector, nil
 	}
 
 	if err := kafkaConnect.DeleteConnectorOffsets(ctx, connector.Name); err != nil {
-		r.Recorder.Eventf(connector, nil, corev1.EventTypeWarning, "FailedResetOffsets", "ResetOffsets", "Failed to reset offsets: %v", err)
+		r.Recorder.Eventf(connector, nil, corev1.EventTypeWarning,
+			"FailedResetOffsets", "ResettingOffsets", "Failed to reset offsets: %v", err)
 		return nil, fmt.Errorf("failed to delete connector offsets: %w", err)
 	}
 
 	log.Info("Reset connector offsets")
-	r.Recorder.Eventf(connector, nil, corev1.EventTypeNormal, "ResetOffsets", "ResetOffsets", "Reset connector offsets")
+	r.Recorder.Eventf(connector, nil, corev1.EventTypeNormal,
+		"ResetOffsets", "ResettingOffsets", "Reset connector offsets")
 
 	connector.Status.LastResetOffsetsAt = &metav1.Time{Time: time.Now()}
 	if err := r.Status().Update(ctx, connector); err != nil {
