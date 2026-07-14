@@ -829,7 +829,10 @@ func (r *ConnectorReconciler) updateStatusCondition(
 	log := logf.FromContext(ctx)
 	log.V(1).Info("Update Connector status condition", "type", condition.Type, "status", condition.Status)
 
-	condition.ObservedGeneration = connector.Generation
+	if condition.ObservedGeneration == 0 {
+		condition.ObservedGeneration = connector.Generation
+	}
+
 	meta.SetStatusCondition(&connector.Status.Conditions, condition)
 	err := r.Status().Update(ctx, connector)
 	if err != nil {
