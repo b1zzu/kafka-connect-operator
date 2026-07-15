@@ -1327,6 +1327,42 @@ var _ = Describe("Connector Controller", func() {
 		})
 	})
 
+	Context("controllerRequeueAfter", func() {
+		// Guardrails for the exponential requeue: the exact doubling schedule is an
+		// implementation detail, but the returned delay must stay within these bounds
+		// as elapsed time since the last activity timestamp grows, and must always be
+		// capped at r.ReconcileInterval.
+		reconciler := &ConnectorReconciler{
+			ReconcileInterval: time.Minute,
+		}
+
+		ago := func(seconds int) *metav1.Time {
+			t := metav1.NewTime(time.Now().Add(-time.Duration(seconds) * time.Second))
+			return &t
+		}
+
+		DescribeTable("should bound the requeue delay based on elapsed time since last activity",
+			func(elapsedSeconds int, expected time.Duration) {
+				status := &kafkaconnectv1alpha1.ConnectorStatus{
+					LastUpdatedAt: ago(elapsedSeconds),
+				}
+
+				Expect(reconciler.controllerRequeueAfter(status)).To(Equal(expected))
+			},
+			Entry("elapsed 5s", 5, 3*time.Second),
+			Entry("elapsed 35s", 35, 6*time.Second),
+			Entry("elapsed 76s", 76, 12*time.Second),
+			Entry("elapsed 125s", 125, 24*time.Second),
+			Entry("elapsed 673s, capped at ReconcileInterval", 673, time.Minute),
+		)
+
+		It("should fall back to ReconcileInterval when no timestamps are set", func() {
+			status := &kafkaconnectv1alpha1.ConnectorStatus{}
+
+			Expect(reconciler.controllerRequeueAfter(status)).To(Equal(time.Minute))
+		})
+	})
+
 	Context("When the pause-reconciliation annotation is set", func() {
 		It("should skip reconciliation and not initialize status conditions", func() {
 			ctx := context.Background()

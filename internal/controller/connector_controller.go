@@ -119,7 +119,7 @@ func (r *ConnectorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	// or failing, Unknown when it's reconciling
 
 	log := logf.FromContext(ctx)
-	log.Info("Start Reconcile loop")
+	log.Info("Start reconcile")
 
 	connector, err := r.getConnector(ctx, req.NamespacedName)
 	if err != nil || connector == nil {
@@ -154,21 +154,24 @@ func (r *ConnectorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		if err != nil {
 			return ctrl.Result{}, r.handleReconciliationError(ctx, err)
 		}
+
 		if connector == nil {
-			return ctrl.Result{RequeueAfter: r.ReconcileInterval}, nil
+			// When a reconcile function return err nil and connector nil, it means that
+			// the reconcile loop should be restarted triggered by a stuatus change, if
+			// not the RequeueAfter 1s will ensure that the loop is quickly restarted
+			return ctrl.Result{RequeueAfter: time.Second}, nil
 		}
 	}
 
-	log.Info("Reconcile completed")
+	requeueAfter := r.controllerRequeueAfter(&connector.Status)
+
+	log.Info("Done reconcile", "requeueAfter", requeueAfter)
+
 	// Monitor the connector status every minute
-	return ctrl.Result{RequeueAfter: r.ReconcileInterval}, nil
+	return ctrl.Result{RequeueAfter: requeueAfter}, nil
 }
 
 func (r *ConnectorReconciler) handleReconciliationError(ctx context.Context, err error) error {
-	if err == nil {
-		return nil
-	}
-
 	if rerr, ok := err.(*ConnectorReconciliationError); ok {
 		// TODO: Errors do not means the Connector is not running, for example failing to
 		//       update a connector reject the new version but the existin version is still running
@@ -737,8 +740,8 @@ func (r *ConnectorReconciler) reconcileConnectorStatus(ctx context.Context, conn
 	// Get connector status from Kafka Connect
 	status, err := kafkaConnect.GetConnectorStatus(ctx, connector.Name)
 	if err != nil {
-		// TODO: Use event here and return error
-		return nil, &ConnectorReconciliationError{err: err, msg: "failed to get connector status", connector: connector}
+		r.recordWarningEvent(connector, "FailedStatus", "Reconcile", "Faiiled to get connector status: %v", err)
+		return nil, fmt.Errorf("failed to get connector status: %w", err)
 	}
 
 	// Restart failed connectors/tasks when desired state is running
@@ -772,6 +775,7 @@ func (r *ConnectorReconciler) reconcileConnectorStatus(ctx context.Context, conn
 	meta.SetStatusCondition(&connector.Status.Conditions, newCondition)
 
 	// Only persist if status has drifted
+	// TODO: Test weather we can update the connector status without having to check if it has changed
 	if !reflect.DeepEqual(*previousStatus, connector.Status) {
 		log.Info("Updating connector status")
 		if err := r.Status().Update(ctx, connector); err != nil {
@@ -1095,4 +1099,36 @@ func mapConnectorStatusToCondition(status *kafkaconnect.ConnectorStatus) metav1.
 	}
 
 	return condition
+}
+
+// controllerRequeueAfter returns an exponential requeue delay: it stays short right after any
+// connector activity (state transition, update, restart) and grows toward r.ReconcileInterval
+func (r *ConnectorReconciler) controllerRequeueAfter(status *kcv1alpha1.ConnectorStatus) time.Duration {
+	times := []*metav1.Time{status.LastStateTransitionAt, status.LastUpdatedAt, status.LastRestartAt}
+
+	var last *metav1.Time
+	for _, t := range times {
+		if t == nil {
+			continue
+		}
+		if last == nil || t.After(last.Time) {
+			last = t
+		}
+	}
+
+	if last == nil {
+		return r.ReconcileInterval
+	}
+
+	const base = 3 * time.Second
+	elapsed := time.Since(last.Time)
+
+	requeue := base
+	for requeue < r.ReconcileInterval && elapsed >= requeue*8 {
+		requeue *= 2
+	}
+	if requeue > r.ReconcileInterval {
+		requeue = r.ReconcileInterval
+	}
+	return requeue
 }
