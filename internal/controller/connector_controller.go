@@ -130,7 +130,7 @@ func (r *ConnectorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	if pause, ok := connector.GetAnnotations()[pauseReconciliationAnnotation]; ok {
 		if pause == pauseReconciliationTrue {
 			log.Info(fmt.Sprintf(
-				"Skipping reconciliation, because reconciliation is paused. Remove the '%s' annotation to unpause it.",
+				"Skip reconciliation, because reconciliation is paused. Remove the '%s' annotation to unpause it.",
 				pauseReconciliationAnnotation))
 			return ctrl.Result{}, nil
 		}
@@ -404,7 +404,7 @@ func (r *ConnectorReconciler) reconcileConnectorState(ctx context.Context, conne
 	case kcv1alpha1.ConnectorStateRunning, kcv1alpha1.ConnectorStatePaused, kcv1alpha1.ConnectorStateStopped:
 		// known states, proceed with reconciliation
 	default:
-		log.Info("Skipping connector state reconciliation, connector is in an unreconcilable state",
+		log.Info("Skip connector state reconciliation, connector is in an unreconcilable state",
 			"actual", actualState, "desired", desiredState)
 		return connector, nil
 	}
