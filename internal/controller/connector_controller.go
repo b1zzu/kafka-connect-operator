@@ -1045,7 +1045,10 @@ func mapConnectorStatusToCondition(status *kafkaconnect.ConnectorStatus) metav1.
 		condition.Status = metav1.ConditionFalse
 		condition.Reason = "Failed"
 		condition.Message = fmt.Sprintf("Connector failed with trace: %s", strings.ReplaceAll(status.Connector.Trace, "\n\t", "\n"))
-	// TODO: Handle Unasigned
+	case connectorStatusUnassigned:
+		condition.Status = metav1.ConditionFalse
+		condition.Reason = "Unasigned"
+		condition.Message = "Connector is unasigned"
 	default:
 		condition.Status = metav1.ConditionUnknown
 		condition.Reason = "Unknown"
