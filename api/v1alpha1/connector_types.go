@@ -106,7 +106,7 @@ type ConnectorStatus struct {
 	// +optional
 	Tasks []TaskStateStatus `json:"tasks,omitempty"`
 
-	// LastUpdatedAt is the timestamp of the last update (inc. when it was created) of the the connector.
+	// lastUpdatedAt is the timestamp of the last update (include when it was created) of the the connector.
 	// +optional
 	LastUpdatedAt *metav1.Time `json:"lastUpdatedAt,omitempty"`
 
@@ -117,6 +117,15 @@ type ConnectorStatus struct {
 	// restartCount is the total number of restarts performed on this connector.
 	// +optional
 	RestartCount int32 `json:"restartCount,omitempty"`
+
+	// stateTransitionTo is set to the target state when the connector is trying to transition from
+	// one state to another, otherwise is nil.
+	// +optional
+	StateTransitionTo *ConnectorState `json:"stateTransitionTo,omitempty"`
+
+	// lastStateTransitionAt is the timestamp of the last triggered state transition
+	// +optional
+	LastStateTransitionAt *metav1.Time `json:"lastStateTransitionAt,omitempty"`
 
 	// +optional
 	LastExportedOffsetsAt *metav1.Time `json:"lastExportedOffsetsAt,omitempty"`

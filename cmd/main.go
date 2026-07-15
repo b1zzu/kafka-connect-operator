@@ -228,12 +228,13 @@ func main() {
 	}
 
 	if err := (&controller.ConnectorReconciler{
-		Client:                        mgr.GetClient(),
-		Scheme:                        mgr.GetScheme(),
-		Recorder:                      mgr.GetEventRecorder("connector-controller"),
-		ReconcileInterval:             time.Minute,
-		RestartFailedConnectorBackoff: 5 * time.Minute,
-		NewKafkaConnectClientFunc:     kafkaConnectClientFunc,
+		Client:                          mgr.GetClient(),
+		Scheme:                          mgr.GetScheme(),
+		Recorder:                        mgr.GetEventRecorder("connector-controller"),
+		ReconcileInterval:               time.Minute,
+		RestartFailedConnectorBackoff:   5 * time.Minute,
+		ConnectorStateTransitionBackoff: 2 * time.Minute,
+		NewKafkaConnectClientFunc:       kafkaConnectClientFunc,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "connector")
 		os.Exit(1)

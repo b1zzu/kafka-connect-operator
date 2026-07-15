@@ -231,8 +231,13 @@ spec:
                   or task restart.
                 format: date-time
                 type: string
+              lastStateTransitionAt:
+                description: lastStateTransitionAt is the timestamp of the last triggered
+                  state transition
+                format: date-time
+                type: string
               lastUpdatedAt:
-                description: LastUpdatedAt is the timestamp of the last update (inc.
+                description: lastUpdatedAt is the timestamp of the last update (include
                   when it was created) of the the connector.
                 format: date-time
                 type: string
@@ -241,6 +246,15 @@ spec:
                   on this connector.
                 format: int32
                 type: integer
+              stateTransitionTo:
+                description: |-
+                  stateTransitionTo is set to the target state when the connector is trying to transition from
+                  one state to another, otherwise is nil.
+                enum:
+                - running
+                - paused
+                - stopped
+                type: string
               tasks:
                 description: tasks represents the state of individual connector tasks
                   as reported by Kafka Connect.

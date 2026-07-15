@@ -385,6 +385,15 @@ func (in *ConnectorStatus) DeepCopyInto(out *ConnectorStatus) {
 		in, out := &in.LastRestartAt, &out.LastRestartAt
 		*out = (*in).DeepCopy()
 	}
+	if in.StateTransitionTo != nil {
+		in, out := &in.StateTransitionTo, &out.StateTransitionTo
+		*out = new(ConnectorState)
+		**out = **in
+	}
+	if in.LastStateTransitionAt != nil {
+		in, out := &in.LastStateTransitionAt, &out.LastStateTransitionAt
+		*out = (*in).DeepCopy()
+	}
 	if in.LastExportedOffsetsAt != nil {
 		in, out := &in.LastExportedOffsetsAt, &out.LastExportedOffsetsAt
 		*out = (*in).DeepCopy()
