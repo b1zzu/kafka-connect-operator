@@ -1,6 +1,6 @@
 FROM docker.io/confluentinc/cp-kafka-connect-base:8.3.0 AS install
 
-ARG CONNECT_DATAGEN_VERSION=0.7.1
+ARG CONNECT_DATAGEN_VERSION=0.7.2
 
 RUN confluent-hub install --no-prompt \
       confluentinc/kafka-connect-datagen:${CONNECT_DATAGEN_VERSION}
