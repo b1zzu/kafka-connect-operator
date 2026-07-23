@@ -881,7 +881,7 @@ var _ = Describe("Cluster Resources", func() {
 				}
 			}
 			Expect(log4jVol).NotTo(BeNil())
-			Expect(*log4jVol.Image.Reference).To(Equal("ghcr.io/b1zzu/kafka-connect-operator/log4j-layout-template-json:2.26.0"))
+			Expect(*log4jVol.Image.Reference).To(Equal("ghcr.io/b1zzu/kafka-connect-operator/log4j-layout-template-json:2.26.1"))
 
 			// Mount
 			var log4jMount *corev1ac.VolumeMountApplyConfiguration
@@ -941,7 +941,7 @@ var _ = Describe("Cluster Resources", func() {
 				}
 			}
 			Expect(log4jVol).NotTo(BeNil())
-			Expect(*log4jVol.Image.Reference).To(Equal("ghcr.io/b1zzu/kafka-connect-operator/log4j-layout-template-json:2.26.0"))
+			Expect(*log4jVol.Image.Reference).To(Equal("ghcr.io/b1zzu/kafka-connect-operator/log4j-layout-template-json:2.26.1"))
 			Expect(log4jVol.Image.PullPolicy).To(BeNil())
 		})
 

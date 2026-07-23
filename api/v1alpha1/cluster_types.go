@@ -244,7 +244,7 @@ type LoggingConfig struct {
 type Log4jJsonLayoutConfig struct {
 	// Image is the OCI image containing the Log4j JSON Template Layout JAR.
 	// +optional
-	// +kubebuilder:default="ghcr.io/b1zzu/kafka-connect-operator/log4j-layout-template-json:2.26.0"
+	// +kubebuilder:default="ghcr.io/b1zzu/kafka-connect-operator/log4j-layout-template-json:2.26.1"
 	Image *string `json:"image,omitempty"`
 
 	// Pull policy for the Log4j JSON Template Layout image.
