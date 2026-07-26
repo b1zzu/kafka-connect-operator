@@ -58,26 +58,6 @@ const (
 
 type connectorReconcileFunc func(ctx context.Context, connector *kcv1alpha1.Connector) (*kcv1alpha1.Connector, error)
 
-type ConnectorReconciliationError struct {
-	err       error
-	msg       string
-	connector *kcv1alpha1.Connector
-}
-
-func (e *ConnectorReconciliationError) Reason() string {
-	if e.err == nil {
-		return "UserError"
-	}
-	return "Error"
-}
-
-func (e *ConnectorReconciliationError) Error() string {
-	if e.err == nil {
-		return e.msg
-	}
-	return fmt.Errorf("%s: %w", e.msg, e.err).Error()
-}
-
 // ConnectorReconciler reconciles a Connector object
 type ConnectorReconciler struct {
 	client.Client
@@ -152,7 +132,7 @@ func (r *ConnectorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	} {
 		connector, err = reconcile(ctx, connector)
 		if err != nil {
-			return ctrl.Result{}, r.handleReconciliationError(ctx, err)
+			return ctrl.Result{}, err
 		}
 
 		if connector == nil {
@@ -169,27 +149,6 @@ func (r *ConnectorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 
 	// Monitor the connector status every minute
 	return ctrl.Result{RequeueAfter: requeueAfter}, nil
-}
-
-func (r *ConnectorReconciler) handleReconciliationError(ctx context.Context, err error) error {
-	if rerr, ok := err.(*ConnectorReconciliationError); ok {
-		// TODO: Errors do not means the Connector is not running, for example failing to
-		//       update a connector reject the new version but the existin version is still running
-		err = r.updateStatusCondition(ctx, rerr.connector, metav1.Condition{
-			Type:    typeRunningConnector,
-			Status:  metav1.ConditionFalse,
-			Reason:  rerr.Reason(),
-			Message: fmt.Sprintf("Error: %s", rerr),
-		})
-		if err != nil {
-			return fmt.Errorf("failed to update Connector status with error: %w; after error: %w", err, rerr)
-		}
-		if rerr.err != nil {
-			return rerr
-		}
-		return nil
-	}
-	return err
 }
 
 // SetupWithManager sets up the controller with the Manager.
@@ -770,8 +729,6 @@ func (r *ConnectorReconciler) reconcileConnectorStatus(ctx context.Context, conn
 		}
 	}
 
-	// TODO: Control reconciliation internval depending on the connector state, and status
-
 	// Set condition
 	newCondition := mapConnectorStatusToCondition(status)
 	newCondition.ObservedGeneration = connector.Generation
@@ -787,9 +744,6 @@ func (r *ConnectorReconciler) reconcileConnectorStatus(ctx context.Context, conn
 		return nil, nil
 	}
 
-	// TODO: Different reconciliation wait depending on the status, for example failed connectors should be re-check
-	//       faster
-	//
 	// TODO: Update a timestamp to like lastObservedAt which can be used to determinate if the operator is still
 	//       monitoring the connector
 
@@ -903,7 +857,10 @@ func (r *ConnectorReconciler) reconcileConnectorFinalizer(ctx context.Context, c
 		// Delete the connector from Kafka Connect
 		err = kafkaConnect.DeleteConnector(ctx, connector.Name)
 		if err != nil {
-			return nil, &ConnectorReconciliationError{err: err, msg: "failed to delete connector", connector: connector}
+			r.Recorder.Eventf(connector, nil, corev1.EventTypeWarning,
+				"Failed", "Delete", "Failed to delete the connector: %v", err)
+
+			return nil, fmt.Errorf("failed to delete the connector: %w", err)
 		}
 
 		// TODO: What if the connector was already deleted on kafka-connect, actually even better if we remove the finailizer only
@@ -939,7 +896,6 @@ func (r *ConnectorReconciler) reconcileConnectorFinalizer(ctx context.Context, c
 	return connector, nil
 }
 
-// TODO: Conditions should complement more detailed information about the observed status of an object written by a controller, rather than replace it.
 func (r *ConnectorReconciler) updateStatusCondition(
 	ctx context.Context,
 	connector *kcv1alpha1.Connector,
