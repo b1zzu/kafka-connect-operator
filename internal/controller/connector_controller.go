@@ -830,7 +830,7 @@ func (r *ConnectorReconciler) restartFailedConnectorBackoff(connector *kcv1alpha
 	if last == nil {
 		last = lastRestartAt
 	}
-	if lastRestartAt.After(last.Time) {
+	if lastRestartAt != nil && lastRestartAt.After(last.Time) {
 		last = lastRestartAt
 	}
 
