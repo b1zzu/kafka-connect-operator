@@ -921,11 +921,11 @@ func (r *ConnectorReconciler) updateStatusCondition(
 	return nil
 }
 
-func (r *ConnectorReconciler) recordNormalEvent(connector *kcv1alpha1.Connector, action, reason, note string, args ...interface{}) {
-	r.Recorder.Eventf(connector, nil, corev1.EventTypeNormal, reason, action, note, args...)
+func (r *ConnectorReconciler) recordNormalEvent(connector *kcv1alpha1.Connector, action, reason, note string) {
+	r.Recorder.Eventf(connector, nil, corev1.EventTypeNormal, reason, action, note)
 }
 
-func (r *ConnectorReconciler) recordWarningEvent(connector *kcv1alpha1.Connector, action, reason, note string, args ...interface{}) {
+func (r *ConnectorReconciler) recordWarningEvent(connector *kcv1alpha1.Connector, action, reason, note string, args ...any) {
 	r.Recorder.Eventf(connector, nil, corev1.EventTypeWarning, reason, action, note, args...)
 }
 
