@@ -372,21 +372,21 @@ var _ = Describe("Manager", Ordered, func() {
 			}
 			Eventually(verifyConnectDeployment, 5*time.Minute, 10*time.Second).Should(Succeed())
 
-			By("waiting for Connector my-connector to be Running")
-			verifyConnectorRunning := func(g Gomega) {
+			By("waiting for Connector my-connector to be Ready")
+			verifyConnectorReady := func(g Gomega) {
 				cmd := exec.Command("kubectl", "get", "connector", "my-connector",
 					"-n", "default",
-					"-o", "jsonpath={.status.conditions[?(@.type=='Running')].status}")
+					"-o", "jsonpath={.status.conditions[?(@.type=='Ready')].status}")
 				output, err := utils.Run(cmd)
 				g.Expect(err).NotTo(HaveOccurred())
-				g.Expect(output).To(Equal("True"), "Connector not yet Running")
+				g.Expect(output).To(Equal("True"), "Connector not yet Ready")
 			}
-			Eventually(verifyConnectorRunning, 5*time.Minute, 10*time.Second).Should(Succeed())
+			Eventually(verifyConnectorReady, 5*time.Minute, 10*time.Second).Should(Succeed())
 
-			By("verifying the Connector Running condition reason")
+			By("verifying the Connector Ready condition reason")
 			cmd := exec.Command("kubectl", "get", "connector", "my-connector",
 				"-n", "default",
-				"-o", "jsonpath={.status.conditions[?(@.type=='Running')].reason}")
+				"-o", "jsonpath={.status.conditions[?(@.type=='Ready')].reason}")
 			output, err := utils.Run(cmd)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(output).To(Equal("Running"), "Unexpected Connector condition reason")
@@ -420,6 +420,68 @@ var _ = Describe("Manager", Ordered, func() {
 					"Expected Prometheus metrics output")
 			}
 			Eventually(verifyMetrics, 3*time.Minute, 10*time.Second).Should(Succeed())
+		})
+
+		It("should report a start-delayed connector as not running until the delay elapses", func() {
+			By("creating the start-delayed test connector")
+			cmd := exec.Command("kubectl", "apply", "-f",
+				"config/e2e/test_connector.yaml", "-n", "default")
+			_, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+			DeferCleanup(func() {
+				cmd := exec.Command("kubectl", "delete", "-f",
+					"config/e2e/test_connector.yaml", "-n", "default", "--ignore-not-found")
+				_, _ = utils.Run(cmd)
+			})
+
+			getConnectorReadyStatus := func() (string, error) {
+				cmd := exec.Command("kubectl", "get", "connector", "my-test-connector",
+					"-n", "default",
+					"-o", "jsonpath={.status.conditions[?(@.type=='Ready')].status}")
+				return utils.Run(cmd)
+			}
+
+			getConnectorReadyReason := func() (string, error) {
+				cmd := exec.Command("kubectl", "get", "connector", "my-test-connector",
+					"-n", "default",
+					"-o", "jsonpath={.status.conditions[?(@.type=='Ready')].reason}")
+				return utils.Run(cmd)
+			}
+
+			getRunningTaskCount := func() (string, error) {
+				cmd := exec.Command("kubectl", "get", "connector", "my-test-connector",
+					"-n", "default",
+					"-o", "jsonpath={range .status.tasks[?(@.state=='RUNNING')]}x{end}")
+				return utils.Run(cmd)
+			}
+
+			By("verifying it stays not-Ready with no running tasks during the start delay")
+			notRunning := func(g Gomega) {
+				status, err := getConnectorReadyStatus()
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(status).NotTo(Equal("True"), "Connector should not be Ready during the start delay")
+
+				runningTasks, err := getRunningTaskCount()
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(runningTasks).To(BeEmpty(), "Connector should have no running tasks during the start delay")
+			}
+			Consistently(notRunning, 8*time.Second, 2*time.Second).Should(Succeed())
+
+			By("verifying it becomes Ready/Running once the start delay elapses")
+			running := func(g Gomega) {
+				status, err := getConnectorReadyStatus()
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(status).To(Equal("True"), "Connector not yet Ready")
+
+				reason, err := getConnectorReadyReason()
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(reason).To(Equal("Running"), "Unexpected Connector condition reason")
+
+				runningTasks, err := getRunningTaskCount()
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(runningTasks).NotTo(BeEmpty(), "Connector should have at least one running task")
+			}
+			Eventually(running, 30*time.Second, 2*time.Second).Should(Succeed())
 		})
 	})
 })

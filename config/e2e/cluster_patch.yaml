@@ -7,6 +7,9 @@ spec:
     - name: sample-plugins
       image: example.com/kafka-connect-operator/sample-plugins:latest
       pullPolicy: Never
+    - name: test
+      image: ghcr.io/b1zzu/kafka-connect-test:main
+      pullPolicy: IfNotPresent
   logging:
     log4jJsonLayout:
       image: example.com/kafka-connect-operator/log4j-layout-template-json:latest
