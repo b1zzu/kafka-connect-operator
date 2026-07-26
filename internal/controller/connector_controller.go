@@ -747,7 +747,10 @@ func (r *ConnectorReconciler) reconcileConnectorStatus(ctx context.Context, conn
 	// Restart failed connectors/tasks when desired state is running
 	desiredState := getDesiredConnectorState(connector)
 	if desiredState == kcv1alpha1.ConnectorStateRunning {
-		r.restartFailedConnectorAndTasks(ctx, kafkaConnect, connector, status)
+		err := r.restartFailedConnectorAndTasks(ctx, kafkaConnect, connector, status)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	// Populate connector and task status from Kafka Connect
@@ -800,7 +803,7 @@ func (r *ConnectorReconciler) restartFailedConnectorAndTasks(
 	kafkaConnect *kafkaconnect.Client,
 	connector *kcv1alpha1.Connector,
 	status *kafkaconnect.ConnectorStatus,
-) {
+) error {
 	log := logf.FromContext(ctx)
 
 	restarted := false
@@ -808,14 +811,13 @@ func (r *ConnectorReconciler) restartFailedConnectorAndTasks(
 	if status.Connector.State == connectorStatusFailed {
 		if r.restartFailedConnectorBackoff(connector) {
 			log.Info("Skip restart of recently updated or restarted connector")
-			return
+			return nil
 		}
 
 		log.Info("Restarting failed connector")
 		if err := kafkaConnect.RestartConnector(ctx, connector.Name); err != nil {
 			r.Recorder.Eventf(connector, nil, corev1.EventTypeWarning, "FailedRestart", "Restart", "Failed to restart failed connector: %v", err)
-			log.Info("Failed to restart failed connector", "error", err.Error())
-			return
+			return fmt.Errorf("failed to restart failed connector: %w", err)
 		}
 		r.Recorder.Eventf(connector, nil, corev1.EventTypeWarning, "Restarted", "Restart", "Restarted failed connector")
 		restarted = true
@@ -831,15 +833,14 @@ func (r *ConnectorReconciler) restartFailedConnectorAndTasks(
 	if len(failedTaskIDs) > 0 {
 		if r.restartFailedConnectorBackoff(connector) {
 			log.Info("Skip restart of recently updated or restarted connector")
-			return
+			return nil
 		}
 
 		log.Info("Restarting failed tasks", "taskIDs", failedTaskIDs)
 		for _, taskID := range failedTaskIDs {
 			if err := kafkaConnect.RestartTask(ctx, connector.Name, taskID); err != nil {
 				r.Recorder.Eventf(connector, nil, corev1.EventTypeWarning, "FailedRestart", "Restart", "Failed to restart task %d: %v", taskID, err)
-				log.Info("Failed to restart failed task", "taskID", taskID, "error", err.Error())
-				return
+				return fmt.Errorf("failed to restart failed task with id %d: %w", taskID, err)
 			}
 		}
 		r.Recorder.Eventf(connector, nil, corev1.EventTypeWarning, "Restarted", "Restart", "Restarted %d failed task(s)", len(failedTaskIDs))
@@ -852,6 +853,7 @@ func (r *ConnectorReconciler) restartFailedConnectorAndTasks(
 		connector.Status.LastRestartAt = &now
 		connector.Status.RestartCount++
 	}
+	return nil
 }
 
 // restartFailedConnectorBackoff return true if the controller should backoff from trying to restart the connector.
