@@ -22,7 +22,6 @@ import (
 	"fmt"
 	"math/rand/v2"
 	"os/exec"
-	"reflect"
 	"strings"
 	"time"
 
@@ -682,7 +681,7 @@ func (r *ConnectorReconciler) reconcileConnectorStatus(ctx context.Context, conn
 	log := logf.FromContext(ctx)
 
 	// Save current status before applying changes
-	previousStatus := connector.Status.DeepCopy()
+	// previousStatus := connector.Status.DeepCopy()
 
 	// Create Kafka Connect client
 	kafkaConnect, err := r.NewKafkaConnectClientFunc(connector)
@@ -731,19 +730,10 @@ func (r *ConnectorReconciler) reconcileConnectorStatus(ctx context.Context, conn
 	newCondition.ObservedGeneration = connector.Generation
 	meta.SetStatusCondition(&connector.Status.Conditions, newCondition)
 
-	// Only persist if status has drifted
-	// TODO: Test weather we can update the connector status without having to check if it has changed
-	if !reflect.DeepEqual(*previousStatus, connector.Status) {
-		log.Info("Updating connector status")
-		if err := r.Status().Update(ctx, connector); err != nil {
-			return nil, fmt.Errorf("failed to update connector status: %w", err)
-		}
-		return nil, nil
+	log.Info("Updating connector status")
+	if err := r.Status().Update(ctx, connector); err != nil {
+		return nil, fmt.Errorf("failed to update connector status: %w", err)
 	}
-
-	// TODO: Update a timestamp to like lastObservedAt which can be used to determinate if the operator is still
-	//       monitoring the connector
-
 	return connector, nil
 }
 
@@ -1014,10 +1004,9 @@ func countFailedTasks(tasks []kafkaconnect.ConnectorStatusTask) int {
 	return count
 }
 
-// mapConnectorStatusToCondition builds the Ready condition following the k8s idiom: Ready
-// reflects whether the connector has reached the state its spec desires, not merely
-// whether it happens to be running. A stopped connector whose spec asks for stopped is
-// Ready=True; a mismatch between actual and desired state is Ready=Unknown (reconciling).
+// mapConnectorStatusToCondition builds the Ready condition to reflects whether the connector has reached
+// the spec desired state. A stopped connector whose spec asks for stopped is Ready=True;
+// a mismatch between actual and desired state is Ready=Unknown (reconciling).
 func mapConnectorStatusToCondition(status *kafkaconnect.ConnectorStatus, desiredState kcv1alpha1.ConnectorState) metav1.Condition {
 	condition := metav1.Condition{
 		Type: typeReadyConnector,
