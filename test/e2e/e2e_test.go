@@ -132,12 +132,16 @@ var _ = Describe("Manager", Ordered, func() {
 			"-n", "default", "--ignore-not-found", "--timeout=60s")
 		_, _ = utils.Run(cmd)
 
-		By("undeploying the controller-manager")
-		cmd = exec.Command("make", "undeploy-e2e")
-		_, _ = utils.Run(cmd)
-
+		// Uninstall the CRDs before undeploying the controller-manager: deleting a CRD
+		// forces the API server to reap any remaining instances, which blocks on our
+		// finalizer. That finalizer can only be cleared by a running controller, so it
+		// must not be torn down in the same step (or before) the CRDs are removed.
 		By("uninstalling CRDs")
 		cmd = exec.Command("make", "uninstall")
+		_, _ = utils.Run(cmd)
+
+		By("undeploying the controller-manager")
+		cmd = exec.Command("make", "undeploy-e2e")
 		_, _ = utils.Run(cmd)
 
 		By("removing manager namespace")
@@ -428,9 +432,11 @@ var _ = Describe("Manager", Ordered, func() {
 				"config/e2e/test_connector.yaml", "-n", "default")
 			_, err := utils.Run(cmd)
 			Expect(err).NotTo(HaveOccurred())
+			// Fallback only: deletes and moves on without waiting, in case the test fails
+			// before reaching the explicit, verified deletion at the end of this spec.
 			DeferCleanup(func() {
 				cmd := exec.Command("kubectl", "delete", "-f",
-					"config/e2e/test_connector.yaml", "-n", "default", "--ignore-not-found")
+					"config/e2e/test_connector.yaml", "-n", "default", "--ignore-not-found", "--timeout=60s")
 				_, _ = utils.Run(cmd)
 			})
 
@@ -583,6 +589,22 @@ var _ = Describe("Manager", Ordered, func() {
 				runningTasks, err := getRunningTaskCount()
 				g.Expect(err).NotTo(HaveOccurred())
 				g.Expect(runningTasks).NotTo(BeEmpty())
+			}, 30*time.Second, 2*time.Second).Should(Succeed())
+
+			// Explicitly delete and verify removal now, rather than relying solely on the
+			// DeferCleanup above: this connector must be fully gone (finalizer cleared)
+			// before AfterAll uninstalls the CRDs and undeploys the controller, otherwise
+			// the CRD deletion later would block forever on a finalizer nothing can clear.
+			By("deleting the test connector and verifying it is fully removed")
+			cmd = exec.Command("kubectl", "delete", "-f",
+				"config/e2e/test_connector.yaml", "-n", "default", "--ignore-not-found", "--timeout=60s")
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "connector", "my-test-connector", "-n", "default")
+				_, err := utils.Run(cmd)
+				g.Expect(err).To(HaveOccurred(), "my-test-connector should no longer exist")
 			}, 30*time.Second, 2*time.Second).Should(Succeed())
 		})
 	})
