@@ -108,28 +108,28 @@ var _ = Describe("Manager", Ordered, func() {
 	AfterAll(func() {
 		By("deleting sample CRs")
 		cmd := exec.Command("kubectl", "delete", "-k", "config/e2e",
-			"-n", "default", "--ignore-not-found")
+			"-n", "default", "--ignore-not-found", "--timeout=60s")
 		_, _ = utils.Run(cmd)
 
 		By("deleting Kafka cluster")
 		cmd = exec.Command("kubectl", "delete", "-f",
 			"https://strimzi.io/examples/latest/kafka/kafka-single-node.yaml",
-			"-n", "default", "--ignore-not-found")
+			"-n", "default", "--ignore-not-found", "--timeout=60s")
 		_, _ = utils.Run(cmd)
 
 		By("deleting Strimzi operator")
 		cmd = exec.Command("kubectl", "delete", "-f",
 			"https://strimzi.io/install/latest?namespace=default",
-			"-n", "default", "--ignore-not-found")
+			"-n", "default", "--ignore-not-found", "--timeout=60s")
 		_, _ = utils.Run(cmd)
 
 		By("cleaning up the curl pod for metrics")
-		cmd = exec.Command("kubectl", "delete", "pod", "curl-metrics", "-n", namespace)
+		cmd = exec.Command("kubectl", "delete", "pod", "curl-metrics", "-n", namespace, "--timeout=60s")
 		_, _ = utils.Run(cmd)
 
 		By("cleaning up the curl pod for jmx metrics")
 		cmd = exec.Command("kubectl", "delete", "pod", "curl-jmx-metrics",
-			"-n", "default", "--ignore-not-found")
+			"-n", "default", "--ignore-not-found", "--timeout=60s")
 		_, _ = utils.Run(cmd)
 
 		By("undeploying the controller-manager")
@@ -141,7 +141,7 @@ var _ = Describe("Manager", Ordered, func() {
 		_, _ = utils.Run(cmd)
 
 		By("removing manager namespace")
-		cmd = exec.Command("kubectl", "delete", "ns", namespace)
+		cmd = exec.Command("kubectl", "delete", "ns", namespace, "--timeout=60s")
 		_, _ = utils.Run(cmd)
 	})
 
