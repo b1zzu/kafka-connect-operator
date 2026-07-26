@@ -171,6 +171,10 @@ func (c *Client) GetConnectorStatus(ctx context.Context, name string) (*Connecto
 	}
 
 	if res.StatusCode != 200 {
+		if res.StatusCode == 404 {
+			// connector status not found
+			return nil, nil
+		}
 		return nil, NewResponseError(res)
 	}
 

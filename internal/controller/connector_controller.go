@@ -325,6 +325,12 @@ func (r *ConnectorReconciler) reconcileConnectorState(ctx context.Context, conne
 		return nil, fmt.Errorf("failed to get the connector status: %w", err)
 	}
 
+	if status == nil {
+		// Connector not registered yet (e.g. just created), retry shortly
+		log.Info("Connector status not found")
+		return nil, nil
+	}
+
 	actualState := kcv1alpha1.ConnectorState(strings.ToLower(status.Connector.State))
 
 	// Remove the stateTransitionTo status if the connector has reached the desired state
@@ -578,6 +584,11 @@ func (r *ConnectorReconciler) reconcileImportOffsets(ctx context.Context, connec
 		return nil, fmt.Errorf("failed to get connector status: %w", err)
 	}
 
+	if status == nil {
+		log.Info("Connector status not found")
+		return nil, nil
+	}
+
 	if status.Connector.State != connectorStatusStopped {
 		r.Recorder.Eventf(connector, nil, corev1.EventTypeWarning,
 			"ErrorImportOffsets", "ImportingOffsets", "Connector must be stopped to import offsets, current state: %s", status.Connector.State)
@@ -643,6 +654,11 @@ func (r *ConnectorReconciler) reconcileResetOffsets(ctx context.Context, connect
 		return nil, fmt.Errorf("failed to get connector status: %w", err)
 	}
 
+	if status == nil {
+		log.Info("Connector status not found")
+		return nil, nil
+	}
+
 	if status.Connector.State != connectorStatusStopped {
 		r.Recorder.Eventf(connector, nil, corev1.EventTypeWarning,
 			"ErrorResetOffsets", "ResettingOffsets", "Connector must be stopped to reset offsets, current state: %s", status.Connector.State)
@@ -694,6 +710,11 @@ func (r *ConnectorReconciler) reconcileConnectorStatus(ctx context.Context, conn
 	if err != nil {
 		r.recordWarningEvent(connector, "FailedStatus", "Reconcile", "Faiiled to get connector status: %v", err)
 		return nil, fmt.Errorf("failed to get connector status: %w", err)
+	}
+
+	if status == nil {
+		log.Info("Connector status not found")
+		return nil, nil
 	}
 
 	// Restart failed connectors/tasks when desired state is running
