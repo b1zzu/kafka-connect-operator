@@ -20,6 +20,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -304,5 +305,73 @@ func TestDeleteConnectorOffsets_Error(t *testing.T) {
 	err := client.DeleteConnectorOffsets(context.Background(), "my-connector")
 	if err == nil {
 		t.Fatal("expected error, got nil")
+	}
+}
+
+func TestGetConnectorStatus_Success(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Errorf("expected GET, got %s", r.Method)
+		}
+		if r.URL.Path != "/connectors/my-connector/status" {
+			t.Errorf("unexpected path: %s", r.URL.Path)
+		}
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(ConnectorStatus{
+			Name:      "my-connector",
+			Connector: ConnectorStatusConnector{State: "RUNNING", WorkerID: "worker-1"},
+		})
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL)
+	status, err := client.GetConnectorStatus(context.Background(), "my-connector")
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if status == nil {
+		t.Fatal("expected status, got nil")
+	}
+	if status.Connector.State != "RUNNING" {
+		t.Errorf("expected state RUNNING, got %s", status.Connector.State)
+	}
+}
+
+func TestGetConnectorStatus_404_ReturnsNilWithoutError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL)
+	status, err := client.GetConnectorStatus(context.Background(), "missing-connector")
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if status != nil {
+		t.Fatalf("expected nil status, got: %+v", status)
+	}
+}
+
+func TestGetConnectorStatus_Error(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte("kafka connect unavailable"))
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL)
+	status, err := client.GetConnectorStatus(context.Background(), "my-connector")
+	if status != nil {
+		t.Fatalf("expected nil status, got: %+v", status)
+	}
+	rerr, ok := err.(*ResponseError)
+	if !ok {
+		t.Fatalf("expected error of type *kafkaconnect.ResponseError, got %T", err)
+	}
+	// The response body must be preserved even though the error is constructed
+	// after the response body has already been consumed once.
+	if !strings.Contains(rerr.Error(), "kafka connect unavailable") {
+		t.Errorf("expected error message to contain response body, got: %s", rerr.Error())
 	}
 }
