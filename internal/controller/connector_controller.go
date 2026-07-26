@@ -285,7 +285,6 @@ func (r *ConnectorReconciler) reconcileConnector(ctx context.Context, connector 
 
 		now := metav1.Now()
 		connector.Status.LastUpdatedAt = &now
-		// TODO: If there is no way of knowing if the connector got already restart then could be wrong to say updating and then running when maybe the connector hasn't even stop yet
 		err := r.updateStatusCondition(ctx, connector, metav1.Condition{
 			Type:   typeReadyConnector,
 			Status: metav1.ConditionUnknown,
@@ -870,9 +869,6 @@ func (r *ConnectorReconciler) reconcileConnectorFinalizer(ctx context.Context, c
 
 			return nil, fmt.Errorf("failed to delete the connector: %w", err)
 		}
-
-		// TODO: What if the connector was already deleted on kafka-connect, actually even better if we remove the finailizer only
-		// 				if we are sure the connector is gone, which should return a 404 or another specific error
 
 		log.Info("Connector deleted successfully, removing finalizer")
 
