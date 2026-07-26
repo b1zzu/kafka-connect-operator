@@ -229,6 +229,14 @@ deploy: manifests kustomize ## Deploy controller to the K8s cluster specified in
 undeploy: kustomize ## Undeploy controller from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.
 	"$(KUSTOMIZE)" build config/default | "$(KUBECTL)" delete --ignore-not-found=$(ignore-not-found) -f -
 
+.PHONY: deploy-e2e
+deploy-e2e: manifests kustomize ## Deploy the controller for e2e testing with a fixed local image (config/e2e-manager), never touching config/manager/kustomization.yaml.
+	"$(KUSTOMIZE)" build config/e2e-manager | "$(KUBECTL)" apply -f -
+
+.PHONY: undeploy-e2e
+undeploy-e2e: kustomize ## Undeploy the e2e-deployed controller. Call with ignore-not-found=true to ignore resource not found errors during deletion.
+	"$(KUSTOMIZE)" build config/e2e-manager | "$(KUBECTL)" delete --ignore-not-found=$(ignore-not-found) -f -
+
 ##@ Dependencies
 
 ## Location to install dependencies to
