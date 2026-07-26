@@ -385,7 +385,7 @@ var _ = Describe("Connector Controller", func() {
 			Expect(connector).NotTo(BeNil())
 			Expect(connector.Status.Conditions).To(HaveLen(1))
 
-			cond := meta.FindStatusCondition(connector.Status.Conditions, typeRunningConnector)
+			cond := meta.FindStatusCondition(connector.Status.Conditions, typeReadyConnector)
 			Expect(cond).NotTo(BeNil())
 			Expect(cond.Status).To(Equal(metav1.ConditionUnknown))
 			Expect(cond.Reason).To(Equal("Reconciling"))
@@ -427,7 +427,7 @@ var _ = Describe("Connector Controller", func() {
 			Expect(connector.Finalizers).To(ContainElement(connectorFinalizer))
 
 			// Running condition should be True
-			cond := meta.FindStatusCondition(connector.Status.Conditions, typeRunningConnector)
+			cond := meta.FindStatusCondition(connector.Status.Conditions, typeReadyConnector)
 			Expect(cond).NotTo(BeNil())
 			Expect(cond.Status).To(Equal(metav1.ConditionTrue))
 			Expect(cond.Reason).To(Equal("Running"))
@@ -876,7 +876,7 @@ var _ = Describe("Connector Controller", func() {
 	})
 
 	Context("mapConnectorStatusToCondition", func() {
-		It("should map RUNNING state to Running condition", func() {
+		It("should map RUNNING state with desired running to Ready/Running condition", func() {
 			status := &kafkaconnect.ConnectorStatus{
 				Name: "test",
 				Connector: kafkaconnect.ConnectorStatusConnector{
@@ -887,13 +887,14 @@ var _ = Describe("Connector Controller", func() {
 					{ID: 0, State: "RUNNING", WorkerID: "worker-1"},
 				},
 			}
-			condition := mapConnectorStatusToCondition(status)
+			condition := mapConnectorStatusToCondition(status, kafkaconnectv1alpha1.ConnectorStateRunning)
+			Expect(condition.Type).To(Equal(typeReadyConnector))
 			Expect(condition.Status).To(Equal(metav1.ConditionTrue))
 			Expect(condition.Reason).To(Equal("Running"))
 			Expect(condition.Message).To(Equal("Connector is running with 1 task(s)"))
 		})
 
-		It("should map RUNNING state with failed tasks to Failed condition", func() {
+		It("should map RUNNING state with failed tasks and desired running to FailedTasks condition", func() {
 			status := &kafkaconnect.ConnectorStatus{
 				Name: "test",
 				Connector: kafkaconnect.ConnectorStatusConnector{
@@ -905,13 +906,13 @@ var _ = Describe("Connector Controller", func() {
 					{ID: 1, State: "FAILED", WorkerID: "worker-2", Trace: "some error"},
 				},
 			}
-			condition := mapConnectorStatusToCondition(status)
+			condition := mapConnectorStatusToCondition(status, kafkaconnectv1alpha1.ConnectorStateRunning)
 			Expect(condition.Status).To(Equal(metav1.ConditionFalse))
-			Expect(condition.Reason).To(Equal("Failed"))
+			Expect(condition.Reason).To(Equal("FailedTasks"))
 			Expect(condition.Message).To(ContainSubstring("1 failed task(s) out of 2"))
 		})
 
-		It("should map STOPPED state to Stopped condition", func() {
+		It("should map STOPPED state with desired stopped to Ready/Stopped condition", func() {
 			status := &kafkaconnect.ConnectorStatus{
 				Name: "test",
 				Connector: kafkaconnect.ConnectorStatusConnector{
@@ -919,13 +920,13 @@ var _ = Describe("Connector Controller", func() {
 					WorkerID: "worker-1",
 				},
 			}
-			condition := mapConnectorStatusToCondition(status)
-			Expect(condition.Status).To(Equal(metav1.ConditionFalse))
+			condition := mapConnectorStatusToCondition(status, kafkaconnectv1alpha1.ConnectorStateStopped)
+			Expect(condition.Status).To(Equal(metav1.ConditionTrue))
 			Expect(condition.Reason).To(Equal("Stopped"))
 			Expect(condition.Message).To(Equal("Connector is stopped"))
 		})
 
-		It("should map PAUSED state to Paused condition", func() {
+		It("should map PAUSED state with desired paused to Ready/Paused condition", func() {
 			status := &kafkaconnect.ConnectorStatus{
 				Name: "test",
 				Connector: kafkaconnect.ConnectorStatusConnector{
@@ -933,10 +934,23 @@ var _ = Describe("Connector Controller", func() {
 					WorkerID: "worker-1",
 				},
 			}
-			condition := mapConnectorStatusToCondition(status)
-			Expect(condition.Status).To(Equal(metav1.ConditionFalse))
+			condition := mapConnectorStatusToCondition(status, kafkaconnectv1alpha1.ConnectorStatePaused)
+			Expect(condition.Status).To(Equal(metav1.ConditionTrue))
 			Expect(condition.Reason).To(Equal("Paused"))
 			Expect(condition.Message).To(Equal("Connector is paused"))
+		})
+
+		It("should map actual state mismatched with desired state to Unknown/Reconciling condition", func() {
+			status := &kafkaconnect.ConnectorStatus{
+				Name: "test",
+				Connector: kafkaconnect.ConnectorStatusConnector{
+					State:    "PAUSED",
+					WorkerID: "worker-1",
+				},
+			}
+			condition := mapConnectorStatusToCondition(status, kafkaconnectv1alpha1.ConnectorStateRunning)
+			Expect(condition.Status).To(Equal(metav1.ConditionUnknown))
+			Expect(condition.Reason).To(Equal("Reconciling"))
 		})
 
 		It("should map FAILED state to Failed condition with trace", func() {
@@ -948,13 +962,13 @@ var _ = Describe("Connector Controller", func() {
 					Trace:    "org.apache.kafka.connect.errors.ConnectException: error",
 				},
 			}
-			condition := mapConnectorStatusToCondition(status)
+			condition := mapConnectorStatusToCondition(status, kafkaconnectv1alpha1.ConnectorStateRunning)
 			Expect(condition.Status).To(Equal(metav1.ConditionFalse))
 			Expect(condition.Reason).To(Equal("Failed"))
 			Expect(condition.Message).To(ContainSubstring("Connector failed with trace"))
 		})
 
-		It("should map unknown state to Unknown condition", func() {
+		It("should map UNASSIGNED state to False/Unassigned condition", func() {
 			status := &kafkaconnect.ConnectorStatus{
 				Name: "test",
 				Connector: kafkaconnect.ConnectorStatusConnector{
@@ -962,10 +976,23 @@ var _ = Describe("Connector Controller", func() {
 					WorkerID: "",
 				},
 			}
-			condition := mapConnectorStatusToCondition(status)
+			condition := mapConnectorStatusToCondition(status, kafkaconnectv1alpha1.ConnectorStateRunning)
+			Expect(condition.Status).To(Equal(metav1.ConditionFalse))
+			Expect(condition.Reason).To(Equal("Unassigned"))
+		})
+
+		It("should map unknown state to Unknown condition", func() {
+			status := &kafkaconnect.ConnectorStatus{
+				Name: "test",
+				Connector: kafkaconnect.ConnectorStatusConnector{
+					State:    "SOMETHING_ELSE",
+					WorkerID: "",
+				},
+			}
+			condition := mapConnectorStatusToCondition(status, kafkaconnectv1alpha1.ConnectorStateRunning)
 			Expect(condition.Status).To(Equal(metav1.ConditionUnknown))
 			Expect(condition.Reason).To(Equal("Unknown"))
-			Expect(condition.Message).To(ContainSubstring("UNASSIGNED"))
+			Expect(condition.Message).To(ContainSubstring("SOMETHING_ELSE"))
 		})
 	})
 

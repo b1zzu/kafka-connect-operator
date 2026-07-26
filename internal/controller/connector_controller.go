@@ -42,7 +42,7 @@ import (
 )
 
 const (
-	typeRunningConnector       = "Running"
+	typeReadyConnector         = "Ready"
 	connectorFinalizer         = "kafka-connect.b1zzu.net/connector"
 	connectorRestartAnnotation = "kafka-connect.b1zzu.net/restart"
 
@@ -92,12 +92,6 @@ type ConnectorReconciler struct {
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.23.1/pkg/reconcile
 func (r *ConnectorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	// TODO: The connector status should rappresent weather the connector is running or not according to the
-	// kafka connect api, and by the observed status weather the
-	//
-	// TODO: One Ready conidition, True when is running, Failse when it's paused, stopped,
-	// or failing, Unknown when it's reconciling
-
 	log := logf.FromContext(ctx)
 	log.Info("Start reconcile")
 
@@ -189,7 +183,7 @@ func (r *ConnectorReconciler) initializeStatusConditions(ctx context.Context, co
 		log.Info("Setting connector initial condition")
 
 		err := r.updateStatusCondition(ctx, connector, metav1.Condition{
-			Type:   typeRunningConnector,
+			Type:   typeReadyConnector,
 			Status: metav1.ConditionUnknown,
 			Reason: "Reconciling",
 		})
@@ -232,9 +226,9 @@ func (r *ConnectorReconciler) reconcileConnector(ctx context.Context, connector 
 		}
 
 		switch desiredState {
-		case kcv1alpha1.ConnectorStatePaused:
+		case connectorStatusPaused:
 			desiredConnector.InitialState = connectorStatusPaused
-		case kcv1alpha1.ConnectorStateStopped:
+		case connectorStatusStopped:
 			desiredConnector.InitialState = connectorStatusStopped
 		}
 
@@ -252,8 +246,8 @@ func (r *ConnectorReconciler) reconcileConnector(ctx context.Context, connector 
 		now := metav1.Now()
 		connector.Status.LastUpdatedAt = &now
 		err = r.updateStatusCondition(ctx, connector, metav1.Condition{
-			Type:   typeRunningConnector,
-			Status: metav1.ConditionFalse,
+			Type:   typeReadyConnector,
+			Status: metav1.ConditionUnknown,
 			Reason: "Starting",
 		})
 		if err != nil {
@@ -294,8 +288,8 @@ func (r *ConnectorReconciler) reconcileConnector(ctx context.Context, connector 
 		connector.Status.LastUpdatedAt = &now
 		// TODO: If there is no way of knowing if the connector got already restart then could be wrong to say updating and then running when maybe the connector hasn't even stop yet
 		err := r.updateStatusCondition(ctx, connector, metav1.Condition{
-			Type:   typeRunningConnector,
-			Status: metav1.ConditionFalse,
+			Type:   typeReadyConnector,
+			Status: metav1.ConditionUnknown,
 			Reason: "Updating",
 		})
 		if err != nil {
@@ -729,8 +723,11 @@ func (r *ConnectorReconciler) reconcileConnectorStatus(ctx context.Context, conn
 		}
 	}
 
+	// Remove the old "Running" condition type, superseded by "Ready"
+	meta.RemoveStatusCondition(&connector.Status.Conditions, "Running")
+
 	// Set condition
-	newCondition := mapConnectorStatusToCondition(status)
+	newCondition := mapConnectorStatusToCondition(status, desiredState)
 	newCondition.ObservedGeneration = connector.Generation
 	meta.SetStatusCondition(&connector.Status.Conditions, newCondition)
 
@@ -1017,43 +1014,64 @@ func countFailedTasks(tasks []kafkaconnect.ConnectorStatusTask) int {
 	return count
 }
 
-func mapConnectorStatusToCondition(status *kafkaconnect.ConnectorStatus) metav1.Condition {
+// mapConnectorStatusToCondition builds the Ready condition following the k8s idiom: Ready
+// reflects whether the connector has reached the state its spec desires, not merely
+// whether it happens to be running. A stopped connector whose spec asks for stopped is
+// Ready=True; a mismatch between actual and desired state is Ready=Unknown (reconciling).
+func mapConnectorStatusToCondition(status *kafkaconnect.ConnectorStatus, desiredState kcv1alpha1.ConnectorState) metav1.Condition {
 	condition := metav1.Condition{
-		Type: typeRunningConnector,
+		Type: typeReadyConnector,
 	}
 
 	switch status.Connector.State {
-	case connectorStatusRunning:
-		failedTasks := countFailedTasks(status.Tasks)
-		if failedTasks > 0 {
-			condition.Status = metav1.ConditionFalse
-			condition.Reason = "FailedTasks"
-			condition.Message = fmt.Sprintf("Connector has %d failed task(s) out of %d", failedTasks, len(status.Tasks))
-		} else {
-			condition.Status = metav1.ConditionTrue
-			condition.Reason = "Running"
-			condition.Message = fmt.Sprintf("Connector is running with %d task(s)", len(status.Tasks))
-		}
-	case connectorStatusPaused:
-		condition.Status = metav1.ConditionFalse
-		condition.Reason = "Paused"
-		condition.Message = "Connector is paused"
-	case connectorStatusStopped:
-		condition.Status = metav1.ConditionFalse
-		condition.Reason = "Stopped"
-		condition.Message = "Connector is stopped"
 	case connectorStatusFailed:
 		condition.Status = metav1.ConditionFalse
 		condition.Reason = "Failed"
 		condition.Message = fmt.Sprintf("Connector failed with trace: %s", strings.ReplaceAll(status.Connector.Trace, "\n\t", "\n"))
+		return condition
 	case connectorStatusUnassigned:
 		condition.Status = metav1.ConditionFalse
-		condition.Reason = "Unasigned"
-		condition.Message = "Connector is unasigned"
+		condition.Reason = "Unassigned"
+		condition.Message = "Connector is unassigned"
+		return condition
+	}
+
+	if failedTasks := countFailedTasks(status.Tasks); failedTasks > 0 {
+		condition.Status = metav1.ConditionFalse
+		condition.Reason = "FailedTasks"
+		condition.Message = fmt.Sprintf("Connector has %d failed task(s) out of %d", failedTasks, len(status.Tasks))
+		return condition
+	}
+
+	switch status.Connector.State {
+	case connectorStatusRunning, connectorStatusPaused, connectorStatusStopped:
+		// known states, evaluate against the desired state below
 	default:
 		condition.Status = metav1.ConditionUnknown
 		condition.Reason = "Unknown"
 		condition.Message = fmt.Sprintf("Connector in unknown state: %s", status.Connector.State)
+		return condition
+	}
+
+	actualState := kcv1alpha1.ConnectorState(strings.ToLower(status.Connector.State))
+	if actualState != desiredState {
+		condition.Status = metav1.ConditionUnknown
+		condition.Reason = "Reconciling"
+		condition.Message = fmt.Sprintf("Connector is transitioning from %s to %s", actualState, desiredState)
+		return condition
+	}
+
+	condition.Status = metav1.ConditionTrue
+	switch actualState {
+	case kcv1alpha1.ConnectorStateRunning:
+		condition.Reason = "Running"
+		condition.Message = fmt.Sprintf("Connector is running with %d task(s)", len(status.Tasks))
+	case kcv1alpha1.ConnectorStatePaused:
+		condition.Reason = "Paused"
+		condition.Message = "Connector is paused"
+	case kcv1alpha1.ConnectorStateStopped:
+		condition.Reason = "Stopped"
+		condition.Message = "Connector is stopped"
 	}
 
 	return condition
