@@ -422,7 +422,7 @@ var _ = Describe("Manager", Ordered, func() {
 			Eventually(verifyMetrics, 3*time.Minute, 10*time.Second).Should(Succeed())
 		})
 
-		It("should report a start-delayed connector as not running until the delay elapses", func() {
+		It("should track connector state transitions through a start delay, stop, and resume cycle", func() {
 			By("creating the start-delayed test connector")
 			cmd := exec.Command("kubectl", "apply", "-f",
 				"config/e2e/test_connector.yaml", "-n", "default")
@@ -455,6 +455,18 @@ var _ = Describe("Manager", Ordered, func() {
 				return utils.Run(cmd)
 			}
 
+			getConnectorState := func() (string, error) {
+				cmd := exec.Command("kubectl", "get", "connector", "my-test-connector",
+					"-n", "default", "-o", "jsonpath={.status.connector.state}")
+				return utils.Run(cmd)
+			}
+
+			getStateTransitionTo := func() (string, error) {
+				cmd := exec.Command("kubectl", "get", "connector", "my-test-connector",
+					"-n", "default", "-o", "jsonpath={.status.stateTransitionTo}")
+				return utils.Run(cmd)
+			}
+
 			By("verifying it stays not-Ready with no running tasks during the start delay")
 			notRunning := func(g Gomega) {
 				status, err := getConnectorReadyStatus()
@@ -482,6 +494,96 @@ var _ = Describe("Manager", Ordered, func() {
 				g.Expect(runningTasks).NotTo(BeEmpty(), "Connector should have at least one running task")
 			}
 			Eventually(running, 30*time.Second, 2*time.Second).Should(Succeed())
+
+			By("changing the desired state to stopped")
+			cmd = exec.Command("kubectl", "patch", "connector", "my-test-connector",
+				"-n", "default", "--type=merge", "-p", `{"spec":{"state":"stopped"}}`)
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("verifying stateTransitionTo is set to stopped")
+			Eventually(func(g Gomega) {
+				transitionTo, err := getStateTransitionTo()
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(transitionTo).To(Equal("stopped"))
+			}, 10*time.Second, 1*time.Second).Should(Succeed())
+
+			By("verifying the connector is still really running while stopping is in flight")
+			Consistently(func(g Gomega) {
+				state, err := getConnectorState()
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(state).To(Equal("RUNNING"))
+
+				transitionTo, err := getStateTransitionTo()
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(transitionTo).To(Equal("stopped"))
+			}, 6*time.Second, 1*time.Second).Should(Succeed())
+
+			By("verifying it reaches Stopped and stateTransitionTo clears")
+			Eventually(func(g Gomega) {
+				state, err := getConnectorState()
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(state).To(Equal("STOPPED"))
+
+				transitionTo, err := getStateTransitionTo()
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(transitionTo).To(BeEmpty())
+
+				status, err := getConnectorReadyStatus()
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(status).To(Equal("True"))
+
+				reason, err := getConnectorReadyReason()
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(reason).To(Equal("Stopped"))
+			}, 30*time.Second, 2*time.Second).Should(Succeed())
+
+			By("changing the desired state back to running")
+			cmd = exec.Command("kubectl", "patch", "connector", "my-test-connector",
+				"-n", "default", "--type=merge", "-p", `{"spec":{"state":"running"}}`)
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("verifying stateTransitionTo is set to running")
+			Eventually(func(g Gomega) {
+				transitionTo, err := getStateTransitionTo()
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(transitionTo).To(Equal("running"))
+			}, 10*time.Second, 1*time.Second).Should(Succeed())
+
+			By("verifying the connector is still really stopped while resuming is in flight")
+			Consistently(func(g Gomega) {
+				state, err := getConnectorState()
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(state).To(Equal("STOPPED"))
+
+				transitionTo, err := getStateTransitionTo()
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(transitionTo).To(Equal("running"))
+			}, 6*time.Second, 1*time.Second).Should(Succeed())
+
+			By("verifying it reaches Running again and stateTransitionTo clears")
+			Eventually(func(g Gomega) {
+				state, err := getConnectorState()
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(state).To(Equal("RUNNING"))
+
+				transitionTo, err := getStateTransitionTo()
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(transitionTo).To(BeEmpty())
+
+				status, err := getConnectorReadyStatus()
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(status).To(Equal("True"))
+
+				reason, err := getConnectorReadyReason()
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(reason).To(Equal("Running"))
+
+				runningTasks, err := getRunningTaskCount()
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(runningTasks).NotTo(BeEmpty())
+			}, 30*time.Second, 2*time.Second).Should(Succeed())
 		})
 	})
 })
