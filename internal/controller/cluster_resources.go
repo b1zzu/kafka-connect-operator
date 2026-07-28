@@ -17,7 +17,7 @@ package controller
 import (
 	"fmt"
 	"maps"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -38,7 +38,7 @@ func marshalProperties(props map[string]string) string {
 	for k := range props {
 		keys = append(keys, k)
 	}
-	sort.Strings(keys)
+	slices.Sort(keys)
 
 	b := &strings.Builder{}
 	for _, k := range keys {
@@ -57,7 +57,7 @@ func log4j2ConfigForCluster(cluster *kcv1alpha1.Cluster) map[string]string {
 		"monitorInterval":              "30",
 		"appender.0.type":              "Console",
 		"appender.0.name":              "CONSOLE",
-		"appender.0.direct":            "true",
+		"appender.0.direct":            "true", //nolint:goconst
 		"appender.0.layout.type":       "JsonTemplateLayout",
 		"rootLogger.level":             rootLevel,
 		"rootLogger.appenderRef.0.ref": "CONSOLE",
@@ -357,7 +357,7 @@ func deploymentForCluster(cluster *kcv1alpha1.Cluster) *appsv1ac.DeploymentApply
 func kafkaConnectConfigsForCluster(cluster *kcv1alpha1.Cluster) (map[string]string, error) {
 	// Operator-managed configs: single source of truth
 	managedConfigs := map[string]string{
-		"listeners":                                    "http://:8083",
+		"listeners":                                    "http://:8083", //nolint:goconst
 		"rest.advertised.host.name":                    "${env:CONNECT_REST_ADVERTISED_HOST_NAME}",
 		"rest.advertised.listener":                     "http",
 		"rest.advertised.port":                         "8083",
@@ -385,7 +385,7 @@ func kafkaConnectConfigsForCluster(cluster *kcv1alpha1.Cluster) (map[string]stri
 		}
 	}
 	if len(conflicts) > 0 {
-		sort.Strings(conflicts)
+		slices.Sort(conflicts)
 		return nil, fmt.Errorf("spec.config contains operator-managed keys that cannot be overridden: %s", strings.Join(conflicts, ", "))
 	}
 
@@ -408,7 +408,7 @@ func configMapForCluster(cluster *kcv1alpha1.Cluster) (*corev1ac.ConfigMapApplyC
 	}
 
 	data := map[string]string{
-		"connect.properties":        marshalProperties(configs),
+		"connect.properties":        marshalProperties(configs), //nolint:goconst
 		"connect-log4j2.properties": marshalProperties(log4j2ConfigForCluster(cluster)),
 	}
 	if cluster.Spec.Metrics != nil && cluster.Spec.Metrics.JMXExporter != nil {
@@ -443,7 +443,7 @@ func networkPolicyForCluster(cluster *kcv1alpha1.Cluster, operatorNamespace stri
 
 	operatorPodLabels := map[string]string{
 		"control-plane":          "controller-manager",
-		"app.kubernetes.io/name": "kafka-connect-operator",
+		"app.kubernetes.io/name": "kafka-connect-operator", //nolint:goconst
 	}
 
 	operatorNamespaceLabels := map[string]string{
@@ -530,7 +530,7 @@ func podDisruptionBudgetForCluster(cluster *kcv1alpha1.Cluster) *policyv1ac.PodD
 
 func selectorLabelsForCluster(cluster *kcv1alpha1.Cluster) map[string]string {
 	return map[string]string{
-		"app.kubernetes.io/name":     "kafka-connect",
+		"app.kubernetes.io/name":     "kafka-connect", //nolint:goconst
 		"app.kubernetes.io/instance": cluster.Name,
 	}
 }
