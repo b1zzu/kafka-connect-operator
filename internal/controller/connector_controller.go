@@ -44,6 +44,7 @@ const (
 	typeReadyConnector         = "Ready"
 	connectorFinalizer         = "kafka-connect.b1zzu.net/connector"
 	connectorRestartAnnotation = "kafka-connect.b1zzu.net/restart"
+	connectorRestartTrue       = "true"
 
 	connectorStatusRunning    = "RUNNING"
 	connectorStatusPaused     = "PAUSED"
@@ -53,6 +54,10 @@ const (
 
 	offsetsAnnotation   = "kafka-connect.b1zzu.net/offsets"
 	offsetsConfigMapKey = "offsets.json"
+
+	offsetOperationExport = "export"
+	offsetOperationImport = "import"
+	offsetOperationReset  = "reset"
 )
 
 type connectorReconcileFunc func(ctx context.Context, connector *kcv1alpha1.Connector) (*kcv1alpha1.Connector, error)
@@ -89,7 +94,7 @@ type ConnectorReconciler struct {
 // move the current state of the cluster closer to the desired state.
 //
 // For more details, check Reconcile and its Result here:
-// - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.23.1/pkg/reconcile
+// - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.24.1/pkg/reconcile
 func (r *ConnectorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
 	log.Info("Start reconcile")
@@ -184,7 +189,7 @@ func (r *ConnectorReconciler) initializeStatusConditions(ctx context.Context, co
 		err := r.updateStatusCondition(ctx, connector, metav1.Condition{
 			Type:   typeReadyConnector,
 			Status: metav1.ConditionUnknown,
-			Reason: "Reconciling",
+			Reason: "Reconciling", //nolint:goconst
 		})
 		if err != nil {
 			return nil, fmt.Errorf("failed to initialize condition: %w", err)
@@ -423,7 +428,7 @@ func (r *ConnectorReconciler) reconcileConnectorState(ctx context.Context, conne
 func (r *ConnectorReconciler) reconcileConnectorRestart(ctx context.Context, connector *kcv1alpha1.Connector) (*kcv1alpha1.Connector, error) {
 	log := logf.FromContext(ctx)
 
-	if connector.Annotations[connectorRestartAnnotation] != "true" {
+	if connector.Annotations[connectorRestartAnnotation] != connectorRestartTrue {
 		return connector, nil
 	}
 
@@ -471,11 +476,11 @@ func (r *ConnectorReconciler) reconcileConnectorOffsets(ctx context.Context, con
 	log.Info("Reconciling connector offsets", "operation", annotation)
 
 	switch annotation {
-	case "export":
+	case offsetOperationExport:
 		return r.reconcileExportOffsets(ctx, connector)
-	case "import":
+	case offsetOperationImport:
 		return r.reconcileImportOffsets(ctx, connector)
-	case "reset":
+	case offsetOperationReset:
 		return r.reconcileResetOffsets(ctx, connector)
 	default:
 		r.Recorder.Eventf(connector, nil, corev1.EventTypeWarning,

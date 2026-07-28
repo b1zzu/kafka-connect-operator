@@ -99,7 +99,7 @@ type ClusterReconciler struct {
 // move the current state of the cluster closer to the desired state.
 //
 // For more details, check Reconcile and its Result here:
-// - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.23.1/pkg/reconcile
+// - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.24.1/pkg/reconcile
 func (r *ClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
 
@@ -219,7 +219,7 @@ func (r *ClusterReconciler) initializeStatusConditions(ctx context.Context, clus
 		err := r.updateStatusCondition(ctx, cluster, metav1.Condition{
 			Type:   typeAvailableCluster,
 			Status: metav1.ConditionUnknown,
-			Reason: "Reconciling",
+			Reason: "Reconciling", //nolint:goconst
 		})
 		if err != nil {
 			return nil, fmt.Errorf("failed to initialize Cluster condition: %w", err)
@@ -283,7 +283,7 @@ func (r *ClusterReconciler) reconcileService(ctx context.Context, cluster *kcv1a
 
 // configMapRestartKeys lists ConfigMap keys whose changes require a pod restart.
 // The slice is ordered so the hash is deterministic without sorting.
-var configMapRestartKeys = []string{"connect.properties", "jmx-exporter-config.yaml"}
+var configMapRestartKeys = []string{"connect.properties", "jmx-exporter-config.yaml"} //nolint:goconst
 
 func hashConfigMap(configMap *corev1.ConfigMap) string {
 	h := fnv.New64a()
