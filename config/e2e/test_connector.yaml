@@ -1,0 +1,13 @@
+apiVersion: kafka-connect.b1zzu.net/v1alpha1
+kind: Connector
+metadata:
+  name: my-test-connector
+spec:
+  cluster:
+    name: my-cluster-connect
+  state: running
+  config:
+    connector.class: com.example.kafka.connect.test.TestConnector
+    tasks.max: "1"
+    start.delay.ms: "10000"
+    stop.delay.ms: "10000"

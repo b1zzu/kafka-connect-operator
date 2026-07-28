@@ -69,7 +69,7 @@ var _ = Describe("Manager", Ordered, func() {
 		Expect(err).NotTo(HaveOccurred(), "Failed to install CRDs")
 
 		By("deploying the controller-manager")
-		cmd = exec.Command("make", "deploy", fmt.Sprintf("IMG=%s", managerImage))
+		cmd = exec.Command("make", "deploy-e2e")
 		_, err = utils.Run(cmd)
 		Expect(err).NotTo(HaveOccurred(), "Failed to deploy the controller-manager")
 
@@ -108,40 +108,44 @@ var _ = Describe("Manager", Ordered, func() {
 	AfterAll(func() {
 		By("deleting sample CRs")
 		cmd := exec.Command("kubectl", "delete", "-k", "config/e2e",
-			"-n", "default", "--ignore-not-found")
+			"-n", "default", "--ignore-not-found", "--timeout=60s")
 		_, _ = utils.Run(cmd)
 
 		By("deleting Kafka cluster")
 		cmd = exec.Command("kubectl", "delete", "-f",
 			"https://strimzi.io/examples/latest/kafka/kafka-single-node.yaml",
-			"-n", "default", "--ignore-not-found")
+			"-n", "default", "--ignore-not-found", "--timeout=60s")
 		_, _ = utils.Run(cmd)
 
 		By("deleting Strimzi operator")
 		cmd = exec.Command("kubectl", "delete", "-f",
 			"https://strimzi.io/install/latest?namespace=default",
-			"-n", "default", "--ignore-not-found")
+			"-n", "default", "--ignore-not-found", "--timeout=60s")
 		_, _ = utils.Run(cmd)
 
 		By("cleaning up the curl pod for metrics")
-		cmd = exec.Command("kubectl", "delete", "pod", "curl-metrics", "-n", namespace)
+		cmd = exec.Command("kubectl", "delete", "pod", "curl-metrics", "-n", namespace, "--timeout=60s")
 		_, _ = utils.Run(cmd)
 
 		By("cleaning up the curl pod for jmx metrics")
 		cmd = exec.Command("kubectl", "delete", "pod", "curl-jmx-metrics",
-			"-n", "default", "--ignore-not-found")
+			"-n", "default", "--ignore-not-found", "--timeout=60s")
 		_, _ = utils.Run(cmd)
 
-		By("undeploying the controller-manager")
-		cmd = exec.Command("make", "undeploy")
-		_, _ = utils.Run(cmd)
-
+		// Uninstall the CRDs before undeploying the controller-manager: deleting a CRD
+		// forces the API server to reap any remaining instances, which blocks on our
+		// finalizer. That finalizer can only be cleared by a running controller, so it
+		// must not be torn down in the same step (or before) the CRDs are removed.
 		By("uninstalling CRDs")
 		cmd = exec.Command("make", "uninstall")
 		_, _ = utils.Run(cmd)
 
+		By("undeploying the controller-manager")
+		cmd = exec.Command("make", "undeploy-e2e")
+		_, _ = utils.Run(cmd)
+
 		By("removing manager namespace")
-		cmd = exec.Command("kubectl", "delete", "ns", namespace)
+		cmd = exec.Command("kubectl", "delete", "ns", namespace, "--timeout=60s")
 		_, _ = utils.Run(cmd)
 	})
 
@@ -372,21 +376,21 @@ var _ = Describe("Manager", Ordered, func() {
 			}
 			Eventually(verifyConnectDeployment, 5*time.Minute, 10*time.Second).Should(Succeed())
 
-			By("waiting for Connector my-connector to be Running")
-			verifyConnectorRunning := func(g Gomega) {
+			By("waiting for Connector my-connector to be Ready")
+			verifyConnectorReady := func(g Gomega) {
 				cmd := exec.Command("kubectl", "get", "connector", "my-connector",
 					"-n", "default",
-					"-o", "jsonpath={.status.conditions[?(@.type=='Running')].status}")
+					"-o", "jsonpath={.status.conditions[?(@.type=='Ready')].status}")
 				output, err := utils.Run(cmd)
 				g.Expect(err).NotTo(HaveOccurred())
-				g.Expect(output).To(Equal("True"), "Connector not yet Running")
+				g.Expect(output).To(Equal("True"), "Connector not yet Ready")
 			}
-			Eventually(verifyConnectorRunning, 5*time.Minute, 10*time.Second).Should(Succeed())
+			Eventually(verifyConnectorReady, 5*time.Minute, 10*time.Second).Should(Succeed())
 
-			By("verifying the Connector Running condition reason")
+			By("verifying the Connector Ready condition reason")
 			cmd := exec.Command("kubectl", "get", "connector", "my-connector",
 				"-n", "default",
-				"-o", "jsonpath={.status.conditions[?(@.type=='Running')].reason}")
+				"-o", "jsonpath={.status.conditions[?(@.type=='Ready')].reason}")
 			output, err := utils.Run(cmd)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(output).To(Equal("Running"), "Unexpected Connector condition reason")
@@ -420,6 +424,188 @@ var _ = Describe("Manager", Ordered, func() {
 					"Expected Prometheus metrics output")
 			}
 			Eventually(verifyMetrics, 3*time.Minute, 10*time.Second).Should(Succeed())
+		})
+
+		It("should track connector state transitions through a start delay, stop, and resume cycle", func() {
+			By("creating the start-delayed test connector")
+			cmd := exec.Command("kubectl", "apply", "-f",
+				"config/e2e/test_connector.yaml", "-n", "default")
+			_, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+			// Fallback only: deletes and moves on without waiting, in case the test fails
+			// before reaching the explicit, verified deletion at the end of this spec.
+			DeferCleanup(func() {
+				cmd := exec.Command("kubectl", "delete", "-f",
+					"config/e2e/test_connector.yaml", "-n", "default", "--ignore-not-found", "--timeout=60s")
+				_, _ = utils.Run(cmd)
+			})
+
+			getConnectorReadyStatus := func() (string, error) {
+				cmd := exec.Command("kubectl", "get", "connector", "my-test-connector",
+					"-n", "default",
+					"-o", "jsonpath={.status.conditions[?(@.type=='Ready')].status}")
+				return utils.Run(cmd)
+			}
+
+			getConnectorReadyReason := func() (string, error) {
+				cmd := exec.Command("kubectl", "get", "connector", "my-test-connector",
+					"-n", "default",
+					"-o", "jsonpath={.status.conditions[?(@.type=='Ready')].reason}")
+				return utils.Run(cmd)
+			}
+
+			getRunningTaskCount := func() (string, error) {
+				cmd := exec.Command("kubectl", "get", "connector", "my-test-connector",
+					"-n", "default",
+					"-o", "jsonpath={range .status.tasks[?(@.state=='RUNNING')]}x{end}")
+				return utils.Run(cmd)
+			}
+
+			getConnectorState := func() (string, error) {
+				cmd := exec.Command("kubectl", "get", "connector", "my-test-connector",
+					"-n", "default", "-o", "jsonpath={.status.connector.state}")
+				return utils.Run(cmd)
+			}
+
+			getStateTransitionTo := func() (string, error) {
+				cmd := exec.Command("kubectl", "get", "connector", "my-test-connector",
+					"-n", "default", "-o", "jsonpath={.status.stateTransitionTo}")
+				return utils.Run(cmd)
+			}
+
+			By("verifying it stays not-Ready with no running tasks during the start delay")
+			notRunning := func(g Gomega) {
+				status, err := getConnectorReadyStatus()
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(status).NotTo(Equal("True"), "Connector should not be Ready during the start delay")
+
+				runningTasks, err := getRunningTaskCount()
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(runningTasks).To(BeEmpty(), "Connector should have no running tasks during the start delay")
+			}
+			Consistently(notRunning, 8*time.Second, 2*time.Second).Should(Succeed())
+
+			By("verifying it becomes Ready/Running once the start delay elapses")
+			running := func(g Gomega) {
+				status, err := getConnectorReadyStatus()
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(status).To(Equal("True"), "Connector not yet Ready")
+
+				reason, err := getConnectorReadyReason()
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(reason).To(Equal("Running"), "Unexpected Connector condition reason")
+
+				runningTasks, err := getRunningTaskCount()
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(runningTasks).NotTo(BeEmpty(), "Connector should have at least one running task")
+			}
+			Eventually(running, 30*time.Second, 2*time.Second).Should(Succeed())
+
+			By("changing the desired state to stopped")
+			cmd = exec.Command("kubectl", "patch", "connector", "my-test-connector",
+				"-n", "default", "--type=merge", "-p", `{"spec":{"state":"stopped"}}`)
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("verifying stateTransitionTo is set to stopped")
+			Eventually(func(g Gomega) {
+				transitionTo, err := getStateTransitionTo()
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(transitionTo).To(Equal("stopped"))
+			}, 10*time.Second, 1*time.Second).Should(Succeed())
+
+			By("verifying the connector is still really running while stopping is in flight")
+			Consistently(func(g Gomega) {
+				state, err := getConnectorState()
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(state).To(Equal("RUNNING"))
+
+				transitionTo, err := getStateTransitionTo()
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(transitionTo).To(Equal("stopped"))
+			}, 6*time.Second, 1*time.Second).Should(Succeed())
+
+			By("verifying it reaches Stopped and stateTransitionTo clears")
+			Eventually(func(g Gomega) {
+				state, err := getConnectorState()
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(state).To(Equal("STOPPED"))
+
+				transitionTo, err := getStateTransitionTo()
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(transitionTo).To(BeEmpty())
+
+				status, err := getConnectorReadyStatus()
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(status).To(Equal("True"))
+
+				reason, err := getConnectorReadyReason()
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(reason).To(Equal("Stopped"))
+			}, 30*time.Second, 2*time.Second).Should(Succeed())
+
+			By("changing the desired state back to running")
+			cmd = exec.Command("kubectl", "patch", "connector", "my-test-connector",
+				"-n", "default", "--type=merge", "-p", `{"spec":{"state":"running"}}`)
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("verifying stateTransitionTo is set to running")
+			Eventually(func(g Gomega) {
+				transitionTo, err := getStateTransitionTo()
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(transitionTo).To(Equal("running"))
+			}, 10*time.Second, 1*time.Second).Should(Succeed())
+
+			By("verifying the connector is still really stopped while resuming is in flight")
+			Consistently(func(g Gomega) {
+				state, err := getConnectorState()
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(state).To(Equal("STOPPED"))
+
+				transitionTo, err := getStateTransitionTo()
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(transitionTo).To(Equal("running"))
+			}, 6*time.Second, 1*time.Second).Should(Succeed())
+
+			By("verifying it reaches Running again and stateTransitionTo clears")
+			Eventually(func(g Gomega) {
+				state, err := getConnectorState()
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(state).To(Equal("RUNNING"))
+
+				transitionTo, err := getStateTransitionTo()
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(transitionTo).To(BeEmpty())
+
+				status, err := getConnectorReadyStatus()
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(status).To(Equal("True"))
+
+				reason, err := getConnectorReadyReason()
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(reason).To(Equal("Running"))
+
+				runningTasks, err := getRunningTaskCount()
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(runningTasks).NotTo(BeEmpty())
+			}, 30*time.Second, 2*time.Second).Should(Succeed())
+
+			// Explicitly delete and verify removal now, rather than relying solely on the
+			// DeferCleanup above: this connector must be fully gone (finalizer cleared)
+			// before AfterAll uninstalls the CRDs and undeploys the controller, otherwise
+			// the CRD deletion later would block forever on a finalizer nothing can clear.
+			By("deleting the test connector and verifying it is fully removed")
+			cmd = exec.Command("kubectl", "delete", "-f",
+				"config/e2e/test_connector.yaml", "-n", "default", "--ignore-not-found", "--timeout=60s")
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "connector", "my-test-connector", "-n", "default")
+				_, err := utils.Run(cmd)
+				g.Expect(err).To(HaveOccurred(), "my-test-connector should no longer exist")
+			}, 30*time.Second, 2*time.Second).Should(Succeed())
 		})
 	})
 })

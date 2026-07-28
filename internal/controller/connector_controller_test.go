@@ -285,6 +285,19 @@ func (m *mockKafkaConnectServer) handleOffsets(w http.ResponseWriter, r *http.Re
 	}
 }
 
+// drainEvents non-blockingly collects all currently buffered events from the recorder.
+func drainEvents(recorder *events.FakeRecorder) []string {
+	var out []string
+	for {
+		select {
+		case e := <-recorder.Events:
+			out = append(out, e)
+		default:
+			return out
+		}
+	}
+}
+
 var _ = Describe("Connector Controller", func() {
 	newReconciler := func(mock *mockKafkaConnectServer) (*ConnectorReconciler, *events.FakeRecorder) {
 		recorder := events.NewFakeRecorder(10)
@@ -385,7 +398,7 @@ var _ = Describe("Connector Controller", func() {
 			Expect(connector).NotTo(BeNil())
 			Expect(connector.Status.Conditions).To(HaveLen(1))
 
-			cond := meta.FindStatusCondition(connector.Status.Conditions, typeRunningConnector)
+			cond := meta.FindStatusCondition(connector.Status.Conditions, typeReadyConnector)
 			Expect(cond).NotTo(BeNil())
 			Expect(cond.Status).To(Equal(metav1.ConditionUnknown))
 			Expect(cond.Reason).To(Equal("Reconciling"))
@@ -418,7 +431,8 @@ var _ = Describe("Connector Controller", func() {
 			// Reconcile 5 times: init conditions, add finalizer, create connector, update status, full pass
 			result, err := reconcileN(ctx, r, nn, 5)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(result.RequeueAfter).To(Equal(time.Minute))
+			// Requeue is short right after activity (LastUpdatedAt just set)
+			Expect(result.RequeueAfter).To(Equal(3 * time.Second))
 
 			connector := getConnector(ctx, nn)
 			Expect(connector).NotTo(BeNil())
@@ -427,7 +441,7 @@ var _ = Describe("Connector Controller", func() {
 			Expect(connector.Finalizers).To(ContainElement(connectorFinalizer))
 
 			// Running condition should be True
-			cond := meta.FindStatusCondition(connector.Status.Conditions, typeRunningConnector)
+			cond := meta.FindStatusCondition(connector.Status.Conditions, typeReadyConnector)
 			Expect(cond).NotTo(BeNil())
 			Expect(cond.Status).To(Equal(metav1.ConditionTrue))
 			Expect(cond.Reason).To(Equal("Running"))
@@ -466,8 +480,8 @@ var _ = Describe("Connector Controller", func() {
 			// Reconcile once more to process the deletion
 			result, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
 			Expect(err).NotTo(HaveOccurred())
-			// Finalizer removal triggers status update, so returns RequeueAfter
-			Expect(result.RequeueAfter).To(Equal(time.Minute))
+			// Finalizer removal returns nil connector, restarting the loop shortly
+			Expect(result.RequeueAfter).To(Equal(time.Second))
 
 			// After finalizer is removed, connector is eligible for deletion
 			// Reconcile again to finalize
@@ -505,7 +519,8 @@ var _ = Describe("Connector Controller", func() {
 			// restart (removes annotation + restarts loop), then full pass through status
 			result, err := reconcileN(ctx, r, nn, 7)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(result.RequeueAfter).To(Equal(time.Minute))
+			// Requeue is short right after activity (LastRestartAt just set)
+			Expect(result.RequeueAfter).To(Equal(3 * time.Second))
 
 			// Verify the restart annotation has been removed
 			connector := getConnector(ctx, nn)
@@ -608,8 +623,8 @@ var _ = Describe("Connector Controller", func() {
 			// Reconcile once more — auto restart should happen
 			result, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
 			Expect(err).NotTo(HaveOccurred())
-			// Status was updated (restart triggered), so returns RequeueAfter
-			Expect(result.RequeueAfter).To(Equal(time.Minute))
+			// Requeue is short right after activity (LastRestartAt just set)
+			Expect(result.RequeueAfter).To(Equal(3 * time.Second))
 
 			// Verify restart status fields
 			connector := getConnector(ctx, nn)
@@ -820,6 +835,155 @@ var _ = Describe("Connector Controller", func() {
 		})
 	})
 
+	Context("Connector state transition", func() {
+		cleanupConnector := func(ctx context.Context, nn types.NamespacedName) {
+			c := getConnector(ctx, nn)
+			if c != nil {
+				c.Finalizers = nil
+				_ = k8sClient.Update(ctx, c)
+				_ = k8sClient.Delete(ctx, c)
+			}
+		}
+
+		It("should track the transition and emit a terminal event once the connector reaches the paused state", func() {
+			ctx := context.Background()
+			name := "state-transition-pause"
+			nn := nameFor(name)
+
+			mock := newMockKafkaConnectServer()
+			DeferCleanup(mock.Close)
+
+			createConnectorWithSpec(ctx, name, nil, kafkaconnectv1alpha1.ConnectorSpec{
+				ClusterRef: corev1.LocalObjectReference{Name: "my-cluster"},
+				Config:     map[string]string{"connector.class": "FileStreamSource"},
+			})
+			DeferCleanup(func() { cleanupConnector(ctx, nn) })
+
+			r, recorder := newReconciler(mock)
+
+			// Reconcile to completion: init, finalizer, create (running), status, full pass
+			_, err := reconcileN(ctx, r, nn, 5)
+			Expect(err).NotTo(HaveOccurred())
+
+			// Switch the desired state to paused
+			connector := getConnector(ctx, nn)
+			connector.Spec.State = kafkaconnectv1alpha1.ConnectorStatePaused
+			Expect(k8sClient.Update(ctx, connector)).To(Succeed())
+
+			// First reconcile after the spec change issues the pause call and records the
+			// in-flight transition; the mock applies the pause synchronously.
+			_, err = r.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+			Expect(err).NotTo(HaveOccurred())
+
+			connector = getConnector(ctx, nn)
+			Expect(connector.Status.StateTransitionTo).NotTo(BeNil())
+			Expect(*connector.Status.StateTransitionTo).To(Equal(kafkaconnectv1alpha1.ConnectorStatePaused))
+			Expect(connector.Status.LastStateTransitionAt).NotTo(BeNil())
+			Expect(drainEvents(recorder)).To(ContainElement(ContainSubstring("Pausing")))
+
+			// Next reconcile observes the connector already paused and clears the transition
+			_, err = r.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+			Expect(err).NotTo(HaveOccurred())
+
+			connector = getConnector(ctx, nn)
+			Expect(connector.Status.StateTransitionTo).To(BeNil())
+			Expect(drainEvents(recorder)).To(ContainElement(ContainSubstring("Paused")))
+		})
+
+		It("should refuse to pause a stopped connector and emit a CannotPause warning event", func() {
+			ctx := context.Background()
+			name := "state-transition-cannot-pause"
+			nn := nameFor(name)
+
+			mock := newMockKafkaConnectServer()
+			DeferCleanup(mock.Close)
+
+			createConnectorWithSpec(ctx, name, nil, kafkaconnectv1alpha1.ConnectorSpec{
+				ClusterRef: corev1.LocalObjectReference{Name: "my-cluster"},
+				Config:     map[string]string{"connector.class": "FileStreamSource"},
+				State:      kafkaconnectv1alpha1.ConnectorStateStopped,
+			})
+			DeferCleanup(func() { cleanupConnector(ctx, nn) })
+
+			r, recorder := newReconciler(mock)
+
+			// Reconcile to completion: init, finalizer, create (stopped), status, full pass
+			_, err := reconcileN(ctx, r, nn, 5)
+			Expect(err).NotTo(HaveOccurred())
+
+			// Switch the desired state to paused while the connector is stopped
+			connector := getConnector(ctx, nn)
+			connector.Spec.State = kafkaconnectv1alpha1.ConnectorStatePaused
+			Expect(k8sClient.Update(ctx, connector)).To(Succeed())
+
+			_, err = r.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+			Expect(err).NotTo(HaveOccurred())
+
+			// No transition should have been recorded, and the connector must remain stopped
+			connector = getConnector(ctx, nn)
+			Expect(connector.Status.StateTransitionTo).To(BeNil())
+			Expect(drainEvents(recorder)).To(ContainElement(ContainSubstring("CannotPause")))
+
+			mock.mu.Lock()
+			defer mock.mu.Unlock()
+			Expect(mock.connectorStates[name]).To(Equal(connectorStatusStopped))
+		})
+
+		It("should skip re-issuing the state change while a transition is already in-flight within the backoff window", func() {
+			ctx := context.Background()
+			name := "state-transition-backoff"
+			nn := nameFor(name)
+
+			mock := newMockKafkaConnectServer()
+			DeferCleanup(mock.Close)
+
+			createConnectorWithSpec(ctx, name, nil, kafkaconnectv1alpha1.ConnectorSpec{
+				ClusterRef: corev1.LocalObjectReference{Name: "my-cluster"},
+				Config:     map[string]string{"connector.class": "FileStreamSource"},
+			})
+			DeferCleanup(func() { cleanupConnector(ctx, nn) })
+
+			// Long backoff window so a second transition attempt is suppressed
+			recorder := events.NewFakeRecorder(10)
+			r := &ConnectorReconciler{
+				Client:                          k8sClient,
+				Scheme:                          k8sClient.Scheme(),
+				Recorder:                        recorder,
+				NewKafkaConnectClientFunc:       NewDefaultKafkaConnectClientFunc,
+				ReconcileInterval:               time.Minute,
+				RestartFailedConnectorBackoff:   5 * time.Minute,
+				ConnectorStateTransitionBackoff: 1 * time.Hour,
+			}
+			r.NewKafkaConnectClientFunc = func(connector *kafkaconnectv1alpha1.Connector) (*kafkaconnect.Client, error) {
+				return kafkaconnect.NewClient(mock.server.URL), nil
+			}
+
+			// Reconcile to completion: init, finalizer, create (running), status, full pass
+			_, err := reconcileN(ctx, r, nn, 5)
+			Expect(err).NotTo(HaveOccurred())
+
+			// Manually simulate an in-flight transition to stopped that the mock has not
+			// applied yet (e.g. the actual state is still running), well within the backoff window.
+			connector := getConnector(ctx, nn)
+			desired := kafkaconnectv1alpha1.ConnectorStateStopped
+			now := metav1.Now()
+			connector.Status.StateTransitionTo = &desired
+			connector.Status.LastStateTransitionAt = &now
+			Expect(k8sClient.Status().Update(ctx, connector)).To(Succeed())
+
+			connector.Spec.State = kafkaconnectv1alpha1.ConnectorStateStopped
+			Expect(k8sClient.Update(ctx, connector)).To(Succeed())
+
+			_, err = r.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+			Expect(err).NotTo(HaveOccurred())
+
+			// The stop call must not have been re-issued while backing off
+			mock.mu.Lock()
+			defer mock.mu.Unlock()
+			Expect(mock.connectorStates[name]).To(Equal(connectorStatusRunning))
+		})
+	})
+
 	Context("getDesiredConnectorState", func() {
 		It("should return running when state is not specified", func() {
 			connector := &kafkaconnectv1alpha1.Connector{
@@ -876,7 +1040,7 @@ var _ = Describe("Connector Controller", func() {
 	})
 
 	Context("mapConnectorStatusToCondition", func() {
-		It("should map RUNNING state to Running condition", func() {
+		It("should map RUNNING state with desired running to Ready/Running condition", func() {
 			status := &kafkaconnect.ConnectorStatus{
 				Name: "test",
 				Connector: kafkaconnect.ConnectorStatusConnector{
@@ -887,13 +1051,14 @@ var _ = Describe("Connector Controller", func() {
 					{ID: 0, State: "RUNNING", WorkerID: "worker-1"},
 				},
 			}
-			condition := mapConnectorStatusToCondition(status)
+			condition := mapConnectorStatusToCondition(status, kafkaconnectv1alpha1.ConnectorStateRunning)
+			Expect(condition.Type).To(Equal(typeReadyConnector))
 			Expect(condition.Status).To(Equal(metav1.ConditionTrue))
 			Expect(condition.Reason).To(Equal("Running"))
 			Expect(condition.Message).To(Equal("Connector is running with 1 task(s)"))
 		})
 
-		It("should map RUNNING state with failed tasks to Failed condition", func() {
+		It("should map RUNNING state with failed tasks and desired running to FailedTasks condition", func() {
 			status := &kafkaconnect.ConnectorStatus{
 				Name: "test",
 				Connector: kafkaconnect.ConnectorStatusConnector{
@@ -905,13 +1070,13 @@ var _ = Describe("Connector Controller", func() {
 					{ID: 1, State: "FAILED", WorkerID: "worker-2", Trace: "some error"},
 				},
 			}
-			condition := mapConnectorStatusToCondition(status)
+			condition := mapConnectorStatusToCondition(status, kafkaconnectv1alpha1.ConnectorStateRunning)
 			Expect(condition.Status).To(Equal(metav1.ConditionFalse))
-			Expect(condition.Reason).To(Equal("Failed"))
+			Expect(condition.Reason).To(Equal("FailedTasks"))
 			Expect(condition.Message).To(ContainSubstring("1 failed task(s) out of 2"))
 		})
 
-		It("should map STOPPED state to Stopped condition", func() {
+		It("should map STOPPED state with desired stopped to Ready/Stopped condition", func() {
 			status := &kafkaconnect.ConnectorStatus{
 				Name: "test",
 				Connector: kafkaconnect.ConnectorStatusConnector{
@@ -919,13 +1084,13 @@ var _ = Describe("Connector Controller", func() {
 					WorkerID: "worker-1",
 				},
 			}
-			condition := mapConnectorStatusToCondition(status)
-			Expect(condition.Status).To(Equal(metav1.ConditionFalse))
+			condition := mapConnectorStatusToCondition(status, kafkaconnectv1alpha1.ConnectorStateStopped)
+			Expect(condition.Status).To(Equal(metav1.ConditionTrue))
 			Expect(condition.Reason).To(Equal("Stopped"))
 			Expect(condition.Message).To(Equal("Connector is stopped"))
 		})
 
-		It("should map PAUSED state to Paused condition", func() {
+		It("should map PAUSED state with desired paused to Ready/Paused condition", func() {
 			status := &kafkaconnect.ConnectorStatus{
 				Name: "test",
 				Connector: kafkaconnect.ConnectorStatusConnector{
@@ -933,10 +1098,23 @@ var _ = Describe("Connector Controller", func() {
 					WorkerID: "worker-1",
 				},
 			}
-			condition := mapConnectorStatusToCondition(status)
-			Expect(condition.Status).To(Equal(metav1.ConditionFalse))
+			condition := mapConnectorStatusToCondition(status, kafkaconnectv1alpha1.ConnectorStatePaused)
+			Expect(condition.Status).To(Equal(metav1.ConditionTrue))
 			Expect(condition.Reason).To(Equal("Paused"))
 			Expect(condition.Message).To(Equal("Connector is paused"))
+		})
+
+		It("should map actual state mismatched with desired state to Unknown/Reconciling condition", func() {
+			status := &kafkaconnect.ConnectorStatus{
+				Name: "test",
+				Connector: kafkaconnect.ConnectorStatusConnector{
+					State:    "PAUSED",
+					WorkerID: "worker-1",
+				},
+			}
+			condition := mapConnectorStatusToCondition(status, kafkaconnectv1alpha1.ConnectorStateRunning)
+			Expect(condition.Status).To(Equal(metav1.ConditionUnknown))
+			Expect(condition.Reason).To(Equal("Reconciling"))
 		})
 
 		It("should map FAILED state to Failed condition with trace", func() {
@@ -948,13 +1126,13 @@ var _ = Describe("Connector Controller", func() {
 					Trace:    "org.apache.kafka.connect.errors.ConnectException: error",
 				},
 			}
-			condition := mapConnectorStatusToCondition(status)
+			condition := mapConnectorStatusToCondition(status, kafkaconnectv1alpha1.ConnectorStateRunning)
 			Expect(condition.Status).To(Equal(metav1.ConditionFalse))
 			Expect(condition.Reason).To(Equal("Failed"))
 			Expect(condition.Message).To(ContainSubstring("Connector failed with trace"))
 		})
 
-		It("should map unknown state to Unknown condition", func() {
+		It("should map UNASSIGNED state to False/Unassigned condition", func() {
 			status := &kafkaconnect.ConnectorStatus{
 				Name: "test",
 				Connector: kafkaconnect.ConnectorStatusConnector{
@@ -962,10 +1140,23 @@ var _ = Describe("Connector Controller", func() {
 					WorkerID: "",
 				},
 			}
-			condition := mapConnectorStatusToCondition(status)
+			condition := mapConnectorStatusToCondition(status, kafkaconnectv1alpha1.ConnectorStateRunning)
+			Expect(condition.Status).To(Equal(metav1.ConditionFalse))
+			Expect(condition.Reason).To(Equal("Unassigned"))
+		})
+
+		It("should map unknown state to Unknown condition", func() {
+			status := &kafkaconnect.ConnectorStatus{
+				Name: "test",
+				Connector: kafkaconnect.ConnectorStatusConnector{
+					State:    "SOMETHING_ELSE",
+					WorkerID: "",
+				},
+			}
+			condition := mapConnectorStatusToCondition(status, kafkaconnectv1alpha1.ConnectorStateRunning)
 			Expect(condition.Status).To(Equal(metav1.ConditionUnknown))
 			Expect(condition.Reason).To(Equal("Unknown"))
-			Expect(condition.Message).To(ContainSubstring("UNASSIGNED"))
+			Expect(condition.Message).To(ContainSubstring("SOMETHING_ELSE"))
 		})
 	})
 
@@ -995,7 +1186,8 @@ var _ = Describe("Connector Controller", func() {
 			// Reconcile to full running: init, finalizer, create, status, full pass
 			result, err := reconcileN(ctx, r, nn, 5)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(result.RequeueAfter).To(Equal(time.Minute))
+			// Requeue is short right after activity (LastUpdatedAt just set)
+			Expect(result.RequeueAfter).To(Equal(3 * time.Second))
 
 			// No annotation, no offset operation
 			connector := getConnector(ctx, nn)
@@ -1060,7 +1252,7 @@ var _ = Describe("Connector Controller", func() {
 			Expect(connector.Status.LastExportedOffsetsAt).NotTo(BeNil())
 
 			// Event should be emitted
-			Expect(recorder.Events).To(Receive(ContainSubstring("ExportedOffsets")))
+			Expect(drainEvents(recorder)).To(ContainElement(ContainSubstring("ExportedOffsets")))
 		})
 
 		It("should emit warning and remove annotation when exportOffsets is missing", func() {
@@ -1090,7 +1282,7 @@ var _ = Describe("Connector Controller", func() {
 			Expect(connector).NotTo(BeNil())
 			Expect(connector.Annotations).NotTo(HaveKey(offsetsAnnotation))
 
-			Expect(recorder.Events).To(Receive(ContainSubstring("FailedExportOffsets")))
+			Expect(drainEvents(recorder)).To(ContainElement(ContainSubstring("ErrorExportOffsets")))
 		})
 
 		It("should import offsets when connector is stopped", func() {
@@ -1150,7 +1342,7 @@ var _ = Describe("Connector Controller", func() {
 			// Timestamp should be set
 			Expect(connector.Status.LastImportedOffsetsAt).NotTo(BeNil())
 
-			Expect(recorder.Events).To(Receive(ContainSubstring("ImportedOffsets")))
+			Expect(drainEvents(recorder)).To(ContainElement(ContainSubstring("ImportedOffsets")))
 		})
 
 		It("should emit warning and keep annotation when importing but connector is not stopped", func() {
@@ -1198,7 +1390,7 @@ var _ = Describe("Connector Controller", func() {
 			Expect(connector).NotTo(BeNil())
 			Expect(connector.Annotations).To(HaveKeyWithValue(offsetsAnnotation, "import"))
 
-			Expect(recorder.Events).To(Receive(ContainSubstring("FailedImportOffsets")))
+			Expect(drainEvents(recorder)).To(ContainElement(ContainSubstring("ErrorImportOffsets")))
 		})
 
 		It("should reset offsets when connector is stopped", func() {
@@ -1248,7 +1440,7 @@ var _ = Describe("Connector Controller", func() {
 			// Timestamp should be set
 			Expect(connector.Status.LastResetOffsetsAt).NotTo(BeNil())
 
-			Expect(recorder.Events).To(Receive(ContainSubstring("ResetOffsets")))
+			Expect(drainEvents(recorder)).To(ContainElement(ContainSubstring("ResetOffsets")))
 		})
 
 		It("should emit warning and keep annotation when resetting but connector is not stopped", func() {
@@ -1277,7 +1469,7 @@ var _ = Describe("Connector Controller", func() {
 			Expect(connector).NotTo(BeNil())
 			Expect(connector.Annotations).To(HaveKeyWithValue(offsetsAnnotation, "reset"))
 
-			Expect(recorder.Events).To(Receive(ContainSubstring("FailedResetOffsets")))
+			Expect(drainEvents(recorder)).To(ContainElement(ContainSubstring("ErrorResetOffsets")))
 		})
 	})
 
@@ -1324,6 +1516,42 @@ var _ = Describe("Connector Controller", func() {
 			Expect(tasks[1].State).To(Equal("FAILED"))
 			Expect(tasks[1].WorkerID).To(Equal("worker-2:8083"))
 			Expect(tasks[1].Trace).To(Equal("some stack trace"))
+		})
+	})
+
+	Context("controllerRequeueAfter", func() {
+		// Guardrails for the exponential requeue: the exact doubling schedule is an
+		// implementation detail, but the returned delay must stay within these bounds
+		// as elapsed time since the last activity timestamp grows, and must always be
+		// capped at r.ReconcileInterval.
+		reconciler := &ConnectorReconciler{
+			ReconcileInterval: time.Minute,
+		}
+
+		ago := func(seconds int) *metav1.Time {
+			t := metav1.NewTime(time.Now().Add(-time.Duration(seconds) * time.Second))
+			return &t
+		}
+
+		DescribeTable("should bound the requeue delay based on elapsed time since last activity",
+			func(elapsedSeconds int, expected time.Duration) {
+				status := &kafkaconnectv1alpha1.ConnectorStatus{
+					LastUpdatedAt: ago(elapsedSeconds),
+				}
+
+				Expect(reconciler.controllerRequeueAfter(status)).To(Equal(expected))
+			},
+			Entry("elapsed 5s", 5, 3*time.Second),
+			Entry("elapsed 35s", 35, 6*time.Second),
+			Entry("elapsed 76s", 76, 12*time.Second),
+			Entry("elapsed 125s", 125, 24*time.Second),
+			Entry("elapsed 673s, capped at ReconcileInterval", 673, time.Minute),
+		)
+
+		It("should fall back to ReconcileInterval when no timestamps are set", func() {
+			status := &kafkaconnectv1alpha1.ConnectorStatus{}
+
+			Expect(reconciler.controllerRequeueAfter(status)).To(Equal(time.Minute))
 		})
 	})
 

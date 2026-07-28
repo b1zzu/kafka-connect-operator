@@ -1,0 +1,26 @@
+# Deploys the controller-manager for local/e2e testing with a fixed local
+# image, without ever touching config/manager/kustomization.yaml (which holds
+# the real release image). Keep the image below in sync with `managerImage`
+# in test/e2e/e2e_suite_test.go.
+resources:
+  - ../default
+
+images:
+  # name must match the image as already resolved by config/manager's own
+  # images transformer (config/manager/kustomization.yaml), not the
+  # "controller" placeholder - that transform already ran by this point.
+  - name: ghcr.io/b1zzu/kafka-connect-operator
+    newName: example.com/kafka-connect-operator
+    newTag: latest
+
+patches:
+  # imagePullPolicy defaults to Always for a "latest" tag, which would make
+  # kind try to pull from the (fake) example.com registry instead of using
+  # the locally loaded image. Force it to Never regardless of tag.
+  - target:
+      kind: Deployment
+      name: kafka-connect-controller-manager
+    patch: |-
+      - op: add
+        path: /spec/template/spec/containers/0/imagePullPolicy
+        value: Never

@@ -1,11 +1,31 @@
 # More info: https://docs.docker.com/engine/reference/builder/#dockerignore-file
-# Ignore everything by default and re-include only needed files
-**
+# The builder stage only needs go.mod, go.sum, and the Go source under
+# api/, cmd/, internal/, pkg/ - the final image ships just the compiled
+# binary, so nothing else here reaches it either way. Excluding the rest
+# keeps the build context small and avoids invalidating the go-build layer
+# cache on unrelated changes (docs, CI config, tooling, etc).
+.git
+.github
+.devcontainer
+.claude
+.dockerignore
+.gitignore
+.golangci.yml
+.custom-gcl.yml
+bin
+dist
+config
+containers
+test
+docs
+hack
+Dockerfile
+LICENSE
+Makefile
+*.md
+*.out
+renovate.json
+PROJECT
 
-# Re-include Go source files (but not *_test.go)
-!**/*.go
+# Go test files don't affect the compiled binary
 **/*_test.go
-
-# Re-include Go module files
-!go.mod
-!go.sum

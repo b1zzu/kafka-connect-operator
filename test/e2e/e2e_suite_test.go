@@ -33,7 +33,7 @@ import (
 
 var (
 	// managerImage is the manager image to be built and loaded for testing.
-	managerImage = "example.com/kafka-connect-operator:v0.0.1"
+	managerImage = "example.com/kafka-connect-operator:latest"
 	// pluginsImage is the sample-plugins image to be built and loaded for testing.
 	pluginsImage = "example.com/kafka-connect-operator/sample-plugins:latest"
 	// jmxExporterImage is the jmx-exporter image to be built and loaded for testing.
