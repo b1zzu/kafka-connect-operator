@@ -211,7 +211,7 @@ type MetricsConfig struct {
 type JMXExporterConfig struct {
 	// Image is the OCI image containing the JMX Exporter Java agent JAR.
 	// +optional
-	// +kubebuilder:default="ghcr.io/b1zzu/kafka-connect-operator/jmx-exporter:1.5.0"
+	// +kubebuilder:default="ghcr.io/b1zzu/kafka-connect-operator/jmx-exporter:v1.6.0"
 	Image *string `json:"image,omitempty"`
 
 	// Pull policy for the JMX Exporter image.

@@ -405,7 +405,7 @@ var _ = Describe("Cluster Resources", func() {
 				}
 			}
 			Expect(jmxVol).NotTo(BeNil())
-			Expect(*jmxVol.Image.Reference).To(Equal("ghcr.io/b1zzu/kafka-connect-operator/jmx-exporter:1.5.0"))
+			Expect(*jmxVol.Image.Reference).To(Equal("ghcr.io/b1zzu/kafka-connect-operator/jmx-exporter:v1.6.0"))
 
 			// Mount
 			mounts := dep.Spec.Template.Spec.Containers[0].VolumeMounts
