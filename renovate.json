@@ -51,8 +51,7 @@
         "ARG JMX_EXPORTER_VERSION=(?<currentValue>\\S+)"
       ],
       "depNameTemplate": "prometheus/jmx_exporter",
-      "datasourceTemplate": "github-releases",
-      "extractVersion": "^v?(?<version>.+)$"
+      "datasourceTemplate": "github-releases"
     },
     {
       "customType": "regex",
@@ -83,8 +82,7 @@
         "ARG MSK_IAM_AUTH_VERSION=(?<currentValue>\\S+)"
       ],
       "depNameTemplate": "aws/aws-msk-iam-auth",
-      "datasourceTemplate": "github-releases",
-      "extractVersionTemplate": "^v(?<version>.*)$"
+      "datasourceTemplate": "github-releases"
     },
     {
       "customType": "regex",
@@ -149,6 +147,18 @@
     }
   ],
   "packageRules": [
+    {
+      "description": "Strip leading v from JMX Exporter GitHub release tags",
+      "matchDatasources": ["github-releases"],
+      "matchDepNames": ["prometheus/jmx_exporter"],
+      "extractVersion": "^v?(?<version>.+)$"
+    },
+    {
+      "description": "Strip leading v from MSK IAM Auth GitHub release tags",
+      "matchDatasources": ["github-releases"],
+      "matchDepNames": ["aws/aws-msk-iam-auth"],
+      "extractVersion": "^v(?<version>.*)$"
+    },
     {
       "description": "Group all Go module dependency updates",
       "matchManagers": [
