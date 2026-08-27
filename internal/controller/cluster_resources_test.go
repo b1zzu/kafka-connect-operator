@@ -33,11 +33,16 @@ const classpathEnvName = "CLASSPATH"
 
 var _ = Describe("Cluster Resources", func() {
 
+	jsonLayoutLogging := func() *kcv1alpha1.LoggingConfig {
+		return &kcv1alpha1.LoggingConfig{Log4jJsonLayout: &kcv1alpha1.Log4jJsonLayoutConfig{}}
+	}
+
 	newCluster := func(plugins []kcv1alpha1.Plugin) *kcv1alpha1.Cluster {
 		return &kcv1alpha1.Cluster{
 			Spec: kcv1alpha1.ClusterSpec{
 				Config:  map[string]string{"bootstrap.servers": "localhost:9092"},
 				Plugins: plugins,
+				Logging: jsonLayoutLogging(),
 			},
 		}
 	}
@@ -48,6 +53,7 @@ var _ = Describe("Cluster Resources", func() {
 				Config:  map[string]string{"bootstrap.servers": "localhost:9092"},
 				Plugins: plugins,
 				Secrets: secrets,
+				Logging: jsonLayoutLogging(),
 			},
 		}
 	}
@@ -57,6 +63,7 @@ var _ = Describe("Cluster Resources", func() {
 			Spec: kcv1alpha1.ClusterSpec{
 				Config:  map[string]string{"bootstrap.servers": "localhost:9092"},
 				Metrics: metrics,
+				Logging: jsonLayoutLogging(),
 			},
 		}
 	}
@@ -66,6 +73,7 @@ var _ = Describe("Cluster Resources", func() {
 			Spec: kcv1alpha1.ClusterSpec{
 				Config:    map[string]string{"bootstrap.servers": "localhost:9092"},
 				Libraries: libraries,
+				Logging:   jsonLayoutLogging(),
 			},
 		}
 	}
@@ -594,6 +602,7 @@ var _ = Describe("Cluster Resources", func() {
 					Libraries: []kcv1alpha1.Library{
 						{Name: "lib-a", Image: "registry.example.com/lib-a:1.0"},
 					},
+					Logging: jsonLayoutLogging(),
 					Secrets: []kcv1alpha1.SecretMount{
 						{Name: "my-keystore", SecretRef: corev1.LocalObjectReference{Name: "my-keystore-secret"}},
 					},
@@ -869,7 +878,7 @@ var _ = Describe("Cluster Resources", func() {
 			Expect(*tols[1].Effect).To(Equal(corev1.TaintEffectNoExecute))
 		})
 
-		It("should always have log4j-layout-template-json volume and mount", func() {
+		It("should have log4j-layout-template-json volume and mount when log4jJsonLayout is enabled", func() {
 			cluster := newCluster(nil)
 			dep := deploymentForCluster(cluster)
 
@@ -922,7 +931,7 @@ var _ = Describe("Cluster Resources", func() {
 			Expect(*log4jVol.Image.PullPolicy).To(Equal(corev1.PullNever))
 		})
 
-		It("should use default log4j-layout image when logging is set without log4jJsonLayout", func() {
+		It("should not have log4j-layout-template-json volume when logging is set without log4jJsonLayout", func() {
 			level := "DEBUG"
 			cluster := &kcv1alpha1.Cluster{
 				Spec: kcv1alpha1.ClusterSpec{
@@ -940,12 +949,31 @@ var _ = Describe("Cluster Resources", func() {
 					log4jVol = &dep.Spec.Template.Spec.Volumes[i]
 				}
 			}
-			Expect(log4jVol).NotTo(BeNil())
-			Expect(*log4jVol.Image.Reference).To(Equal("ghcr.io/b1zzu/kafka-connect-operator/log4j-layout-template-json:2.26.1"))
-			Expect(log4jVol.Image.PullPolicy).To(BeNil())
+			Expect(log4jVol).To(BeNil())
 		})
 
-		It("should always have CLASSPATH with log4j-layout-template-json", func() {
+		It("should not have log4j-layout-template-json volume, mount, or CLASSPATH when logging is unset", func() {
+			cluster := &kcv1alpha1.Cluster{
+				Spec: kcv1alpha1.ClusterSpec{
+					Config: map[string]string{"bootstrap.servers": "localhost:9092"},
+				},
+			}
+			dep := deploymentForCluster(cluster)
+
+			for i := range dep.Spec.Template.Spec.Volumes {
+				Expect(*dep.Spec.Template.Spec.Volumes[i].Name).NotTo(Equal(log4jLayoutVolName))
+			}
+			for i := range dep.Spec.Template.Spec.Containers[0].VolumeMounts {
+				Expect(*dep.Spec.Template.Spec.Containers[0].VolumeMounts[i].Name).NotTo(Equal(log4jLayoutVolName))
+			}
+
+			envVars := dep.Spec.Template.Spec.Containers[0].Env
+			for i := range envVars {
+				Expect(*envVars[i].Name).NotTo(Equal(classpathEnvName))
+			}
+		})
+
+		It("should have CLASSPATH with log4j-layout-template-json when log4jJsonLayout is enabled", func() {
 			cluster := newCluster(nil)
 			dep := deploymentForCluster(cluster)
 
@@ -1142,6 +1170,20 @@ var _ = Describe("Cluster Resources", func() {
 			Expect(log4jConfig).To(ContainSubstring("CONSOLE"))
 			Expect(log4jConfig).NotTo(ContainSubstring("File"))
 			Expect(log4jConfig).NotTo(ContainSubstring("RollingFile"))
+		})
+
+		It("should use PatternLayout instead of JsonTemplateLayout when log4jJsonLayout is not set", func() {
+			cluster := &kcv1alpha1.Cluster{
+				Spec: kcv1alpha1.ClusterSpec{
+					Config: map[string]string{"bootstrap.servers": "localhost:9092"},
+				},
+			}
+			cm, err := configMapForCluster(cluster)
+			Expect(err).NotTo(HaveOccurred())
+
+			log4jConfig := cm.Data["connect-log4j2.properties"]
+			Expect(log4jConfig).To(ContainSubstring("PatternLayout"))
+			Expect(log4jConfig).NotTo(ContainSubstring("JsonTemplateLayout"))
 		})
 
 		It("should include monitorInterval=30 in log4j2 properties for hot-reload", func() {

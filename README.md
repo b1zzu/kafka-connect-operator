@@ -274,6 +274,9 @@ spec:
       - name: io.debezium
         level: DEBUG
 
+    # Enable structured JSON logging (optional, disabled by default, see "Logging" section below)
+    log4jJsonLayout: {}
+
   # Maximum number of pods that can be unavailable during voluntary disruptions (optional)
   # Used in the PodDisruptionBudget. Can be an absolute number (e.g. 1) or a percentage (e.g. "25%").
   # Defaults to 1 when not set.
@@ -566,7 +569,7 @@ spec:
 
 ## Logging
 
-The operator preconfigures Kafka Connect to log in structured JSON format directly to standard output (console). This uses the [Log4j2 `JsonTemplateLayout`](https://logging.apache.org/log4j/2.x/manual/json-template-layout.html) with the default ECS template, so logs are ready for ingestion by log aggregation systems (e.g. Elasticsearch, Loki, CloudWatch) without additional parsing.
+The operator preconfigures Kafka Connect to log directly to standard output (console) using a plain Log4j2 `PatternLayout`.
 
 File-based logging is disabled — the container only writes to stdout/stderr, following the twelve-factor app methodology for containers.
 
@@ -593,6 +596,33 @@ spec:
 Supported levels: `OFF`, `FATAL`, `ERROR`, `WARN`, `INFO`, `DEBUG`, `TRACE`, `ALL`.
 
 Logging changes are applied **without restarting pods**. The operator sets `monitorInterval=30` in the Log4j2 configuration, so Log4j2 automatically reloads the config file every 30 seconds when the mounted ConfigMap is updated by Kubernetes. This means changes to `spec.logging` (both root level and per-logger overrides) take effect within 30 seconds with zero downtime.
+
+### JSON Logging
+
+Set `spec.logging.log4jJsonLayout: {}` to switch the console appender to the [Log4j2 `JsonTemplateLayout`](https://logging.apache.org/log4j/2.x/manual/json-template-layout.html) with the default ECS template, so logs are ready for ingestion by log aggregation systems (e.g. Elasticsearch, Loki, CloudWatch) without additional parsing:
+
+```yaml
+apiVersion: kafka-connect.b1zzu.net/v1alpha1
+kind: Cluster
+metadata:
+  name: my-cluster
+spec:
+  logging:
+    log4jJsonLayout: {}
+  config:
+    bootstrap.servers: my-cluster-kafka-bootstrap:9092
+    # ...
+```
+
+Enabling `log4jJsonLayout` mounts the `log4j-layout-template-json` JAR (via an OCI image volume) and adds it to the `CLASSPATH`. You can override the image and pull policy:
+
+```yaml
+spec:
+  logging:
+    log4jJsonLayout:
+      image: ghcr.io/b1zzu/kafka-connect-operator/log4j-layout-template-json:2.26.1
+      pullPolicy: IfNotPresent
+```
 
 ## Development
 
