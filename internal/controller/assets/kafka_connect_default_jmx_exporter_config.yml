@@ -1,0 +1,79 @@
+# Default JMX Exporter configuration for Kafka Connect.
+#
+# Curated subset of the Grafana Kafka Connect mixin rules:
+# https://github.com/grafana/jsonnet-libs/blob/master/kafka-mixin/jmx/kafka_connect.yml
+#
+# Only Kafka Connect worker/connector/task metrics are enabled by default.
+# Producer/consumer client metrics and Confluent Replicator metrics from the
+# upstream mixin are intentionally left out; set spec.metrics.jmxExporter.config
+# to a custom configuration if you need them.
+lowercaseOutputName: true
+lowercaseOutputLabelNames: true
+whitelistObjectNames:
+  # Engine Application Versioning Info
+  - kafka.connect:type=app-info,client-id=*
+  # Connect Worker Rebalancing info
+  - kafka.connect:type=connect-worker-rebalance-metrics
+  # Connect Co-ordinator Info
+  - kafka.connect:type=connect-coordinator-metrics,*
+  - kafka.connect:type=connect-metrics,*
+  # Worker level metrics for the aggregate as well as per connector level
+  - kafka.connect:type=connect-worker-metrics
+  - kafka.connect:type=connect-worker-metrics,*
+  # Engine Connector Versioning Info
+  - kafka.connect:type=connector-metrics,*
+  # Task level metrics for every connector running in the current node.
+  - kafka.connect:type=*-task-metrics,*
+  - kafka.connect:type=task-error-metrics,*
+rules:
+  # "kafka.connect:type=app-info,client-id=*"
+  - pattern: 'kafka.connect<type=app-info, client-id=(.+)><>(.+): (.+)'
+    name: 'kafka_connect_app_info'
+    value: 1
+    labels:
+      client-id: '$1'
+      $2: '$3'
+    type: UNTYPED
+  # kafka.connect:type=connect-worker-rebalance-metrics
+  - pattern: 'kafka.connect<type=connect-worker-rebalance-metrics><>([^:]+)'
+    name: 'kafka_connect_connect_worker_rebalance_metrics_$1'
+  # kafka.connect:type=connect-coordinator-metrics,client-id=*
+  # kafka.connect:type=connect-metrics,client-id=*
+  - pattern: 'kafka.connect<type=(.+), client-id=(.+)><>([^:]+)'
+    name: kafka_connect_$1_$3
+    labels:
+      client_id: $2
+  # kafka.connect:type=connect-worker-metrics
+  - pattern: 'kafka.connect<type=connect-worker-metrics><>([^:]+)'
+    name: kafka_connect_connect_worker_metrics_$1
+    labels:
+      connector: 'aggregate'
+  # kafka.connect:type=connect-worker-metrics,connector=*
+  - pattern: 'kafka.connect<type=connect-worker-metrics, connector=(.+)><>([^:]+)'
+    name: kafka_connect_connect_worker_metrics_$2
+    labels:
+      connector: $1
+  # kafka.connect:type=connector-metrics,connector=*
+  - pattern: 'kafka.connect<type=connector-metrics, connector=(.+)><>(.+): (.+)'
+    value: 1
+    name: kafka_connect_connector_metrics
+    labels:
+      connector: $1
+      $2: $3
+    type: UNTYPED
+  # kafka.connect:type=*-task-metrics,*
+  # kafka.connect:type=source-task-metrics,connector=*,task=*
+  # kafka.connect:type=sink-task-metrics,connector=*,task=*
+  # kafka.connect:type=connector-task-metrics,connector=*,task=*
+  - pattern: "kafka.connect<type=(.+)-task-metrics, connector=(.+), task=(\\d+)><>(.+): (.+)"
+    name: kafka_connect_$1_task_metrics_$4
+    labels:
+      connector: '$2'
+      task: '$3'
+  # kafka.connect:type=task-error-metrics,*
+  # kafka.connect:type=task-error-metrics,connector=*,task=*
+  - pattern: "kafka.connect<type=task-error-metrics, connector=(.+), task=(\\d+)><>([^:]+)"
+    name: kafka_connect_task_error_metrics_$3
+    labels:
+      connector: '$1'
+      task: '$2'

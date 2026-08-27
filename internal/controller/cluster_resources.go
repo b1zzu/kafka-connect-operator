@@ -15,6 +15,7 @@ limitations under the License.
 package controller
 
 import (
+	_ "embed"
 	"fmt"
 	"maps"
 	"slices"
@@ -33,6 +34,9 @@ import (
 	policyv1ac "k8s.io/client-go/applyconfigurations/policy/v1"
 )
 
+//go:embed assets/kafka_connect_default_jmx_exporter_config.yml
+var defaultJMXExporterConfig string
+
 func marshalProperties(props map[string]string) string {
 	keys := make([]string, 0, len(props))
 	for k := range props {
@@ -47,6 +51,10 @@ func marshalProperties(props map[string]string) string {
 	return b.String()
 }
 
+func log4jJsonLayoutEnabled(cluster *kcv1alpha1.Cluster) bool {
+	return cluster.Spec.Logging != nil && cluster.Spec.Logging.Log4jJsonLayout != nil
+}
+
 func log4j2ConfigForCluster(cluster *kcv1alpha1.Cluster) map[string]string {
 	rootLevel := "INFO"
 	if cluster.Spec.Logging != nil && cluster.Spec.Logging.Level != nil {
@@ -58,9 +66,15 @@ func log4j2ConfigForCluster(cluster *kcv1alpha1.Cluster) map[string]string {
 		"appender.0.type":              "Console",
 		"appender.0.name":              "CONSOLE",
 		"appender.0.direct":            "true", //nolint:goconst
-		"appender.0.layout.type":       "JsonTemplateLayout",
 		"rootLogger.level":             rootLevel,
 		"rootLogger.appenderRef.0.ref": "CONSOLE",
+	}
+
+	if log4jJsonLayoutEnabled(cluster) {
+		props["appender.0.layout.type"] = "JsonTemplateLayout"
+	} else {
+		props["appender.0.layout.type"] = "PatternLayout"
+		props["appender.0.layout.pattern"] = "[%d] %p %m (%c:%L)%n"
 	}
 
 	if cluster.Spec.Logging != nil {
@@ -139,26 +153,29 @@ func deploymentForCluster(cluster *kcv1alpha1.Cluster) *appsv1ac.DeploymentApply
 			WithReadOnly(true))
 	}
 
-	// Build log4j-layout-template-json volume and mount (always present)
-	log4jLayoutImage := "ghcr.io/b1zzu/kafka-connect-operator/log4j-layout-template-json:2.26.1"
-	if cluster.Spec.Logging != nil && cluster.Spec.Logging.Log4jJsonLayout != nil &&
-		cluster.Spec.Logging.Log4jJsonLayout.Image != nil {
-		log4jLayoutImage = *cluster.Spec.Logging.Log4jJsonLayout.Image
-	}
+	// Build log4j-layout-template-json volume and mount (only when log4jJsonLayout is enabled)
+	jsonLayoutEnabled := log4jJsonLayoutEnabled(cluster)
+	var log4jLayoutVolume *corev1ac.VolumeApplyConfiguration
+	var log4jLayoutMount *corev1ac.VolumeMountApplyConfiguration
+	if jsonLayoutEnabled {
+		log4jLayoutImage := "ghcr.io/b1zzu/kafka-connect-operator/log4j-layout-template-json:2.26.1"
+		if cluster.Spec.Logging.Log4jJsonLayout.Image != nil {
+			log4jLayoutImage = *cluster.Spec.Logging.Log4jJsonLayout.Image
+		}
 
-	imgVolSrc := corev1ac.ImageVolumeSource().WithReference(log4jLayoutImage)
-	if cluster.Spec.Logging != nil && cluster.Spec.Logging.Log4jJsonLayout != nil &&
-		cluster.Spec.Logging.Log4jJsonLayout.PullPolicy != nil {
-		imgVolSrc = imgVolSrc.WithPullPolicy(*cluster.Spec.Logging.Log4jJsonLayout.PullPolicy)
-	}
+		imgVolSrc := corev1ac.ImageVolumeSource().WithReference(log4jLayoutImage)
+		if cluster.Spec.Logging.Log4jJsonLayout.PullPolicy != nil {
+			imgVolSrc = imgVolSrc.WithPullPolicy(*cluster.Spec.Logging.Log4jJsonLayout.PullPolicy)
+		}
 
-	log4jLayoutVolume := corev1ac.Volume().
-		WithName("log4j-layout-template-json").
-		WithImage(imgVolSrc)
-	log4jLayoutMount := corev1ac.VolumeMount().
-		WithName("log4j-layout-template-json").
-		WithMountPath("/opt/log4j-layout-template-json").
-		WithReadOnly(true)
+		log4jLayoutVolume = corev1ac.Volume().
+			WithName("log4j-layout-template-json").
+			WithImage(imgVolSrc)
+		log4jLayoutMount = corev1ac.VolumeMount().
+			WithName("log4j-layout-template-json").
+			WithMountPath("/opt/log4j-layout-template-json").
+			WithReadOnly(true)
+	}
 
 	// Build JMX exporter volume and mount (conditional)
 	var jmxVolumes []*corev1ac.VolumeApplyConfiguration
@@ -210,30 +227,38 @@ func deploymentForCluster(cluster *kcv1alpha1.Cluster) *appsv1ac.DeploymentApply
 
 	name := cluster.Name
 
-	volumes := append([]*corev1ac.VolumeApplyConfiguration{
+	volumes := []*corev1ac.VolumeApplyConfiguration{
 		corev1ac.Volume().
 			WithName("config").
 			WithConfigMap(corev1ac.ConfigMapVolumeSource().
 				WithName(configMapNameForCluster(cluster))),
-		log4jLayoutVolume,
+	}
+	if jsonLayoutEnabled {
+		volumes = append(volumes, log4jLayoutVolume)
+	}
+	volumes = append(volumes,
 		corev1ac.Volume().
 			WithName("logs").
-			WithEmptyDir(corev1ac.EmptyDirVolumeSource()),
-	}, pluginVolumes...)
+			WithEmptyDir(corev1ac.EmptyDirVolumeSource()))
+	volumes = append(volumes, pluginVolumes...)
 	volumes = append(volumes, libraryVolumes...)
 	volumes = append(volumes, secretVolumes...)
 	volumes = append(volumes, jmxVolumes...)
 
-	volumeMounts := append([]*corev1ac.VolumeMountApplyConfiguration{
+	volumeMounts := []*corev1ac.VolumeMountApplyConfiguration{
 		corev1ac.VolumeMount().
 			WithName("config").
 			WithMountPath("/config").
 			WithReadOnly(true),
-		log4jLayoutMount,
+	}
+	if jsonLayoutEnabled {
+		volumeMounts = append(volumeMounts, log4jLayoutMount)
+	}
+	volumeMounts = append(volumeMounts,
 		corev1ac.VolumeMount().
 			WithName("logs").
-			WithMountPath("/opt/kafka/logs"),
-	}, pluginMounts...)
+			WithMountPath("/opt/kafka/logs"))
+	volumeMounts = append(volumeMounts, pluginMounts...)
 	volumeMounts = append(volumeMounts, libraryMounts...)
 	volumeMounts = append(volumeMounts, secretMounts...)
 	volumeMounts = append(volumeMounts, jmxMounts...)
@@ -256,13 +281,17 @@ func deploymentForCluster(cluster *kcv1alpha1.Cluster) *appsv1ac.DeploymentApply
 			WithValue("-javaagent:/opt/jmx-exporter/jmx_prometheus_javaagent.jar=9404:/config/jmx-exporter-config.yaml"))
 	}
 	classpathEntries := make([]string, 0, 1+len(cluster.Spec.Libraries))
-	classpathEntries = append(classpathEntries, "/opt/log4j-layout-template-json/*")
+	if jsonLayoutEnabled {
+		classpathEntries = append(classpathEntries, "/opt/log4j-layout-template-json/*")
+	}
 	for _, library := range cluster.Spec.Libraries {
 		classpathEntries = append(classpathEntries, fmt.Sprintf("/libraries/%s/*", library.Name))
 	}
-	envVars = append(envVars, corev1ac.EnvVar().
-		WithName("CLASSPATH").
-		WithValue(strings.Join(classpathEntries, ":")))
+	if len(classpathEntries) > 0 {
+		envVars = append(envVars, corev1ac.EnvVar().
+			WithName("CLASSPATH").
+			WithValue(strings.Join(classpathEntries, ":")))
+	}
 
 	// Build ports
 	ports := []*corev1ac.ContainerPortApplyConfiguration{
@@ -412,7 +441,11 @@ func configMapForCluster(cluster *kcv1alpha1.Cluster) (*corev1ac.ConfigMapApplyC
 		"connect-log4j2.properties": marshalProperties(log4j2ConfigForCluster(cluster)),
 	}
 	if cluster.Spec.Metrics != nil && cluster.Spec.Metrics.JMXExporter != nil {
-		data["jmx-exporter-config.yaml"] = "rules:\n- pattern: \".*\"\n"
+		if cluster.Spec.Metrics.JMXExporter.Config != nil {
+			data["jmx-exporter-config.yaml"] = *cluster.Spec.Metrics.JMXExporter.Config
+		} else {
+			data["jmx-exporter-config.yaml"] = defaultJMXExporterConfig
+		}
 	}
 
 	name := configMapNameForCluster(cluster)

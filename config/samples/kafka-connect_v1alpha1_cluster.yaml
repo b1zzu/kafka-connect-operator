@@ -19,6 +19,9 @@ spec:
   metrics:
     jmxExporter: {}
 
+  logging:
+    log4jJsonLayout: {}
+
   # secrets:
   #   - name: my-keystore
   #     secretRef:

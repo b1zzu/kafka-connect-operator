@@ -188,7 +188,7 @@ var _ = Describe("Cluster Controller", func() {
 			Expect(cm.Data).To(HaveKey("connect.properties"))
 			Expect(cm.Data["connect.properties"]).To(ContainSubstring("bootstrap.servers"))
 			Expect(cm.Data).To(HaveKey("connect-log4j2.properties"))
-			Expect(cm.Data["connect-log4j2.properties"]).To(ContainSubstring("JsonTemplateLayout"))
+			Expect(cm.Data["connect-log4j2.properties"]).To(ContainSubstring("PatternLayout"))
 
 			By("checking the Deployment")
 			dep := &appsv1.Deployment{}

@@ -1102,6 +1102,11 @@ spec:
                     description: JMXExporter configures Prometheus metrics using the
                       JMX Exporter Java agent.
                     properties:
+                      config:
+                        description: |-
+                          Config is a custom JMX Exporter YAML configuration. When unset, the
+                          operator's built-in default configuration is used.
+                        type: string
                       image:
                         default: ghcr.io/b1zzu/kafka-connect-operator/jmx-exporter:1.6.0
                         description: Image is the OCI image containing the JMX Exporter
