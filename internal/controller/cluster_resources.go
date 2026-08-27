@@ -164,7 +164,7 @@ func deploymentForCluster(cluster *kcv1alpha1.Cluster) *appsv1ac.DeploymentApply
 	var jmxVolumes []*corev1ac.VolumeApplyConfiguration
 	var jmxMounts []*corev1ac.VolumeMountApplyConfiguration
 	if cluster.Spec.Metrics != nil && cluster.Spec.Metrics.JMXExporter != nil {
-		jmxImage := "ghcr.io/b1zzu/kafka-connect-operator/jmx-exporter:v1.6.0"
+		jmxImage := "ghcr.io/b1zzu/kafka-connect-operator/jmx-exporter:1.6.0"
 		if cluster.Spec.Metrics.JMXExporter.Image != nil {
 			jmxImage = *cluster.Spec.Metrics.JMXExporter.Image
 		}

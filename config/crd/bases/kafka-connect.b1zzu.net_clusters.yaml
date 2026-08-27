@@ -1103,7 +1103,7 @@ spec:
                       JMX Exporter Java agent.
                     properties:
                       image:
-                        default: ghcr.io/b1zzu/kafka-connect-operator/jmx-exporter:1.5.0
+                        default: ghcr.io/b1zzu/kafka-connect-operator/jmx-exporter:1.6.0
                         description: Image is the OCI image containing the JMX Exporter
                           Java agent JAR.
                         type: string

@@ -51,7 +51,8 @@
         "ARG JMX_EXPORTER_VERSION=(?<currentValue>\\S+)"
       ],
       "depNameTemplate": "prometheus/jmx_exporter",
-      "datasourceTemplate": "github-releases"
+      "datasourceTemplate": "github-releases",
+      "extractVersion": "^v?(?<version>.+)$"
     },
     {
       "customType": "regex",
