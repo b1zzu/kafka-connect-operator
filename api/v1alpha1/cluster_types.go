@@ -218,6 +218,11 @@ type JMXExporterConfig struct {
 	// +optional
 	// +kubebuilder:validation:Enum=Always;Never;IfNotPresent
 	PullPolicy *corev1.PullPolicy `json:"pullPolicy,omitempty"`
+
+	// Config is a custom JMX Exporter YAML configuration. When unset, the
+	// operator's built-in default configuration is used.
+	// +optional
+	Config *string `json:"config,omitempty"`
 }
 
 // LoggingConfig defines the log4j2 logging configuration for the Kafka Connect cluster.

@@ -15,6 +15,7 @@ limitations under the License.
 package controller
 
 import (
+	_ "embed"
 	"fmt"
 	"maps"
 	"slices"
@@ -32,6 +33,9 @@ import (
 	netv1ac "k8s.io/client-go/applyconfigurations/networking/v1"
 	policyv1ac "k8s.io/client-go/applyconfigurations/policy/v1"
 )
+
+//go:embed assets/kafka_connect_default_jmx_exporter_config.yml
+var defaultJMXExporterConfig string
 
 func marshalProperties(props map[string]string) string {
 	keys := make([]string, 0, len(props))
@@ -437,7 +441,11 @@ func configMapForCluster(cluster *kcv1alpha1.Cluster) (*corev1ac.ConfigMapApplyC
 		"connect-log4j2.properties": marshalProperties(log4j2ConfigForCluster(cluster)),
 	}
 	if cluster.Spec.Metrics != nil && cluster.Spec.Metrics.JMXExporter != nil {
-		data["jmx-exporter-config.yaml"] = "rules:\n- pattern: \".*\"\n"
+		if cluster.Spec.Metrics.JMXExporter.Config != nil {
+			data["jmx-exporter-config.yaml"] = *cluster.Spec.Metrics.JMXExporter.Config
+		} else {
+			data["jmx-exporter-config.yaml"] = defaultJMXExporterConfig
+		}
 	}
 
 	name := configMapNameForCluster(cluster)

@@ -11,7 +11,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.20.0
+    controller-gen.kubebuilder.io/version: v0.21.0
   name: clusters.kafka-connect.b1zzu.net
 spec:
   group: kafka-connect.b1zzu.net
@@ -973,8 +973,13 @@ spec:
                 description: DeploymentAnnotations defines custom annotations for
                   the Deployment
                 type: object
+              deploymentLabels:
+                additionalProperties:
+                  type: string
+                description: DeploymentLabels defines custom labels for the Deployment
+                type: object
               image:
-                default: docker.io/apache/kafka:4.2.0
+                default: docker.io/apache/kafka:4.3.1
                 description: Image used to deploy Kafka Connect, it should be based
                   on docker.io/apache/kafka
                 type: string
@@ -1035,6 +1040,25 @@ spec:
                     - TRACE
                     - ALL
                     type: string
+                  log4jJsonLayout:
+                    description: |-
+                      Log4jJsonLayout configures the Log4j JSON Template Layout library
+                      used for structured JSON logging output.
+                    properties:
+                      image:
+                        default: ghcr.io/b1zzu/kafka-connect-operator/log4j-layout-template-json:2.26.1
+                        description: Image is the OCI image containing the Log4j JSON
+                          Template Layout JAR.
+                        type: string
+                      pullPolicy:
+                        description: Pull policy for the Log4j JSON Template Layout
+                          image.
+                        enum:
+                        - Always
+                        - Never
+                        - IfNotPresent
+                        type: string
+                    type: object
                   loggers:
                     description: Loggers is a list of logger level overrides for specific
                       logger names.
@@ -1086,8 +1110,13 @@ spec:
                     description: JMXExporter configures Prometheus metrics using the
                       JMX Exporter Java agent.
                     properties:
+                      config:
+                        description: |-
+                          Config is a custom JMX Exporter YAML configuration. When unset, the
+                          operator's built-in default configuration is used.
+                        type: string
                       image:
-                        default: ghcr.io/b1zzu/kafka-connect-operator/jmx-exporter:1.5.0
+                        default: ghcr.io/b1zzu/kafka-connect-operator/jmx-exporter:1.6.0
                         description: Image is the OCI image containing the JMX Exporter
                           Java agent JAR.
                         type: string
@@ -1589,7 +1618,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.20.0
+    controller-gen.kubebuilder.io/version: v0.21.0
   name: connectors.kafka-connect.b1zzu.net
 spec:
   group: kafka-connect.b1zzu.net
@@ -1603,6 +1632,9 @@ spec:
   - additionalPrinterColumns:
     - jsonPath: .status.connector.state
       name: State
+      type: string
+    - jsonPath: .status.conditions[?(@.type=='Ready')].status
+      name: Ready
       type: string
     name: v1alpha1
     schema:
@@ -1817,11 +1849,30 @@ spec:
                   or task restart.
                 format: date-time
                 type: string
+              lastStateTransitionAt:
+                description: lastStateTransitionAt is the timestamp of the last triggered
+                  state transition
+                format: date-time
+                type: string
+              lastUpdatedAt:
+                description: lastUpdatedAt is the timestamp of the last update (include
+                  when it was created) of the the connector.
+                format: date-time
+                type: string
               restartCount:
                 description: restartCount is the total number of restarts performed
                   on this connector.
                 format: int32
                 type: integer
+              stateTransitionTo:
+                description: |-
+                  stateTransitionTo is set to the target state when the connector is trying to transition from
+                  one state to another, otherwise is nil.
+                enum:
+                - running
+                - paused
+                - stopped
+                type: string
               tasks:
                 description: tasks represents the state of individual connector tasks
                   as reported by Kafka Connect.
@@ -2275,7 +2326,7 @@ spec:
         - --health-probe-bind-address=:8081
         command:
         - /manager
-        image: ghcr.io/b1zzu/kafka-connect-operator:0.3.0
+        image: ghcr.io/b1zzu/kafka-connect-operator:latest
         livenessProbe:
           httpGet:
             path: /healthz
@@ -2283,7 +2334,10 @@ spec:
           initialDelaySeconds: 15
           periodSeconds: 20
         name: manager
-        ports: []
+        ports:
+        - containerPort: 8081
+          name: health
+          protocol: TCP
         readinessProbe:
           httpGet:
             path: /readyz

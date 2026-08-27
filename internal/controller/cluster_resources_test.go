@@ -1214,6 +1214,18 @@ var _ = Describe("Cluster Resources", func() {
 			Expect(cm.Data).To(HaveKey("connect.properties"))
 		})
 
+		It("should use the custom JMX exporter config when specified", func() {
+			customConfig := "rules:\n- pattern: \".*\"\n"
+			cluster := newClusterWithMetrics(&kcv1alpha1.MetricsConfig{
+				JMXExporter: &kcv1alpha1.JMXExporterConfig{
+					Config: &customConfig,
+				},
+			})
+			cm, err := configMapForCluster(cluster)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(cm.Data["jmx-exporter-config.yaml"]).To(Equal(customConfig))
+		})
+
 		It("should default rootLogger.level to INFO when logging is nil", func() {
 			cluster := newCluster(nil)
 			cm, err := configMapForCluster(cluster)

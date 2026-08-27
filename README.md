@@ -513,6 +513,8 @@ or connector-specific properties) in the Connector's `spec.config` as needed.
 
 Prometheus metrics collection is opt-in via `spec.metrics.jmxExporter`. When enabled, the operator attaches the [Prometheus JMX Exporter](https://github.com/prometheus/jmx_exporter) Java agent to the Kafka Connect process. Metrics are exposed on port `9404` at `/metrics`.
 
+By default, a curated subset of the [Grafana Kafka Connect mixin](https://github.com/grafana/jsonnet-libs/blob/master/kafka-mixin/jmx/kafka_connect.yml) rules is used, covering Kafka Connect worker, connector, and task metrics. This default configuration works out-of-the-box with the mixin's [Connect Overview dashboard](https://github.com/grafana/jsonnet-libs/blob/master/kafka-mixin/dashboards_out/connect-overview.json).
+
 **Enable metrics:**
 
 ```yaml
@@ -536,6 +538,17 @@ spec:
     jmxExporter:
       image: custom-registry/jmx-exporter:1.5.0
       pullPolicy: Always
+```
+
+**Use a custom JMX Exporter configuration:**
+
+```yaml
+spec:
+  metrics:
+    jmxExporter:
+      config: |
+        rules:
+        - pattern: ".*"
 ```
 
 **Prometheus pod annotations:**
