@@ -220,3 +220,56 @@ func LabelSelector(ls *metav1.LabelSelector) *metav1ac.LabelSelectorApplyConfigu
 	}
 	return ac
 }
+
+func Probe(p *corev1.Probe) *corev1ac.ProbeApplyConfiguration {
+	if p == nil {
+		return nil
+	}
+
+	ac := &corev1ac.ProbeApplyConfiguration{
+		InitialDelaySeconds:           &p.InitialDelaySeconds,
+		TimeoutSeconds:                &p.TimeoutSeconds,
+		PeriodSeconds:                 &p.PeriodSeconds,
+		SuccessThreshold:              &p.SuccessThreshold,
+		FailureThreshold:              &p.FailureThreshold,
+		TerminationGracePeriodSeconds: p.TerminationGracePeriodSeconds,
+	}
+
+	if p.Exec != nil {
+		ac.Exec = &corev1ac.ExecActionApplyConfiguration{
+			Command: p.Exec.Command,
+		}
+	}
+
+	if p.HTTPGet != nil {
+		ac.HTTPGet = &corev1ac.HTTPGetActionApplyConfiguration{
+			Path:        &p.HTTPGet.Path,
+			Port:        &p.HTTPGet.Port,
+			Host:        &p.HTTPGet.Host,
+			Scheme:      &p.HTTPGet.Scheme,
+			HTTPHeaders: make([]corev1ac.HTTPHeaderApplyConfiguration, len(p.HTTPGet.HTTPHeaders)),
+		}
+		for i, header := range p.HTTPGet.HTTPHeaders {
+			ac.HTTPGet.HTTPHeaders[i] = corev1ac.HTTPHeaderApplyConfiguration{
+				Name:  &header.Name,
+				Value: &header.Value,
+			}
+		}
+	}
+
+	if p.TCPSocket != nil {
+		ac.TCPSocket = &corev1ac.TCPSocketActionApplyConfiguration{
+			Port: &p.TCPSocket.Port,
+			Host: &p.TCPSocket.Host,
+		}
+	}
+
+	if p.GRPC != nil {
+		ac.GRPC = &corev1ac.GRPCActionApplyConfiguration{
+			Port:    &p.GRPC.Port,
+			Service: p.GRPC.Service,
+		}
+	}
+
+	return ac
+}
