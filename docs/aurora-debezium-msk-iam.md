@@ -174,7 +174,7 @@ Create the Aurora PostgreSQL cluster with IAM authentication enabled:
 aws rds create-db-cluster \
   --db-cluster-identifier ${DEMO_NAME} \
   --engine aurora-postgresql \
-  --engine-version 16.6 \
+  --engine-version 18 \
   --master-username postgres \
   --manage-master-user-password \
   --vpc-security-group-ids ${RDS_SG} \
@@ -208,17 +208,18 @@ export RDS_ENDPOINT=$(aws rds describe-db-clusters \
 echo "Aurora Endpoint: ${RDS_ENDPOINT}"
 ```
 
-Aurora PostgreSQL supports logical replication natively. The `rds.logical_replication` parameter must be set to `1`. Create a custom parameter group:
+Aurora PostgreSQL supports logical replication natively. The `rds.logical_replication` parameter must be set to `1`. Debezium also opens a replication connection (to create the replication slot and stream the WAL), and by default Aurora only accepts password authentication on replication connections. To allow IAM authentication on them as well, set `rds.iam_auth_for_replication` to `1` (dynamic, no reboot needed). Create a custom parameter group:
 
 ```bash
 aws rds create-db-cluster-parameter-group \
   --db-cluster-parameter-group-name ${DEMO_NAME} \
-  --db-parameter-group-family aurora-postgresql16 \
+  --db-parameter-group-family aurora-postgresql18 \
   --description "Enable logical replication"
 
 aws rds modify-db-cluster-parameter-group \
   --db-cluster-parameter-group-name ${DEMO_NAME} \
-  --parameters "ParameterName=rds.logical_replication,ParameterValue=1,ApplyMethod=pending-reboot"
+  --parameters "ParameterName=rds.logical_replication,ParameterValue=1,ApplyMethod=pending-reboot" \
+               "ParameterName=rds.iam_auth_for_replication,ParameterValue=1,ApplyMethod=immediate"
 
 aws rds modify-db-cluster \
   --db-cluster-identifier ${DEMO_NAME} \
@@ -262,6 +263,10 @@ CREATE TABLE orders (
 -- Grant SELECT for the initial snapshot
 GRANT SELECT ON ALL TABLES IN SCHEMA public TO debezium;
 
+-- Create the publication used by Debezium (the debezium user has no
+-- CREATE privilege on the database, so it cannot create it itself)
+CREATE PUBLICATION dbz_publication FOR TABLE public.orders;
+
 -- Insert sample data
 INSERT INTO orders (customer, product, quantity) VALUES
   ('alice', 'widget', 5),
@@ -269,7 +274,7 @@ INSERT INTO orders (customer, product, quantity) VALUES
 SQL
 ```
 
-> The `rds_iam` role allows IAM authentication. The `rds_replication` role is required for Debezium to create a replication slot and read the WAL.
+> The `rds_iam` role allows IAM authentication. The `rds_replication` role is required for Debezium to create a replication slot and read the WAL. Without the `rds.iam_auth_for_replication` parameter the connector fails with `FATAL: password authentication failed for user "debezium"` / `User "debezium" has no password assigned`, because replication connections are matched by the `md5` rule in `pg_hba.conf`.
 
 ### Setup IAM for IRSA
 
@@ -327,14 +332,14 @@ Create the IRSA service account using eksctl. This sets up the OIDC provider (if
 
 ```bash
 eksctl create iamserviceaccount \
-  --name ${DEMO_NAME}-connect \
+  --name ${DEMO_NAME} \
   --namespace default \
   --cluster ${DEMO_NAME} \
   --region ${AWS_REGION} \
   --attach-policy-arn arn:aws:iam::${AWS_ACCOUNT_ID}:policy/${DEMO_NAME}-kafka-connect \
   --approve
 
-export IRSA_ROLE_ARN=$(kubectl get serviceaccount ${DEMO_NAME}-connect -n default \
+export IRSA_ROLE_ARN=$(kubectl get serviceaccount ${DEMO_NAME} -n default \
   -o jsonpath='{.metadata.annotations.eks\.amazonaws\.com/role-arn}')
 
 echo "IRSA Role ARN: ${IRSA_ROLE_ARN}"
@@ -345,7 +350,7 @@ echo "IRSA Role ARN: ${IRSA_ROLE_ARN}"
 Delete the eksctl-created ServiceAccount since the operator manages its own:
 
 ```bash
-kubectl delete serviceaccount ${DEMO_NAME}-connect -n default
+kubectl delete serviceaccount ${DEMO_NAME} -n default
 ```
 
 ## 3. Setup Kafka Connect
@@ -492,7 +497,7 @@ aws kafka delete-cluster --cluster-arn ${MSK_CLUSTER_ARN}
 
 # Delete the IAM resources
 eksctl delete iamserviceaccount \
-  --name ${DEMO_NAME}-connect \
+  --name ${DEMO_NAME} \
   --namespace default \
   --cluster ${DEMO_NAME} \
   --region ${AWS_REGION}
