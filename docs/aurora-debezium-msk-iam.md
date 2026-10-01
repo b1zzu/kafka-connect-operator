@@ -328,30 +328,64 @@ aws iam create-policy \
   --policy-document file:///tmp/${DEMO_NAME}-policy.json
 ```
 
-Create the IRSA service account using eksctl. This sets up the OIDC provider (if needed), creates the IAM role with the correct trust policy, and creates the Kubernetes ServiceAccount:
+Create the IAM role assumed by the Kafka Connect pods (IRSA). It trusts the EKS OIDC provider, restricted to the ServiceAccount the operator creates for the `Cluster` CR (it has the same name as the `Cluster`, `${DEMO_NAME}`, in the `default` namespace).
 
 ```bash
-eksctl create iamserviceaccount \
-  --name ${DEMO_NAME} \
-  --namespace default \
+export AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query "Account" --output text)
+```
+
+First make sure the cluster has an IAM OIDC provider (this is a no-op if it already exists):
+
+```bash
+eksctl utils associate-iam-oidc-provider \
   --cluster ${DEMO_NAME} \
   --region ${AWS_REGION} \
-  --attach-policy-arn arn:aws:iam::${AWS_ACCOUNT_ID}:policy/${DEMO_NAME}-kafka-connect \
   --approve
 
-export IRSA_ROLE_ARN=$(kubectl get serviceaccount ${DEMO_NAME} -n default \
-  -o jsonpath='{.metadata.annotations.eks\.amazonaws\.com/role-arn}')
+export OIDC_ISSUER=$(aws eks describe-cluster \
+  --name ${DEMO_NAME} \
+  --query "cluster.identity.oidc.issuer" \
+  --output text | sed 's|^https://||')
+```
+
+Create the role with the trust policy and attach the policy created above:
+
+```bash
+cat > /tmp/${DEMO_NAME}-trust-policy.json <<EOF
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": {
+        "Federated": "arn:aws:iam::${AWS_ACCOUNT_ID}:oidc-provider/${OIDC_ISSUER}"
+      },
+      "Action": "sts:AssumeRoleWithWebIdentity",
+      "Condition": {
+        "StringEquals": {
+          "${OIDC_ISSUER}:sub": "system:serviceaccount:default:${DEMO_NAME}",
+          "${OIDC_ISSUER}:aud": "sts.amazonaws.com"
+        }
+      }
+    }
+  ]
+}
+EOF
+
+export IRSA_ROLE_ARN=$(aws iam create-role \
+  --role-name ${DEMO_NAME}-kafka-connect \
+  --assume-role-policy-document file:///tmp/${DEMO_NAME}-trust-policy.json \
+  --query "Role.Arn" \
+  --output text)
+
+aws iam attach-role-policy \
+  --role-name ${DEMO_NAME}-kafka-connect \
+  --policy-arn arn:aws:iam::${AWS_ACCOUNT_ID}:policy/${DEMO_NAME}-kafka-connect
 
 echo "IRSA Role ARN: ${IRSA_ROLE_ARN}"
 ```
 
-> The kafka-connect-operator creates its own ServiceAccount for each Cluster CR. We won't use the ServiceAccount created by `eksctl` directly — we only need the IAM role ARN. The operator's ServiceAccount will be annotated with this role ARN via `serviceAccountAnnotations`.
-
-Delete the eksctl-created ServiceAccount since the operator manages its own:
-
-```bash
-kubectl delete serviceaccount ${DEMO_NAME} -n default
-```
+> The kafka-connect-operator creates its own ServiceAccount for each `Cluster` CR, named after the CR. The trust policy above only allows that ServiceAccount (`default/${DEMO_NAME}`) to assume the role, and the operator annotates it with the role ARN via `serviceAccountAnnotations`.
 
 ## 3. Setup Kafka Connect
 
@@ -402,6 +436,17 @@ spec:
     sasl.jaas.config: "software.amazon.msk.auth.iam.IAMLoginModule required;"
     sasl.client.callback.handler.class: "software.amazon.msk.auth.iam.IAMClientCallbackHandler"
 
+    # Connector producers and admin clients do not inherit the worker's
+    # security settings, they must be repeated with the producer./admin. prefix
+    producer.security.protocol: SASL_SSL
+    producer.sasl.mechanism: AWS_MSK_IAM
+    producer.sasl.jaas.config: "software.amazon.msk.auth.iam.IAMLoginModule required;"
+    producer.sasl.client.callback.handler.class: "software.amazon.msk.auth.iam.IAMClientCallbackHandler"
+    admin.security.protocol: SASL_SSL
+    admin.sasl.mechanism: AWS_MSK_IAM
+    admin.sasl.jaas.config: "software.amazon.msk.auth.iam.IAMLoginModule required;"
+    admin.sasl.client.callback.handler.class: "software.amazon.msk.auth.iam.IAMClientCallbackHandler"
+
     group.id: connect-${DEMO_NAME}
     config.storage.topic: connect-${DEMO_NAME}-configs
     offset.storage.topic: connect-${DEMO_NAME}-offsets
@@ -446,6 +491,10 @@ spec:
     topic.prefix: ${DEMO_NAME}
     schema.include.list: public
     table.include.list: public.orders
+
+    # MSK Serverless does not auto-create topics, let Kafka Connect create them
+    topic.creation.default.replication.factor: "-1"
+    topic.creation.default.partitions: "1"
 EOF
 ```
 
@@ -496,11 +545,11 @@ aws rds delete-db-cluster-parameter-group \
 aws kafka delete-cluster --cluster-arn ${MSK_CLUSTER_ARN}
 
 # Delete the IAM resources
-eksctl delete iamserviceaccount \
-  --name ${DEMO_NAME} \
-  --namespace default \
-  --cluster ${DEMO_NAME} \
-  --region ${AWS_REGION}
+aws iam detach-role-policy \
+  --role-name ${DEMO_NAME}-kafka-connect \
+  --policy-arn arn:aws:iam::${AWS_ACCOUNT_ID}:policy/${DEMO_NAME}-kafka-connect
+aws iam delete-role \
+  --role-name ${DEMO_NAME}-kafka-connect
 aws iam delete-policy \
   --policy-arn arn:aws:iam::${AWS_ACCOUNT_ID}:policy/${DEMO_NAME}-kafka-connect
 
