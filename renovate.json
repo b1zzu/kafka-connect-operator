@@ -26,7 +26,7 @@
       ],
       "depNameTemplate": "org.apache.kafka:connect-file",
       "datasourceTemplate": "maven",
-      "registryUrlTemplate": "https://repo1.maven.org/maven2"
+      "registryUrlTemplate": "https://maven-central.storage-download.googleapis.com/maven2"
     },
     {
       "customType": "regex",
@@ -39,7 +39,7 @@
       ],
       "depNameTemplate": "org.apache.kafka:connect-mirror",
       "datasourceTemplate": "maven",
-      "registryUrlTemplate": "https://repo1.maven.org/maven2"
+      "registryUrlTemplate": "https://maven-central.storage-download.googleapis.com/maven2"
     },
     {
       "customType": "regex",
@@ -106,7 +106,7 @@
       ],
       "depNameTemplate": "io.debezium:debezium-connector-postgres",
       "datasourceTemplate": "maven",
-      "registryUrlTemplate": "https://repo1.maven.org/maven2"
+      "registryUrlTemplate": "https://maven-central.storage-download.googleapis.com/maven2"
     },
     {
       "customType": "regex",
@@ -119,7 +119,7 @@
       ],
       "depNameTemplate": "software.amazon.jdbc:aws-advanced-jdbc-wrapper",
       "datasourceTemplate": "maven",
-      "registryUrlTemplate": "https://repo1.maven.org/maven2"
+      "registryUrlTemplate": "https://maven-central.storage-download.googleapis.com/maven2"
     },
     {
       "customType": "regex",
@@ -132,7 +132,7 @@
       ],
       "depNameTemplate": "org.apache.logging.log4j:log4j-layout-template-json",
       "datasourceTemplate": "maven",
-      "registryUrlTemplate": "https://repo1.maven.org/maven2"
+      "registryUrlTemplate": "https://maven-central.storage-download.googleapis.com/maven2"
     },
     {
       "customType": "regex",
