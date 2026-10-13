@@ -292,6 +292,23 @@ log.Error(err, "Failed to create Pod", "name", name)
 
 **Reference:** https://github.com/kubernetes/community/blob/master/contributors/devel/sig-instrumentation/logging.md#message-style-guidelines
 
+## Comments
+
+Follow [Go Doc Comments](https://go.dev/doc/comment).
+
+- **Self-documenting code**: Code should explain itself through structure and short, clear names. Do not compensate with long names.
+- **Doc comments on public APIs**: Every exported identifier (and every package) gets a doc comment in Go doc format:
+  - Place it directly above the declaration, with no blank line in between.
+  - Write complete sentences, starting with the identifier name: `// ClusterReconciler reconciles a Cluster object.`
+  - Package comments start with `// Package <name> ...`.
+  - Functions say what they return or do, not how. Boolean functions start with "reports whether": `// IsReady reports whether the Connector is running.`
+  - Use the doc comment syntax that `gofmt` understands: blank `//` lines between paragraphs, `# Heading`, `[Name]` links, `-` lists, indented code blocks and `Deprecated:` paragraphs.
+- **Avoid inline comments**: Prefer clearer code over a comment inside a function body or at the end of a line.
+- **Explain hard code**: When code is hard to understand, a comment explains how it works.
+- **Not a regression guard**: Comments are not there to prevent regressions, tests are. Do not add comments like "do not change this, it breaks X", write a test instead.
+- **CRD fields**: Field comments in `api/v1alpha1/*_types.go` become the CRD descriptions shown by `kubectl explain`, so write them for users (what the field does, defaults, constraints) and keep them in sync with the README "Reference" section.
+- **Markers are not prose**: Keep `// +kubebuilder:*` markers in their own comment lines directly after the description, and never delete the scaffold markers.
+
 ## Webhooks (not used today)
 - **Create all types together**: `--defaulting --programmatic-validation --conversion`
 - **When `--force` is used**: Backup custom logic first, then restore after scaffolding
