@@ -292,6 +292,37 @@ log.Error(err, "Failed to create Pod", "name", name)
 
 **Reference:** https://github.com/kubernetes/community/blob/master/contributors/devel/sig-instrumentation/logging.md#message-style-guidelines
 
+## Metrics
+
+**Follow the Prometheus naming and instrumentation best practices:**
+
+- Prefix every metric with `kafka_connect_operator_`
+- `snake_case` names with the base unit as suffix in plural form (`_seconds`, `_bytes`), and `_total` on counters
+- Do not put the label names in the metric name, and do not use `namespace` as a label (Prometheus attaches it to the scraped target): use `resource_namespace` for the namespace of the Cluster or Connector
+- Keep label values low-cardinality: never use error messages, task IDs or URLs
+- Export every known value of a state label on every scrape (`0` when not matching) instead of only the current one, so series do not appear and disappear
+- Initialize counters at `0` when the resource is first reconciled, so `increase()` sees the first event
+- Delete the series of a Connector or Cluster when it is deleted (`DeletePartialMatch`), or build them at scrape time from the cache as the state gauges do
+
+Custom metrics live in `internal/controller/metrics.go`. Counters and histograms are package-level collectors registered in `init()` on the controller-runtime registry, the resource state gauges are built by a collector at scrape time:
+
+```go
+import "sigs.k8s.io/controller-runtime/pkg/metrics"
+
+func init() {
+	metrics.Registry.MustRegister(connectorRestartsTotal, kafkaConnectRequestsTotal)
+}
+```
+
+When adding or changing a metric, update the unit tests in `internal/controller/metrics_test.go`, the e2e spec that scrapes the endpoint in `test/e2e/e2e_test.go`, and the "Operator Metrics" table in `README.md` (use the full metric names).
+
+**Reference:**
+- https://book.kubebuilder.io/reference/metrics.html (publishing custom metrics, securing the endpoint, ServiceMonitor)
+- https://book.kubebuilder.io/reference/metrics-reference.html (default controller-runtime metrics)
+- https://prometheus.io/docs/practices/naming/ (metric and label naming)
+- https://prometheus.io/docs/practices/instrumentation/ (what to instrument, label cardinality, missing series)
+- https://prometheus.io/docs/practices/histograms/ (buckets and native histograms)
+
 ## Comments
 
 Follow [Go Doc Comments](https://go.dev/doc/comment).
@@ -390,6 +421,7 @@ make docker-build docker-push IMG=$IMG
 - **controller-runtime FAQ**: https://github.com/kubernetes-sigs/controller-runtime/blob/main/FAQ.md (common patterns and questions)
 - **Good Practices**: https://book.kubebuilder.io/reference/good-practices.html (why reconciliation is idempotent, status conditions, etc.)
 - **Logging Conventions**: https://github.com/kubernetes/community/blob/master/contributors/devel/sig-instrumentation/logging.md#message-style-guidelines (message style, verbosity levels)
+- **Metrics**: https://book.kubebuilder.io/reference/metrics.html (Kubebuilder) and https://prometheus.io/docs/practices/naming/ (Prometheus naming conventions)
 
 ### API Design & Implementation
 - **API Conventions**: https://github.com/kubernetes/community/blob/master/contributors/devel/sig-architecture/api-conventions.md

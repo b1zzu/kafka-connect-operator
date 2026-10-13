@@ -97,6 +97,13 @@ func NewClient(endpoint string) *Client {
 	}
 }
 
+// WithTransport sets the transport used to send the requests, for example to
+// wrap the default one with instrumentation. It returns the client for chaining.
+func (c *Client) WithTransport(transport http.RoundTripper) *Client {
+	c.client.Transport = transport
+	return c
+}
+
 func (c *Client) GetConnector(ctx context.Context, name string) (*Connector, error) {
 	url := fmt.Sprintf("%s/connectors/%s", c.endpoint, name)
 

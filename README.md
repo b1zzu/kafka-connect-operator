@@ -580,6 +580,24 @@ spec:
       path: /metrics
 ```
 
+### Operator Metrics
+
+The operator itself exposes Prometheus metrics on the HTTPS port `8443` of the `kafka-connect-controller-manager-metrics-service` Service. Besides the default [controller-runtime metrics](https://book.kubebuilder.io/reference/metrics-reference.html) (reconciliations, workqueues, Kubernetes API requests), it exposes the following metrics:
+
+| Metric | Type | Labels | Description |
+|---|---|---|---|
+| `kafka_connect_operator_connector_ready` | gauge | `resource_namespace`, `name`, `cluster`, `status` | `1` for the `status` (`true`, `false`, `unknown`) matching the Connector `Ready` condition, `0` for the other two. A missing condition is `unknown` |
+| `kafka_connect_operator_connector_state` | gauge | `resource_namespace`, `name`, `cluster`, `state` | `1` for the connector state reported by Kafka Connect (`running`, `paused`, `stopped`, `failed`, `unassigned`, `restarting`), `0` for the others. All `0` until the first status sync |
+| `kafka_connect_operator_connector_tasks` | gauge | `resource_namespace`, `name`, `cluster`, `state` | Number of tasks by state (`running`, `paused`, `failed`, `unassigned`, `restarting`), `0` when there are none |
+| `kafka_connect_operator_cluster_available` | gauge | `resource_namespace`, `name` | `1` if the Cluster `Available` condition is `True`, `0` otherwise |
+| `kafka_connect_operator_connector_restarts_total` | counter | `resource_namespace`, `name`, `cluster`, `trigger` | Restart actions performed by the operator; `trigger` is `manual` (restart annotation) or `auto` (failed connector or tasks). One `auto` action may restart the connector and several tasks |
+| `kafka_connect_operator_kafka_connect_requests_total` | counter | `resource_namespace`, `cluster`, `method`, `code` | Requests to the Kafka Connect REST API; `code` is `error` when no response was received |
+| `kafka_connect_operator_kafka_connect_request_duration_seconds` | histogram | `resource_namespace`, `cluster`, `method` | Latency of the Kafka Connect REST API requests (classic and native histogram) |
+
+The `resource_namespace` label is the namespace of the Connector or Cluster. It is not called `namespace` so that it does not collide with the `namespace` label Prometheus attaches to the scraped target (the namespace of the operator).
+
+To scrape them, enable `../prometheus` in `config/default/kustomization.yaml` (requires the Prometheus Operator) and bind the `kafka-connect-metrics-reader` ClusterRole to the Prometheus ServiceAccount.
+
 ## Logging
 
 The operator preconfigures Kafka Connect to log directly to standard output (console) using a plain Log4j2 `PatternLayout`.
