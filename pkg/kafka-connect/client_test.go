@@ -15,7 +15,6 @@ limitations under the License.
 package kafkaconnect
 
 import (
-	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -45,7 +44,7 @@ func TestCreateConnector_Success(t *testing.T) {
 	defer server.Close()
 
 	client := NewClient(server.URL)
-	err := client.CreateConnector(context.Background(), &Connector{
+	err := client.CreateConnector(t.Context(), &Connector{
 		Name: "my-connector",
 		Config: map[string]string{
 			"connector.class": "com.example.Connector",
@@ -71,7 +70,7 @@ func TestCreateConnector_Error(t *testing.T) {
 	defer server.Close()
 
 	client := NewClient(server.URL)
-	err := client.CreateConnector(context.Background(), &Connector{Name: "my-connector"})
+	err := client.CreateConnector(t.Context(), &Connector{Name: "my-connector"})
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -93,7 +92,7 @@ func TestRestartConnector_Success(t *testing.T) {
 	defer server.Close()
 
 	client := NewClient(server.URL)
-	err := client.RestartConnector(context.Background(), "my-connector")
+	err := client.RestartConnector(t.Context(), "my-connector")
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
@@ -106,7 +105,7 @@ func TestRestartConnector_204(t *testing.T) {
 	defer server.Close()
 
 	client := NewClient(server.URL)
-	err := client.RestartConnector(context.Background(), "my-connector")
+	err := client.RestartConnector(t.Context(), "my-connector")
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
@@ -120,7 +119,7 @@ func TestRestartConnector_Error(t *testing.T) {
 	defer server.Close()
 
 	client := NewClient(server.URL)
-	err := client.RestartConnector(context.Background(), "my-connector")
+	err := client.RestartConnector(t.Context(), "my-connector")
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -142,7 +141,7 @@ func TestRestartTask_Success(t *testing.T) {
 	defer server.Close()
 
 	client := NewClient(server.URL)
-	err := client.RestartTask(context.Background(), "my-connector", 2)
+	err := client.RestartTask(t.Context(), "my-connector", 2)
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
@@ -155,7 +154,7 @@ func TestRestartTask_204(t *testing.T) {
 	defer server.Close()
 
 	client := NewClient(server.URL)
-	err := client.RestartTask(context.Background(), "my-connector", 0)
+	err := client.RestartTask(t.Context(), "my-connector", 0)
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
@@ -169,7 +168,7 @@ func TestRestartTask_Error(t *testing.T) {
 	defer server.Close()
 
 	client := NewClient(server.URL)
-	err := client.RestartTask(context.Background(), "my-connector", 1)
+	err := client.RestartTask(t.Context(), "my-connector", 1)
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -203,7 +202,7 @@ func TestGetConnectorOffsets_Success(t *testing.T) {
 	defer server.Close()
 
 	client := NewClient(server.URL)
-	offsets, err := client.GetConnectorOffsets(context.Background(), "my-connector")
+	offsets, err := client.GetConnectorOffsets(t.Context(), "my-connector")
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
@@ -220,7 +219,7 @@ func TestGetConnectorOffsets_Error(t *testing.T) {
 	defer server.Close()
 
 	client := NewClient(server.URL)
-	_, err := client.GetConnectorOffsets(context.Background(), "my-connector")
+	_, err := client.GetConnectorOffsets(t.Context(), "my-connector")
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -255,7 +254,7 @@ func TestPatchConnectorOffsets_Success(t *testing.T) {
 	defer server.Close()
 
 	client := NewClient(server.URL)
-	err := client.PatchConnectorOffsets(context.Background(), "my-connector", offsets)
+	err := client.PatchConnectorOffsets(t.Context(), "my-connector", offsets)
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
@@ -269,7 +268,7 @@ func TestPatchConnectorOffsets_Error(t *testing.T) {
 	defer server.Close()
 
 	client := NewClient(server.URL)
-	err := client.PatchConnectorOffsets(context.Background(), "my-connector", &ConnectorOffsets{})
+	err := client.PatchConnectorOffsets(t.Context(), "my-connector", &ConnectorOffsets{})
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -288,7 +287,7 @@ func TestDeleteConnectorOffsets_Success(t *testing.T) {
 	defer server.Close()
 
 	client := NewClient(server.URL)
-	err := client.DeleteConnectorOffsets(context.Background(), "my-connector")
+	err := client.DeleteConnectorOffsets(t.Context(), "my-connector")
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
@@ -302,7 +301,7 @@ func TestDeleteConnectorOffsets_Error(t *testing.T) {
 	defer server.Close()
 
 	client := NewClient(server.URL)
-	err := client.DeleteConnectorOffsets(context.Background(), "my-connector")
+	err := client.DeleteConnectorOffsets(t.Context(), "my-connector")
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -325,7 +324,7 @@ func TestGetConnectorStatus_Success(t *testing.T) {
 	defer server.Close()
 
 	client := NewClient(server.URL)
-	status, err := client.GetConnectorStatus(context.Background(), "my-connector")
+	status, err := client.GetConnectorStatus(t.Context(), "my-connector")
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
@@ -344,7 +343,7 @@ func TestGetConnectorStatus_404_ReturnsNilWithoutError(t *testing.T) {
 	defer server.Close()
 
 	client := NewClient(server.URL)
-	status, err := client.GetConnectorStatus(context.Background(), "missing-connector")
+	status, err := client.GetConnectorStatus(t.Context(), "missing-connector")
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
@@ -361,7 +360,7 @@ func TestGetConnectorStatus_Error(t *testing.T) {
 	defer server.Close()
 
 	client := NewClient(server.URL)
-	status, err := client.GetConnectorStatus(context.Background(), "my-connector")
+	status, err := client.GetConnectorStatus(t.Context(), "my-connector")
 	if status != nil {
 		t.Fatalf("expected nil status, got: %+v", status)
 	}

@@ -363,8 +363,7 @@ var _ = Describe("Connector Controller", func() {
 	}
 
 	Context("Reconciliation loop", func() {
-		It("should return no error and no requeue for a deleted resource", func() {
-			ctx := context.Background()
+		It("should return no error and no requeue for a deleted resource", func(ctx SpecContext) {
 			r, _ := newReconciler(nil)
 
 			result, err := r.Reconcile(ctx, reconcile.Request{
@@ -374,13 +373,12 @@ var _ = Describe("Connector Controller", func() {
 			Expect(result).To(Equal(ctrl.Result{}))
 		})
 
-		It("should initialize status conditions on first reconcile", func() {
-			ctx := context.Background()
+		It("should initialize status conditions on first reconcile", func(ctx SpecContext) {
 			name := "init-conditions"
 			nn := nameFor(name)
 
 			createConnector(ctx, name, "my-cluster", map[string]string{"connector.class": "FileStreamSource"}, nil)
-			DeferCleanup(func() {
+			DeferCleanup(func(ctx SpecContext) {
 				c := getConnector(ctx, nn)
 				if c != nil {
 					c.Finalizers = nil
@@ -408,8 +406,7 @@ var _ = Describe("Connector Controller", func() {
 			Expect(connector.Finalizers).To(BeEmpty())
 		})
 
-		It("should complete the full happy path with connector created and running", func() {
-			ctx := context.Background()
+		It("should complete the full happy path with connector created and running", func(ctx SpecContext) {
 			name := "happy-path"
 			nn := nameFor(name)
 
@@ -417,7 +414,7 @@ var _ = Describe("Connector Controller", func() {
 			DeferCleanup(mock.Close)
 
 			createConnector(ctx, name, "my-cluster", map[string]string{"connector.class": "FileStreamSource"}, nil)
-			DeferCleanup(func() {
+			DeferCleanup(func(ctx SpecContext) {
 				c := getConnector(ctx, nn)
 				if c != nil {
 					c.Finalizers = nil
@@ -453,8 +450,7 @@ var _ = Describe("Connector Controller", func() {
 			Expect(createdAt.Time).To(BeTemporally("~", time.Now(), 5*time.Second))
 		})
 
-		It("should delete the connector and remove the finalizer", func() {
-			ctx := context.Background()
+		It("should delete the connector and remove the finalizer", func(ctx SpecContext) {
 			name := "delete-connector"
 			nn := nameFor(name)
 
@@ -493,8 +489,7 @@ var _ = Describe("Connector Controller", func() {
 			Expect(getConnector(ctx, nn)).To(BeNil())
 		})
 
-		It("should restart the connector when restart annotation is set and remove it", func() {
-			ctx := context.Background()
+		It("should restart the connector when restart annotation is set and remove it", func(ctx SpecContext) {
 			name := "restart-connector"
 			nn := nameFor(name)
 
@@ -504,7 +499,7 @@ var _ = Describe("Connector Controller", func() {
 			createConnector(ctx, name, "my-cluster", map[string]string{"connector.class": "FileStreamSource"}, map[string]string{
 				"kafka-connect.b1zzu.net/restart": "true",
 			})
-			DeferCleanup(func() {
+			DeferCleanup(func(ctx SpecContext) {
 				c := getConnector(ctx, nn)
 				if c != nil {
 					c.Finalizers = nil
@@ -537,8 +532,7 @@ var _ = Describe("Connector Controller", func() {
 			Expect(mock.restartedConnectors).To(ContainElement(name))
 		})
 
-		It("should emit warning event and return error when manual restart fails", func() {
-			ctx := context.Background()
+		It("should emit warning event and return error when manual restart fails", func(ctx SpecContext) {
 			name := "restart-fail"
 			nn := nameFor(name)
 
@@ -549,7 +543,7 @@ var _ = Describe("Connector Controller", func() {
 			createConnector(ctx, name, "my-cluster", map[string]string{"connector.class": "FileStreamSource"}, map[string]string{
 				"kafka-connect.b1zzu.net/restart": "true",
 			})
-			DeferCleanup(func() {
+			DeferCleanup(func(ctx SpecContext) {
 				c := getConnector(ctx, nn)
 				if c != nil {
 					c.Finalizers = nil
@@ -576,8 +570,7 @@ var _ = Describe("Connector Controller", func() {
 			Expect(connector.Status.RestartCount).To(Equal(int32(0)))
 		})
 
-		It("should auto-restart failed connector, emit event, and update restart status", func() {
-			ctx := context.Background()
+		It("should auto-restart failed connector, emit event, and update restart status", func(ctx SpecContext) {
 			name := "auto-restart-connector"
 			nn := nameFor(name)
 
@@ -585,7 +578,7 @@ var _ = Describe("Connector Controller", func() {
 			DeferCleanup(mock.Close)
 
 			createConnector(ctx, name, "my-cluster", map[string]string{"connector.class": "FileStreamSource"}, nil)
-			DeferCleanup(func() {
+			DeferCleanup(func(ctx SpecContext) {
 				c := getConnector(ctx, nn)
 				if c != nil {
 					c.Finalizers = nil
@@ -638,8 +631,7 @@ var _ = Describe("Connector Controller", func() {
 			Expect(mock.restartedConnectors).To(ContainElement(name))
 		})
 
-		It("should emit warning event and return no-error when auto-restart fails", func() {
-			ctx := context.Background()
+		It("should emit warning event and return no-error when auto-restart fails", func(ctx SpecContext) {
 			name := "auto-restart-fail"
 			nn := nameFor(name)
 
@@ -647,7 +639,7 @@ var _ = Describe("Connector Controller", func() {
 			DeferCleanup(mock.Close)
 
 			createConnector(ctx, name, "my-cluster", map[string]string{"connector.class": "FileStreamSource"}, nil)
-			DeferCleanup(func() {
+			DeferCleanup(func(ctx SpecContext) {
 				c := getConnector(ctx, nn)
 				if c != nil {
 					c.Finalizers = nil
@@ -679,8 +671,7 @@ var _ = Describe("Connector Controller", func() {
 			Expect(connector.Status.RestartCount).To(Equal(int32(0)))
 		})
 
-		It("should update LastUpdatedAt when connector config is changed", func() {
-			ctx := context.Background()
+		It("should update LastUpdatedAt when connector config is changed", func(ctx SpecContext) {
 			name := "config-update"
 			nn := nameFor(name)
 
@@ -688,7 +679,7 @@ var _ = Describe("Connector Controller", func() {
 			DeferCleanup(mock.Close)
 
 			createConnector(ctx, name, "my-cluster", map[string]string{"connector.class": "FileStreamSource", "key": "value1"}, nil)
-			DeferCleanup(func() {
+			DeferCleanup(func(ctx SpecContext) {
 				c := getConnector(ctx, nn)
 				if c != nil {
 					c.Finalizers = nil
@@ -726,8 +717,7 @@ var _ = Describe("Connector Controller", func() {
 			Expect(isAfterOrEqual).To(BeTrue(), "LastUpdatedAt should be >= first update time")
 		})
 
-		It("should skip auto-restart when connector was recently created", func() {
-			ctx := context.Background()
+		It("should skip auto-restart when connector was recently created", func(ctx SpecContext) {
 			name := "skip-restart-recent"
 			nn := nameFor(name)
 
@@ -735,7 +725,7 @@ var _ = Describe("Connector Controller", func() {
 			DeferCleanup(mock.Close)
 
 			createConnector(ctx, name, "my-cluster", map[string]string{"connector.class": "FileStreamSource"}, nil)
-			DeferCleanup(func() {
+			DeferCleanup(func(ctx SpecContext) {
 				c := getConnector(ctx, nn)
 				if c != nil {
 					c.Finalizers = nil
@@ -780,8 +770,7 @@ var _ = Describe("Connector Controller", func() {
 			Expect(mock.restartedConnectors).NotTo(ContainElement(name))
 		})
 
-		It("should auto-restart failed connector after backoff has elapsed", func() {
-			ctx := context.Background()
+		It("should auto-restart failed connector after backoff has elapsed", func(ctx SpecContext) {
 			name := "restart-after-backoff"
 			nn := nameFor(name)
 
@@ -789,7 +778,7 @@ var _ = Describe("Connector Controller", func() {
 			DeferCleanup(mock.Close)
 
 			createConnector(ctx, name, "my-cluster", map[string]string{"connector.class": "FileStreamSource"}, nil)
-			DeferCleanup(func() {
+			DeferCleanup(func(ctx SpecContext) {
 				c := getConnector(ctx, nn)
 				if c != nil {
 					c.Finalizers = nil
@@ -845,8 +834,7 @@ var _ = Describe("Connector Controller", func() {
 			}
 		}
 
-		It("should track the transition and emit a terminal event once the connector reaches the paused state", func() {
-			ctx := context.Background()
+		It("should track the transition and emit a terminal event once the connector reaches the paused state", func(ctx SpecContext) {
 			name := "state-transition-pause"
 			nn := nameFor(name)
 
@@ -857,7 +845,7 @@ var _ = Describe("Connector Controller", func() {
 				ClusterRef: corev1.LocalObjectReference{Name: "my-cluster"},
 				Config:     map[string]string{"connector.class": "FileStreamSource"},
 			})
-			DeferCleanup(func() { cleanupConnector(ctx, nn) })
+			DeferCleanup(func(ctx SpecContext) { cleanupConnector(ctx, nn) })
 
 			r, recorder := newReconciler(mock)
 
@@ -890,8 +878,7 @@ var _ = Describe("Connector Controller", func() {
 			Expect(drainEvents(recorder)).To(ContainElement(ContainSubstring("Paused")))
 		})
 
-		It("should refuse to pause a stopped connector and emit a CannotPause warning event", func() {
-			ctx := context.Background()
+		It("should refuse to pause a stopped connector and emit a CannotPause warning event", func(ctx SpecContext) {
 			name := "state-transition-cannot-pause"
 			nn := nameFor(name)
 
@@ -903,7 +890,7 @@ var _ = Describe("Connector Controller", func() {
 				Config:     map[string]string{"connector.class": "FileStreamSource"},
 				State:      kafkaconnectv1alpha1.ConnectorStateStopped,
 			})
-			DeferCleanup(func() { cleanupConnector(ctx, nn) })
+			DeferCleanup(func(ctx SpecContext) { cleanupConnector(ctx, nn) })
 
 			r, recorder := newReconciler(mock)
 
@@ -929,8 +916,7 @@ var _ = Describe("Connector Controller", func() {
 			Expect(mock.connectorStates[name]).To(Equal(connectorStatusStopped))
 		})
 
-		It("should skip re-issuing the state change while a transition is already in-flight within the backoff window", func() {
-			ctx := context.Background()
+		It("should skip re-issuing the state change while a transition is already in-flight within the backoff window", func(ctx SpecContext) {
 			name := "state-transition-backoff"
 			nn := nameFor(name)
 
@@ -941,7 +927,7 @@ var _ = Describe("Connector Controller", func() {
 				ClusterRef: corev1.LocalObjectReference{Name: "my-cluster"},
 				Config:     map[string]string{"connector.class": "FileStreamSource"},
 			})
-			DeferCleanup(func() { cleanupConnector(ctx, nn) })
+			DeferCleanup(func(ctx SpecContext) { cleanupConnector(ctx, nn) })
 
 			// Long backoff window so a second transition attempt is suppressed
 			recorder := events.NewFakeRecorder(10)
@@ -1170,8 +1156,7 @@ var _ = Describe("Connector Controller", func() {
 			}
 		}
 
-		It("should be a no-op when no annotation is set", func() {
-			ctx := context.Background()
+		It("should be a no-op when no annotation is set", func(ctx SpecContext) {
 			name := "offsets-noop"
 			nn := nameFor(name)
 
@@ -1179,7 +1164,7 @@ var _ = Describe("Connector Controller", func() {
 			DeferCleanup(mock.Close)
 
 			createConnector(ctx, name, "my-cluster", map[string]string{"connector.class": "FileStreamSource"}, nil)
-			DeferCleanup(func() { cleanupConnector(ctx, nn) })
+			DeferCleanup(func(ctx SpecContext) { cleanupConnector(ctx, nn) })
 
 			r, _ := newReconciler(mock)
 
@@ -1195,8 +1180,7 @@ var _ = Describe("Connector Controller", func() {
 			Expect(connector.Annotations).NotTo(HaveKey(offsetsAnnotation))
 		})
 
-		It("should export offsets to a new ConfigMap and remove annotation", func() {
-			ctx := context.Background()
+		It("should export offsets to a new ConfigMap and remove annotation", func(ctx SpecContext) {
 			name := "offsets-export"
 			nn := nameFor(name)
 
@@ -1222,7 +1206,7 @@ var _ = Describe("Connector Controller", func() {
 					ConfigMapRef: corev1.LocalObjectReference{Name: "offsets-export-cm"},
 				},
 			})
-			DeferCleanup(func() {
+			DeferCleanup(func(ctx SpecContext) {
 				cleanupConnector(ctx, nn)
 				cm := &corev1.ConfigMap{}
 				if err := k8sClient.Get(ctx, client.ObjectKey{Name: "offsets-export-cm", Namespace: "default"}, cm); err == nil {
@@ -1255,8 +1239,7 @@ var _ = Describe("Connector Controller", func() {
 			Expect(drainEvents(recorder)).To(ContainElement(ContainSubstring("ExportedOffsets")))
 		})
 
-		It("should emit warning and remove annotation when exportOffsets is missing", func() {
-			ctx := context.Background()
+		It("should emit warning and remove annotation when exportOffsets is missing", func(ctx SpecContext) {
 			name := "offsets-export-no-spec"
 			nn := nameFor(name)
 
@@ -1270,7 +1253,7 @@ var _ = Describe("Connector Controller", func() {
 				Config:     map[string]string{"connector.class": "FileStreamSource"},
 				// No ExportOffsets set
 			})
-			DeferCleanup(func() { cleanupConnector(ctx, nn) })
+			DeferCleanup(func(ctx SpecContext) { cleanupConnector(ctx, nn) })
 
 			r, recorder := newReconciler(mock)
 
@@ -1285,8 +1268,7 @@ var _ = Describe("Connector Controller", func() {
 			Expect(drainEvents(recorder)).To(ContainElement(ContainSubstring("ErrorExportOffsets")))
 		})
 
-		It("should import offsets when connector is stopped", func() {
-			ctx := context.Background()
+		It("should import offsets when connector is stopped", func(ctx SpecContext) {
 			name := "offsets-import"
 			nn := nameFor(name)
 
@@ -1305,7 +1287,7 @@ var _ = Describe("Connector Controller", func() {
 				},
 			}
 			Expect(k8sClient.Create(ctx, cm)).To(Succeed())
-			DeferCleanup(func() {
+			DeferCleanup(func(ctx SpecContext) {
 				cleanupConnector(ctx, nn)
 				_ = k8sClient.Delete(ctx, cm)
 			})
@@ -1345,8 +1327,7 @@ var _ = Describe("Connector Controller", func() {
 			Expect(drainEvents(recorder)).To(ContainElement(ContainSubstring("ImportedOffsets")))
 		})
 
-		It("should emit warning and keep annotation when importing but connector is not stopped", func() {
-			ctx := context.Background()
+		It("should emit warning and keep annotation when importing but connector is not stopped", func(ctx SpecContext) {
 			name := "offsets-import-notstop"
 			nn := nameFor(name)
 
@@ -1363,7 +1344,7 @@ var _ = Describe("Connector Controller", func() {
 				},
 			}
 			Expect(k8sClient.Create(ctx, cm)).To(Succeed())
-			DeferCleanup(func() {
+			DeferCleanup(func(ctx SpecContext) {
 				cleanupConnector(ctx, nn)
 				_ = k8sClient.Delete(ctx, cm)
 			})
@@ -1393,8 +1374,7 @@ var _ = Describe("Connector Controller", func() {
 			Expect(drainEvents(recorder)).To(ContainElement(ContainSubstring("ErrorImportOffsets")))
 		})
 
-		It("should reset offsets when connector is stopped", func() {
-			ctx := context.Background()
+		It("should reset offsets when connector is stopped", func(ctx SpecContext) {
 			name := "offsets-reset"
 			nn := nameFor(name)
 
@@ -1418,7 +1398,7 @@ var _ = Describe("Connector Controller", func() {
 				Config:     map[string]string{"connector.class": "FileStreamSource"},
 				State:      kafkaconnectv1alpha1.ConnectorStateStopped,
 			})
-			DeferCleanup(func() { cleanupConnector(ctx, nn) })
+			DeferCleanup(func(ctx SpecContext) { cleanupConnector(ctx, nn) })
 
 			r, recorder := newReconciler(mock)
 
@@ -1443,8 +1423,7 @@ var _ = Describe("Connector Controller", func() {
 			Expect(drainEvents(recorder)).To(ContainElement(ContainSubstring("ResetOffsets")))
 		})
 
-		It("should emit warning and keep annotation when resetting but connector is not stopped", func() {
-			ctx := context.Background()
+		It("should emit warning and keep annotation when resetting but connector is not stopped", func(ctx SpecContext) {
 			name := "offsets-reset-notstop"
 			nn := nameFor(name)
 
@@ -1458,7 +1437,7 @@ var _ = Describe("Connector Controller", func() {
 				Config:     map[string]string{"connector.class": "FileStreamSource"},
 				State:      kafkaconnectv1alpha1.ConnectorStateRunning,
 			})
-			DeferCleanup(func() { cleanupConnector(ctx, nn) })
+			DeferCleanup(func(ctx SpecContext) { cleanupConnector(ctx, nn) })
 
 			r, recorder := newReconciler(mock)
 
@@ -1556,8 +1535,7 @@ var _ = Describe("Connector Controller", func() {
 	})
 
 	Context("When the pause-reconciliation annotation is set", func() {
-		It("should skip reconciliation and not initialize status conditions", func() {
-			ctx := context.Background()
+		It("should skip reconciliation and not initialize status conditions", func(ctx SpecContext) {
 			name := "connector-paused"
 			nn := nameFor(name)
 
@@ -1570,7 +1548,7 @@ var _ = Describe("Connector Controller", func() {
 				ClusterRef: corev1.LocalObjectReference{Name: "my-cluster"},
 				Config:     map[string]string{"connector.class": "FileStreamSource"},
 			})
-			DeferCleanup(func() {
+			DeferCleanup(func(ctx SpecContext) {
 				c := getConnector(ctx, nn)
 				if c != nil {
 					c.Finalizers = nil
