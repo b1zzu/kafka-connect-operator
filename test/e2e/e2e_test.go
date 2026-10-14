@@ -425,6 +425,44 @@ var _ = Describe("Manager", Ordered, func() {
 			Eventually(verifyMetrics, 3*time.Minute, 10*time.Second).Should(Succeed())
 		})
 
+		It("should expose the operator metrics for the Cluster and the Connector", func() {
+			// The metrics ClusterRoleBinding was created by the "metrics endpoint" spec above.
+			token, err := serviceAccountToken()
+			Expect(err).NotTo(HaveOccurred())
+
+			By("curling the operator metrics endpoint")
+			var metricsOutput string
+			verifyMetrics := func(g Gomega) {
+				cmd := exec.Command("kubectl", "run", "curl-operator-metrics",
+					"--restart=Never", "--rm", "-i",
+					"--image=curlimages/curl:latest",
+					"-n", "default",
+					"--", "curl", "-sfk", "-H", "Authorization: Bearer "+token,
+					fmt.Sprintf("https://%s.%s.svc.cluster.local:8443/metrics", metricsServiceName, namespace))
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred(), "Failed to curl the operator metrics endpoint")
+				metricsOutput = output
+
+				g.Expect(output).To(ContainSubstring(
+					`kafka_connect_operator_cluster_available{name="my-cluster-connect",resource_namespace="default"} 1`))
+				g.Expect(output).To(ContainSubstring(
+					`kafka_connect_operator_connector_ready{cluster="my-cluster-connect",name="my-connector",` +
+						`resource_namespace="default",status="true"} 1`))
+				g.Expect(output).To(ContainSubstring(
+					`kafka_connect_operator_connector_state{cluster="my-cluster-connect",name="my-connector",` +
+						`resource_namespace="default",state="running"} 1`))
+				g.Expect(output).To(ContainSubstring(
+					`kafka_connect_operator_connector_restarts_total{cluster="my-cluster-connect",name="my-connector",` +
+						`resource_namespace="default",trigger="manual"} `))
+				g.Expect(output).To(ContainSubstring(
+					`kafka_connect_operator_kafka_connect_requests_total{cluster="my-cluster-connect",code="200"`))
+			}
+			Eventually(verifyMetrics, 3*time.Minute, 10*time.Second).Should(Succeed())
+
+			By("verifying the Kafka Connect request latency is recorded")
+			Expect(metricsOutput).To(ContainSubstring("kafka_connect_operator_kafka_connect_request_duration_seconds_count"))
+		})
+
 		It("should track connector state transitions through a start delay, stop, and resume cycle", func() {
 			By("creating the start-delayed test connector")
 			cmd := exec.Command("kubectl", "apply", "-f",

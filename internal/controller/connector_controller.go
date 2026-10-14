@@ -25,6 +25,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -118,6 +119,12 @@ func (r *ConnectorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	connector, err = r.initializeStatusConditions(ctx, connector)
 	if err != nil || connector == nil {
 		return ctrl.Result{}, err
+	}
+
+	// Export the restart counters from the start, so increase() sees the first restart
+	if connector.DeletionTimestamp.IsZero() {
+		connectorRestarts(connector, metricsRestartTriggerManual)
+		connectorRestarts(connector, metricsRestartTriggerAuto)
 	}
 
 	for _, reconcile := range []connectorReconcileFunc{
@@ -451,6 +458,7 @@ func (r *ConnectorReconciler) reconcileConnectorRestart(ctx context.Context, con
 	now := metav1.Now()
 	connector.Status.LastRestartAt = &now
 	connector.Status.RestartCount++
+	connectorRestarts(connector, metricsRestartTriggerManual).Inc()
 	if err := r.Status().Update(ctx, connector); err != nil {
 		return nil, fmt.Errorf("failed to update connector status after restart: %w", err)
 	}
@@ -818,6 +826,7 @@ func (r *ConnectorReconciler) restartFailedConnectorAndTasks(
 		now := metav1.Now()
 		connector.Status.LastRestartAt = &now
 		connector.Status.RestartCount++
+		connectorRestarts(connector, metricsRestartTriggerAuto).Inc()
 	}
 	return nil
 }
@@ -884,6 +893,8 @@ func (r *ConnectorReconciler) reconcileConnectorFinalizer(ctx context.Context, c
 			return nil, fmt.Errorf("failed to remove finalizer: %w", err)
 		}
 
+		connectorRestartsTotal.DeletePartialMatch(prometheus.Labels{metricsLabelNamespace: connector.Namespace, metricsLabelName: connector.Name})
+
 		// Return nil to stop reconciliation (resource is being deleted)
 		return nil, nil
 	}
@@ -938,7 +949,7 @@ func (r *ConnectorReconciler) recordWarningEvent(connector *kcv1alpha1.Connector
 // clients using the in-cluster service endpoint.
 func NewDefaultKafkaConnectClientFunc(connector *kcv1alpha1.Connector) (*kafkaconnect.Client, error) {
 	endpoint := fmt.Sprintf("http://%s.%s:8083", connector.Spec.ClusterRef.Name, connector.Namespace)
-	return kafkaconnect.NewClient(endpoint), nil
+	return newInstrumentedClient(connector, endpoint), nil
 }
 
 type PortForwardProcess struct {
@@ -999,7 +1010,14 @@ func NewPortForwardKafkaConnectClientFunc(connector *kcv1alpha1.Connector) (*kaf
 
 	// Kubectl port-forward is running from at-least 1 second
 	endpoint := fmt.Sprintf("http://localhost:%d", process.Port)
-	return kafkaconnect.NewClient(endpoint), nil
+	return newInstrumentedClient(connector, endpoint), nil
+}
+
+func newInstrumentedClient(connector *kcv1alpha1.Connector, endpoint string) *kafkaconnect.Client {
+	return kafkaconnect.NewClient(endpoint).WithTransport(&instrumentedTransport{
+		namespace: connector.Namespace,
+		cluster:   connector.Spec.ClusterRef.Name,
+	})
 }
 
 func connectorConfigsEqual(actual, desired map[string]string) bool {
