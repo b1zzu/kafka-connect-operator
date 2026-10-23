@@ -99,8 +99,25 @@ var _ = BeforeSuite(func() {
 })
 
 var _ = AfterSuite(func() {
+	if keepEnvironment() {
+		_, _ = fmt.Fprintf(GinkgoWriter,
+			"A spec failed and %s=true, keeping the e2e environment for debugging. "+
+				"Run 'make cleanup-test-e2e' when done.\n", keepOnFailureEnv)
+		return
+	}
 	teardownCertManager()
 })
+
+// keepOnFailureEnv keeps the e2e environment (Kafka, Connect, operator and CertManager) when a spec fails.
+const keepOnFailureEnv = "E2E_KEEP_ON_FAILURE"
+
+// specFailed records whether any spec of the suite failed.
+var specFailed bool
+
+// keepEnvironment reports whether the e2e environment must be kept for debugging instead of torn down.
+func keepEnvironment() bool {
+	return specFailed && os.Getenv(keepOnFailureEnv) == "true"
+}
 
 // Disable kubectl kuberc by default for test isolation.
 // This prevents local kubectl configurations from affecting test behavior.

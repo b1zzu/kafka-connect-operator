@@ -19,8 +19,12 @@ limitations under the License.
 package e2e
 
 import (
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -105,6 +109,10 @@ var _ = Describe("Manager", Ordered, func() {
 	// After all tests have been executed, clean up by undeploying the controller, uninstalling CRDs,
 	// and deleting the namespace.
 	AfterAll(func() {
+		if keepEnvironment() {
+			return
+		}
+
 		By("deleting sample CRs")
 		cmd := exec.Command("kubectl", "delete", "-k", "config/e2e",
 			"-n", "default", "--ignore-not-found", "--timeout=60s")
@@ -152,6 +160,7 @@ var _ = Describe("Manager", Ordered, func() {
 	// and pod descriptions for debugging.
 	AfterEach(func() {
 		specReport := CurrentSpecReport()
+		specFailed = specFailed || specReport.Failed()
 		if specReport.Failed() {
 			By("Fetching controller manager pod logs")
 			cmd := exec.Command("kubectl", "logs", controllerPodName, "-n", namespace)
@@ -433,14 +442,8 @@ var _ = Describe("Manager", Ordered, func() {
 			By("curling the operator metrics endpoint")
 			var metricsOutput string
 			verifyMetrics := func(g Gomega) {
-				cmd := exec.Command("kubectl", "run", "curl-operator-metrics",
-					"--restart=Never", "--rm", "-i",
-					"--image=curlimages/curl:latest",
-					"-n", "default",
-					"--", "curl", "-sfk", "-H", "Authorization: Bearer "+token,
-					fmt.Sprintf("https://%s.%s.svc.cluster.local:8443/metrics", metricsServiceName, namespace))
-				output, err := utils.Run(cmd)
-				g.Expect(err).NotTo(HaveOccurred(), "Failed to curl the operator metrics endpoint")
+				output, err := scrapeOperatorMetrics(token)
+				g.Expect(err).NotTo(HaveOccurred(), "Failed to scrape the operator metrics endpoint")
 				metricsOutput = output
 
 				g.Expect(output).To(ContainSubstring(
@@ -650,6 +653,67 @@ var _ = Describe("Manager", Ordered, func() {
 // serviceAccountToken returns a token for the specified service account in the given namespace.
 // It uses the Kubernetes TokenRequest API to generate a token by directly sending a request
 // and parsing the resulting token from the API response.
+// scrapeOperatorMetrics forwards the metrics service to a free local port and returns the body of
+// GET /metrics, authenticated with the bearer token.
+func scrapeOperatorMetrics(token string) (string, error) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return "", err
+	}
+	port := listener.Addr().(*net.TCPAddr).Port
+	if err := listener.Close(); err != nil {
+		return "", err
+	}
+
+	forward := exec.Command("kubectl", "port-forward", "-n", namespace,
+		"svc/"+metricsServiceName, fmt.Sprintf("%d:8443", port))
+	if err := forward.Start(); err != nil {
+		return "", err
+	}
+	defer func() {
+		_ = forward.Process.Kill()
+		_ = forward.Wait()
+	}()
+
+	address := fmt.Sprintf("127.0.0.1:%d", port)
+	for range 50 {
+		conn, err := net.Dial("tcp", address)
+		if err == nil {
+			_ = conn.Close()
+			break
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+
+	client := &http.Client{
+		Timeout: 10 * time.Second,
+		Transport: &http.Transport{
+			// The service certificate is not valid for localhost, the same as curl -k.
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
+		},
+	}
+	req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("https://%s/metrics", address), nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+	if resp.StatusCode != http.StatusOK {
+		return string(body), fmt.Errorf("metrics endpoint returned %s", resp.Status)
+	}
+	return string(body), nil
+}
+
 func serviceAccountToken() (string, error) {
 	const tokenRequestRawString = `{
 		"apiVersion": "authentication.k8s.io/v1",
