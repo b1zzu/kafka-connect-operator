@@ -192,7 +192,7 @@ What the suite does (`test/e2e/e2e_suite_test.go`, `test/e2e/e2e_test.go`):
 3. Installs the CRDs and deploys the manager with `make install deploy-e2e` (`config/e2e-manager`, `imagePullPolicy: Never`).
 4. Installs Strimzi and a single-node Kafka cluster `my-cluster` in `default`, then applies `config/e2e`.
 
-Useful variables: `KIND_CLUSTER` (cluster name), `CERT_MANAGER_INSTALL_SKIP=true`, `KUBECTL_KUBERC=true` (keep your kuberc, otherwise it is disabled for the run).
+Useful variables: `KIND_CLUSTER` (cluster name), `CERT_MANAGER_INSTALL_SKIP=true`, `KUBECTL_KUBERC=true` (keep your kuberc, otherwise it is disabled for the run), `E2E_KEEP_ON_FAILURE=true` (when a spec fails, keep Kafka, Connect, the operator and CertManager running for debugging; `make cleanup-test-e2e` removes the cluster afterwards).
 
 To re-run a single spec against the cluster left behind by a failed run, call `go test` directly. The specs are `Ordered` and share state, and the Kafka wait alone can take up to 10 minutes, so raise the Go timeout:
 
