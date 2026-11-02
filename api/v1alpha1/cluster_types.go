@@ -324,8 +324,8 @@ type ConnectorPlugin struct {
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 // +kubebuilder:printcolumn:name="Available",type=string,JSONPath=".status.conditions[?(@.type=='Available')].status"
-// +kubebuilder:printcolumn:name="URL",type=string,JSONPath=".status.url"
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=".metadata.creationTimestamp"
+// +kubebuilder:printcolumn:name="URL",type=string,JSONPath=".status.url",priority=1
 
 // Cluster is the Schema for the clusters API
 type Cluster struct {

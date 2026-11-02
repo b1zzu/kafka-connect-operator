@@ -18,12 +18,13 @@ spec:
     - jsonPath: .status.conditions[?(@.type=='Available')].status
       name: Available
       type: string
-    - jsonPath: .status.url
-      name: URL
-      type: string
     - jsonPath: .metadata.creationTimestamp
       name: Age
       type: date
+    - jsonPath: .status.url
+      name: URL
+      priority: 1
+      type: string
     name: v1alpha1
     schema:
       openAPIV3Schema:
