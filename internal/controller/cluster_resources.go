@@ -368,8 +368,8 @@ func deploymentForCluster(cluster *kcv1alpha1.Cluster) *appsv1ac.DeploymentApply
 		WithTolerations(applycfg.Tolerations(cluster.Spec.Tolerations)...).
 		WithAffinity(applycfg.Affinity(cluster.Spec.Affinity)).
 		WithNodeSelector(cluster.Spec.NodeSelector)
-	if cluster.Spec.PriorityClassName != "" {
-		podSpec.WithPriorityClassName(cluster.Spec.PriorityClassName)
+	if cluster.Spec.PriorityClassName != nil {
+		podSpec.WithPriorityClassName(*cluster.Spec.PriorityClassName)
 	}
 
 	return appsv1ac.Deployment(name, cluster.Namespace).

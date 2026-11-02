@@ -1194,6 +1194,7 @@ spec:
                   PriorityClassName is the name of the PriorityClass assigned to the pods.
                   The PriorityClass must exist in the cluster.
                   When not set, the default priority of the cluster applies.
+                minLength: 1
                 type: string
               replicas:
                 description: Number of Kafka Connect replicas to run

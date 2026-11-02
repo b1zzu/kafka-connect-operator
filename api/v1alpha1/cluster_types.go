@@ -139,7 +139,8 @@ type ClusterSpec struct {
 	// The PriorityClass must exist in the cluster.
 	// When not set, the default priority of the cluster applies.
 	// +optional
-	PriorityClassName string `json:"priorityClassName,omitempty"`
+	// +kubebuilder:validation:MinLength=1
+	PriorityClassName *string `json:"priorityClassName,omitempty"`
 
 	// Resources defines the CPU/memory requests and limits for the Kafka Connect container.
 	// When not set, defaults to requests: {cpu: 250m, memory: 1Gi}, limits: {cpu: 1000m, memory: 4Gi}.

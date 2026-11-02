@@ -907,8 +907,9 @@ var _ = Describe("Cluster Resources", func() {
 		})
 
 		It("should apply the priority class name", func() {
+			priorityClassName := "kafka-connect"
 			cluster := newCluster(nil)
-			cluster.Spec.PriorityClassName = "kafka-connect"
+			cluster.Spec.PriorityClassName = &priorityClassName
 			dep := deploymentForCluster(cluster)
 
 			Expect(dep.Spec.Template.Spec.PriorityClassName).To(HaveValue(Equal("kafka-connect")))
