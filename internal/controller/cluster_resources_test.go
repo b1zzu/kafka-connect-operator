@@ -878,6 +878,27 @@ var _ = Describe("Cluster Resources", func() {
 			Expect(*tols[1].Effect).To(Equal(corev1.TaintEffectNoExecute))
 		})
 
+		It("should not have a node selector when not specified", func() {
+			cluster := newCluster(nil)
+			dep := deploymentForCluster(cluster)
+
+			Expect(dep.Spec.Template.Spec.NodeSelector).To(BeNil())
+		})
+
+		It("should apply the node selector", func() {
+			cluster := newCluster(nil)
+			cluster.Spec.NodeSelector = map[string]string{
+				"kubernetes.io/os":                      "linux",
+				"node-role.kubernetes.io/kafka-connect": "",
+			}
+			dep := deploymentForCluster(cluster)
+
+			Expect(dep.Spec.Template.Spec.NodeSelector).To(Equal(map[string]string{
+				"kubernetes.io/os":                      "linux",
+				"node-role.kubernetes.io/kafka-connect": "",
+			}))
+		})
+
 		It("should have log4j-layout-template-json volume and mount when log4jJsonLayout is enabled", func() {
 			cluster := newCluster(nil)
 			dep := deploymentForCluster(cluster)

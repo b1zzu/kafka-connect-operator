@@ -366,7 +366,8 @@ func deploymentForCluster(cluster *kcv1alpha1.Cluster) *appsv1ac.DeploymentApply
 		WithVolumes(volumes...).
 		WithTopologySpreadConstraints(applycfg.TopologySpreadConstraints(cluster.Spec.TopologySpreadConstraints)...).
 		WithTolerations(applycfg.Tolerations(cluster.Spec.Tolerations)...).
-		WithAffinity(applycfg.Affinity(cluster.Spec.Affinity))
+		WithAffinity(applycfg.Affinity(cluster.Spec.Affinity)).
+		WithNodeSelector(cluster.Spec.NodeSelector)
 
 	return appsv1ac.Deployment(name, cluster.Namespace).
 		WithOwnerReferences(ownerReferenceForCluster(cluster)).
