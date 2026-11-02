@@ -823,6 +823,27 @@ var _ = Describe("Cluster Resources", func() {
 			Expect(prefs[0].PodAffinityTerm.LabelSelector.MatchLabels).To(HaveKeyWithValue("app.kubernetes.io/name", "kafka-connect"))
 		})
 
+		It("should not have imagePullSecrets when not specified", func() {
+			cluster := newCluster(nil)
+			dep := deploymentForCluster(cluster)
+
+			Expect(dep.Spec.Template.Spec.ImagePullSecrets).To(BeEmpty())
+		})
+
+		It("should apply imagePullSecrets", func() {
+			cluster := newCluster(nil)
+			cluster.Spec.ImagePullSecrets = []corev1.LocalObjectReference{
+				{Name: "registry-a"},
+				{Name: "registry-b"},
+			}
+			dep := deploymentForCluster(cluster)
+
+			secrets := dep.Spec.Template.Spec.ImagePullSecrets
+			Expect(secrets).To(HaveLen(2))
+			Expect(*secrets[0].Name).To(Equal("registry-a"))
+			Expect(*secrets[1].Name).To(Equal("registry-b"))
+		})
+
 		It("should not have tolerations when not specified", func() {
 			cluster := newCluster(nil)
 			dep := deploymentForCluster(cluster)

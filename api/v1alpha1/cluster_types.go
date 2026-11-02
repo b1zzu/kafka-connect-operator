@@ -41,6 +41,14 @@ type ClusterSpec struct {
 	// +kubebuilder:default="docker.io/apache/kafka:4.4.0"
 	Image *string `json:"image,omitempty"`
 
+	// ImagePullSecrets is a list of Secrets in the Cluster namespace used to pull the
+	// Kafka Connect image and the OCI image volumes (plugins, libraries, JMX exporter
+	// and JSON layout).
+	// +optional
+	// +listType=map
+	// +listMapKey=name
+	ImagePullSecrets []corev1.LocalObjectReference `json:"imagePullSecrets,omitempty"`
+
 	// Kafka Connect configs: https://kafka.apache.org/41/configuration/kafka-connect-configs/
 	// +optional
 	Config map[string]string `json:"config"`

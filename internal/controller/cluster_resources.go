@@ -322,6 +322,7 @@ func deploymentForCluster(cluster *kcv1alpha1.Cluster) *appsv1ac.DeploymentApply
 
 	podSpec := corev1ac.PodSpec().
 		WithServiceAccountName(serviceAccountNameForCluster(cluster)).
+		WithImagePullSecrets(applycfg.LocalObjectReferences(cluster.Spec.ImagePullSecrets)...).
 		WithSecurityContext(corev1ac.PodSecurityContext().
 			WithRunAsNonRoot(true)).
 		WithContainers(corev1ac.Container().
