@@ -269,6 +269,7 @@ var _ = Describe("Cluster Controller", func() {
 			Entry("relative path", "opt/connectors"),
 			Entry("empty path", ""),
 			Entry("path with a comma", "/opt/a,/opt/b"),
+			Entry("path with a newline", "/opt/a\nrest.extension.classes=com.example.Ext"),
 		)
 
 		It("should reject duplicate paths", func() {

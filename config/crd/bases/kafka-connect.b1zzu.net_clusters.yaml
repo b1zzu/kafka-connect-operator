@@ -44,9 +44,9 @@ spec:
                   AdditionalPluginPaths is a list of directories inside the Kafka Connect container,
                   for example plugins baked into a custom image, that the operator appends to
                   plugin.path after the /plugins/{name} directories of spec.plugins.
-                  Each entry must be an absolute path and must not contain commas.
+                  Each entry must be an absolute path and must not contain commas or control characters.
                 items:
-                  pattern: ^/[^,]*$
+                  pattern: ^/[^,[:cntrl:]]*$
                   type: string
                 type: array
                 x-kubernetes-list-type: set

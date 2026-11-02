@@ -181,7 +181,7 @@ spec:
 
   # Additional directories to add to plugin.path (optional)
   # Appended after the /plugins/{name} directories, e.g. plugins baked into a custom image
-  # Each entry must be an absolute path without commas
+  # Each entry must be an absolute path without commas or control characters
   additionalPluginPaths:
     - /opt/connectors
 
@@ -461,8 +461,8 @@ Optional:
 - `pullPolicy` - one of `Always`, `Never`, `IfNotPresent` (defaults to `Always` for `:latest` tags, `IfNotPresent` otherwise)
 
 Plugins that are already in the container, for example baked into a custom `spec.image`, are added
-with `spec.additionalPluginPaths`. Each entry must be an absolute path without commas, and entries must
-be unique:
+with `spec.additionalPluginPaths`. Each entry must be an absolute path without commas or control
+characters, and entries must be unique:
 
 ```yaml
 image: registry.example.com/my-kafka-connect:4.2.0
