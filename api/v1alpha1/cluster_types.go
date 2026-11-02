@@ -130,6 +130,11 @@ type ClusterSpec struct {
 	// +optional
 	Tolerations []corev1.Toleration `json:"tolerations,omitempty"`
 
+	// NodeSelector restricts pods to nodes whose labels match all the given key/value pairs.
+	// When not set, pods can be scheduled on any node.
+	// +optional
+	NodeSelector map[string]string `json:"nodeSelector,omitempty"`
+
 	// Resources defines the CPU/memory requests and limits for the Kafka Connect container.
 	// When not set, defaults to requests: {cpu: 250m, memory: 1Gi}, limits: {cpu: 1000m, memory: 4Gi}.
 	// +optional

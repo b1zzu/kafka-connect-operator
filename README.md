@@ -271,6 +271,12 @@ spec:
       value: "kafka"
       effect: "NoSchedule"
 
+  # NodeSelector restricts pods to nodes whose labels match all the given key/value pairs (optional)
+  # See: https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/#nodeselector
+  nodeSelector:
+    kubernetes.io/os: linux
+    node-role.kubernetes.io/kafka-connect: ""
+
   # Log4j2 logging configuration (optional)
   logging:
     # Root logger level (optional, defaults to INFO)

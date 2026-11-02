@@ -1131,6 +1131,13 @@ spec:
                       Default: true
                     type: boolean
                 type: object
+              nodeSelector:
+                additionalProperties:
+                  type: string
+                description: |-
+                  NodeSelector restricts pods to nodes whose labels match all the given key/value pairs.
+                  When not set, pods can be scheduled on any node.
+                type: object
               plugins:
                 description: |-
                   Plugins is a list of Kafka Connect plugins to mount from OCI images.
