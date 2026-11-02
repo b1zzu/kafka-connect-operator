@@ -211,7 +211,7 @@ type MetricsConfig struct {
 type JMXExporterConfig struct {
 	// Image is the OCI image containing the JMX Exporter Java agent JAR.
 	// +optional
-	// +kubebuilder:default="ghcr.io/b1zzu/kafka-connect-operator/jmx-exporter:1.7.0"
+	// +kubebuilder:default="ghcr.io/b1zzu/kafka-connect-library/jmx-exporter:1.7.0"
 	Image *string `json:"image,omitempty"`
 
 	// Pull policy for the JMX Exporter image.
@@ -250,7 +250,7 @@ type LoggingConfig struct {
 type Log4jJsonLayoutConfig struct {
 	// Image is the OCI image containing the Log4j JSON Template Layout JAR.
 	// +optional
-	// +kubebuilder:default="ghcr.io/b1zzu/kafka-connect-operator/log4j-layout-template-json:2.26.1"
+	// +kubebuilder:default="ghcr.io/b1zzu/kafka-connect-library/log4j-layout-template-json:2.26.1"
 	Image *string `json:"image,omitempty"`
 
 	// Pull policy for the Log4j JSON Template Layout image.

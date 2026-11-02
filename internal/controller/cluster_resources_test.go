@@ -413,7 +413,7 @@ var _ = Describe("Cluster Resources", func() {
 				}
 			}
 			Expect(jmxVol).NotTo(BeNil())
-			Expect(*jmxVol.Image.Reference).To(Equal("ghcr.io/b1zzu/kafka-connect-operator/jmx-exporter:1.7.0"))
+			Expect(*jmxVol.Image.Reference).To(Equal("ghcr.io/b1zzu/kafka-connect-library/jmx-exporter:1.7.0"))
 
 			// Mount
 			mounts := dep.Spec.Template.Spec.Containers[0].VolumeMounts
@@ -890,7 +890,7 @@ var _ = Describe("Cluster Resources", func() {
 				}
 			}
 			Expect(log4jVol).NotTo(BeNil())
-			Expect(*log4jVol.Image.Reference).To(Equal("ghcr.io/b1zzu/kafka-connect-operator/log4j-layout-template-json:2.26.1"))
+			Expect(*log4jVol.Image.Reference).To(Equal("ghcr.io/b1zzu/kafka-connect-library/log4j-layout-template-json:2.26.1"))
 
 			// Mount
 			var log4jMount *corev1ac.VolumeMountApplyConfiguration

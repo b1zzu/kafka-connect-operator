@@ -5,16 +5,8 @@ metadata:
 spec:
   plugins:
     - name: sample-plugins
-      image: example.com/kafka-connect-operator/sample-plugins:latest
-      pullPolicy: Never
+      image: ghcr.io/b1zzu/kafka-connect-library/sample-plugins:4.4.0
+      pullPolicy: IfNotPresent
     - name: test
       image: ghcr.io/b1zzu/kafka-connect-test:v0.1.0
       pullPolicy: IfNotPresent
-  logging:
-    log4jJsonLayout:
-      image: example.com/kafka-connect-operator/log4j-layout-template-json:latest
-      pullPolicy: Never
-  metrics:
-    jmxExporter:
-      image: example.com/kafka-connect-operator/jmx-exporter:latest
-      pullPolicy: Never

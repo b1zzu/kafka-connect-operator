@@ -20,7 +20,6 @@ config/rbac/role.yaml                Generated RBAC (DO NOT EDIT)
 config/samples/*                     Example CRs (edit these)
 config/e2e/                          CRs and patches applied by the e2e tests
 config/e2e-manager/                  Manager overlay for e2e (local image, imagePullPolicy: Never)
-containers/*                         Dockerfiles for the OCI images (msk-iam-auth, jmx-exporter, log4j-layout-template-json, sample-plugins, ...)
 test/e2e/                            E2E tests (build tag `e2e`)
 test/utils/                          E2E helpers
 docs/                                Additional guides
@@ -229,7 +228,7 @@ kubectl apply -k config/samples/
 kubectl logs -n kafka-connect-operator deployment/kafka-connect-controller-manager -f
 ```
 
-To publish an image use `make docker-build docker-push IMG=$IMG`. The library/plugin images under `containers/` have their own `docker-build-*` / `docker-push-*` targets (see `make help`).
+To publish an image use `make docker-build docker-push IMG=$IMG`. The plugin and library images (msk-iam-auth, jmx-exporter, log4j-layout-template-json, sample-plugins, ...) live in [kafka-connect-library](https://github.com/b1zzu/kafka-connect-library).
 
 ## API Design
 
