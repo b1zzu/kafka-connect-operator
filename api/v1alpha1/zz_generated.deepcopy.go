@@ -225,6 +225,11 @@ func (in *ClusterSpec) DeepCopyInto(out *ClusterSpec) {
 			(*out)[key] = val
 		}
 	}
+	if in.PriorityClassName != nil {
+		in, out := &in.PriorityClassName, &out.PriorityClassName
+		*out = new(string)
+		**out = **in
+	}
 	if in.Resources != nil {
 		in, out := &in.Resources, &out.Resources
 		*out = new(v1.ResourceRequirements)

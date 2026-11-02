@@ -299,6 +299,10 @@ spec:
     kubernetes.io/os: linux
     node-role.kubernetes.io/kafka-connect: ""
 
+  # Name of the PriorityClass assigned to the pods (optional)
+  # See: https://kubernetes.io/docs/concepts/scheduling-eviction/pod-priority-preemption/
+  priorityClassName: kafka-connect
+
   # Log4j2 logging configuration (optional)
   logging:
     # Root logger level (optional, defaults to INFO)
