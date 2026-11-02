@@ -832,8 +832,6 @@ var _ = Describe("Manager", Ordered, func() {
 				g.Expect(starts).To(Equal(1))
 			}, 20*time.Second, 3*time.Second).Should(Succeed())
 
-			// Delete and verify removal now: the finalizers must be cleared before AfterAll
-			// uninstalls the CRDs and undeploys the controller.
 			By("deleting the connectors and verifying they are fully removed")
 			for _, manifest := range manifests {
 				cmd := exec.Command("kubectl", "delete", "-f", manifest,

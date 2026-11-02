@@ -779,9 +779,11 @@ func (r *ConnectorReconciler) autoRestartFailedConnectorAndTasks(
 
 	autoRestart := connector.Status.AutoRestart
 
-	if status.Connector.State != connectorStatusFailed && countFailedTasks(status.Tasks) == 0 {
+	needsRestart := status.Connector.State == connectorStatusFailed || countFailedTasks(status.Tasks) > 0
+	if !needsRestart {
 		meta.RemoveStatusCondition(&connector.Status.Conditions, typeAutoRestartLimitReached)
-		if autoRestart != nil && time.Since(autoRestart.LastRestartAt.Time) > autoRestartBackoff(autoRestart.RestartCount) {
+		healthy := status.Connector.State == connectorStatusRunning
+		if healthy && autoRestart != nil && time.Since(autoRestart.LastRestartAt.Time) > autoRestartBackoff(autoRestart.RestartCount) {
 			log.Info("Reset auto-restart count of healthy connector", "restartCount", autoRestart.RestartCount)
 			connector.Status.AutoRestart = nil
 		}
@@ -813,6 +815,7 @@ func (r *ConnectorReconciler) autoRestartFailedConnectorAndTasks(
 		})
 		return nil
 	}
+	meta.RemoveStatusCondition(&connector.Status.Conditions, typeAutoRestartLimitReached)
 
 	if autoRestart != nil && time.Since(autoRestart.LastRestartAt.Time) < autoRestartBackoff(count) {
 		log.Info("Skip auto-restart of failed connector during backoff",
@@ -832,6 +835,10 @@ func (r *ConnectorReconciler) autoRestartFailedConnectorAndTasks(
 	connector.Status.LastRestartAt = &now
 	connector.Status.RestartCount++
 	connectorRestarts(connector, metricsRestartTriggerAuto).Inc()
+
+	if err := r.Status().Update(ctx, connector); err != nil {
+		return fmt.Errorf("failed to update connector status after auto-restart: %w", err)
+	}
 	return nil
 }
 

@@ -398,7 +398,7 @@ Annotations are removed automatically after the operation completes. And the ope
 
 ### Restart
 
-**Automatic restart:** When the desired state is `running`, the operator restarts a connector or tasks in `FAILED` state. It uses a single `POST /connectors/<name>/restart?includeTasks=true&onlyFailed=true` request ([KIP-745](https://cwiki.apache.org/confluence/display/KAFKA/KIP-745%3A+Connect+API+to+restart+connector+and+tasks)), so only the failed connector and the failed tasks are restarted, while the running tasks are left untouched.
+**Automatic restart:** When the desired state is `running`, the operator restarts a connector or tasks in `FAILED` state. It uses a single `POST /connectors/<name>/restart?includeTasks=true&onlyFailed=true` request ([KIP-745](https://cwiki.apache.org/confluence/display/KAFKA/KIP-745%3A+Connect+API+to+restart+connector+and+tasks)), so only the failed connector and the failed tasks are restarted, while the running tasks are left untouched. This requires Kafka Connect with KIP-745 support (Apache Kafka 3.0 or later): older workers ignore the parameters and restart only the connector.
 
 The first restart happens as soon as the failure is detected. After `n` consecutive restarts, the operator waits `n^2 + n` minutes before the next one, capped at 60 minutes: the restarts happen after 0, 2, 6, 12, 20, 30, 42 and 56 minutes, and then every 60 minutes. The count is reset once the connector and all its tasks have been healthy for longer than the current backoff (e.g. 6 minutes after the second restart).
 
