@@ -296,10 +296,36 @@ type ClusterStatus struct {
 	// If no config is applied yet, this will be null.
 	// +optional
 	ConfigHash *string `json:"configHash,omitempty"`
+
+	// URL is the REST API URL of the Kafka Connect cluster, served by the Cluster Service.
+	// +optional
+	URL string `json:"url,omitempty"`
+
+	// ConnectorPlugins lists the connector plugins installed in the Kafka Connect cluster,
+	// as returned by its REST API. It is refreshed after every completed rollout.
+	// +listType=atomic
+	// +optional
+	ConnectorPlugins []ConnectorPlugin `json:"connectorPlugins,omitempty"`
+}
+
+// ConnectorPlugin is a connector plugin installed in the Kafka Connect cluster.
+type ConnectorPlugin struct {
+	// Class is the fully qualified class name of the connector.
+	Class string `json:"class"`
+
+	// Type is the type of the connector, source or sink.
+	Type string `json:"type"`
+
+	// Version is the version of the connector.
+	// +optional
+	Version string `json:"version,omitempty"`
 }
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
+// +kubebuilder:printcolumn:name="Available",type=string,JSONPath=".status.conditions[?(@.type=='Available')].status"
+// +kubebuilder:printcolumn:name="URL",type=string,JSONPath=".status.url"
+// +kubebuilder:printcolumn:name="Age",type=date,JSONPath=".metadata.creationTimestamp"
 
 // Cluster is the Schema for the clusters API
 type Cluster struct {

@@ -64,6 +64,13 @@ type ConnectorStatusTask struct {
 	Trace    string `json:"trace,omitempty"`
 }
 
+// ConnectorPlugin is a connector plugin installed in the Kafka Connect cluster.
+type ConnectorPlugin struct {
+	Class   string `json:"class"`
+	Type    string `json:"type"`
+	Version string `json:"version,omitempty"`
+}
+
 type ResponseError struct {
 	Response *http.Response
 	Body     []byte
@@ -428,4 +435,33 @@ func (c *Client) RestartTask(ctx context.Context, name string, taskID int) error
 	}
 
 	return nil
+}
+
+// ListConnectorPlugins returns the connector plugins installed in the Kafka Connect cluster.
+func (c *Client) ListConnectorPlugins(ctx context.Context) ([]ConnectorPlugin, error) {
+	url := fmt.Sprintf("%s/connector-plugins", c.endpoint)
+
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	res, err := c.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list connector plugins: %w", err)
+	}
+	defer func() { _ = res.Body.Close() }()
+
+	if res.StatusCode != 200 {
+		return nil, NewResponseError(res)
+	}
+
+	plugins := []ConnectorPlugin{}
+	d := json.NewDecoder(res.Body)
+	err = d.Decode(&plugins)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode connector plugins response: %w", err)
+	}
+
+	return plugins, nil
 }

@@ -14,7 +14,17 @@ spec:
     singular: cluster
   scope: Namespaced
   versions:
-  - name: v1alpha1
+  - additionalPrinterColumns:
+    - jsonPath: .status.conditions[?(@.type=='Available')].status
+      name: Available
+      type: string
+    - jsonPath: .status.url
+      name: URL
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
     schema:
       openAPIV3Schema:
         description: Cluster is the Schema for the clusters API
@@ -1596,6 +1606,34 @@ spec:
                 description: |-
                   The hash of the Cluster ConfigMap app
                   If no config is applied yet, this will be null.
+                type: string
+              connectorPlugins:
+                description: |-
+                  ConnectorPlugins lists the connector plugins installed in the Kafka Connect cluster,
+                  as returned by its REST API. It is refreshed after every completed rollout.
+                items:
+                  description: ConnectorPlugin is a connector plugin installed in
+                    the Kafka Connect cluster.
+                  properties:
+                    class:
+                      description: Class is the fully qualified class name of the
+                        connector.
+                      type: string
+                    type:
+                      description: Type is the type of the connector, source or sink.
+                      type: string
+                    version:
+                      description: Version is the version of the connector.
+                      type: string
+                  required:
+                  - class
+                  - type
+                  type: object
+                type: array
+                x-kubernetes-list-type: atomic
+              url:
+                description: URL is the REST API URL of the Kafka Connect cluster,
+                  served by the Cluster Service.
                 type: string
             type: object
         required:

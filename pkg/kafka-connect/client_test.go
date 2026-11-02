@@ -374,3 +374,55 @@ func TestGetConnectorStatus_Error(t *testing.T) {
 		t.Errorf("expected error message to contain response body, got: %s", rerr.Error())
 	}
 }
+
+func TestListConnectorPlugins_Success(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Errorf("expected GET, got %s", r.Method)
+		}
+		if r.URL.Path != "/connector-plugins" {
+			t.Errorf("unexpected path: %s", r.URL.Path)
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`[
+			{"class": "com.example.SinkConnector", "type": "sink", "version": "1.0.0"},
+			{"class": "com.example.SourceConnector", "type": "source"}
+		]`))
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL)
+	plugins, err := client.ListConnectorPlugins(t.Context())
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	expected := []ConnectorPlugin{
+		{Class: "com.example.SinkConnector", Type: "sink", Version: "1.0.0"},
+		{Class: "com.example.SourceConnector", Type: "source"},
+	}
+	if len(plugins) != len(expected) {
+		t.Fatalf("expected %d plugins, got: %+v", len(expected), plugins)
+	}
+	for i := range expected {
+		if plugins[i] != expected[i] {
+			t.Errorf("expected plugin %+v, got %+v", expected[i], plugins[i])
+		}
+	}
+}
+
+func TestListConnectorPlugins_Error(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = w.Write([]byte("kafka connect starting"))
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL)
+	plugins, err := client.ListConnectorPlugins(t.Context())
+	if plugins != nil {
+		t.Fatalf("expected nil plugins, got: %+v", plugins)
+	}
+	if _, ok := err.(*ResponseError); !ok {
+		t.Fatalf("expected error of type *kafkaconnect.ResponseError, got %T", err)
+	}
+}

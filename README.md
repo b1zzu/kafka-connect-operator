@@ -299,6 +299,34 @@ spec:
 | ---------------------------------------------- | ---------- | ------------------------- |
 | `kafka-connect.b1zzu.net/pause-reconciliation` | `true`     | Pause reconciliation loop |
 
+**Status:**
+
+```yaml
+status:
+  # Available condition, mirrors the Available condition of the Deployment
+  conditions: [...]
+
+  # REST API URL of the Kafka Connect cluster, served by the Cluster Service
+  url: http://NAME.NAMESPACE.svc:8083
+
+  # Connector plugins installed in the Kafka Connect cluster (GET /connector-plugins)
+  connectorPlugins:
+    - class: org.apache.kafka.connect.mirror.MirrorSourceConnector
+      type: source
+      version: 4.2.0
+```
+
+The connector plugins are listed once the Deployment rollout is complete (all replicas updated and available),
+and listed again after every new rollout (e.g. after changing `spec.plugins` or `spec.image`).
+
+`kubectl get cluster` shows the `Available` condition and the `URL`:
+
+```console
+$ kubectl get cluster
+NAME         AVAILABLE   URL                                    AGE
+my-cluster   True        http://my-cluster.default.svc:8083     5m
+```
+
 ### Connector
 
 ```yaml
