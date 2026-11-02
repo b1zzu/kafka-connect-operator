@@ -899,6 +899,21 @@ var _ = Describe("Cluster Resources", func() {
 			}))
 		})
 
+		It("should not have a priority class name when not specified", func() {
+			cluster := newCluster(nil)
+			dep := deploymentForCluster(cluster)
+
+			Expect(dep.Spec.Template.Spec.PriorityClassName).To(BeNil())
+		})
+
+		It("should apply the priority class name", func() {
+			cluster := newCluster(nil)
+			cluster.Spec.PriorityClassName = "kafka-connect"
+			dep := deploymentForCluster(cluster)
+
+			Expect(dep.Spec.Template.Spec.PriorityClassName).To(HaveValue(Equal("kafka-connect")))
+		})
+
 		It("should have log4j-layout-template-json volume and mount when log4jJsonLayout is enabled", func() {
 			cluster := newCluster(nil)
 			dep := deploymentForCluster(cluster)

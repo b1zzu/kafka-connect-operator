@@ -1189,6 +1189,12 @@ spec:
                   Applied only to the pod template metadata, NOT to the Deployment selector.
                   Merged with internal labels; internal keys take precedence.
                 type: object
+              priorityClassName:
+                description: |-
+                  PriorityClassName is the name of the PriorityClass assigned to the pods.
+                  The PriorityClass must exist in the cluster.
+                  When not set, the default priority of the cluster applies.
+                type: string
               replicas:
                 description: Number of Kafka Connect replicas to run
                 format: int32
