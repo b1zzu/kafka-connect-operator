@@ -76,27 +76,14 @@ var _ = Describe("Manager", Ordered, func() {
 		_, err = utils.Run(cmd)
 		Expect(err).NotTo(HaveOccurred(), "Failed to deploy the controller-manager")
 
-		By("installing Strimzi operator")
-		cmd = exec.Command("kubectl", "create", "-f",
-			"https://strimzi.io/install/latest?namespace=default", "-n", "default")
-		_, err = utils.Run(cmd)
-		Expect(err).NotTo(HaveOccurred(), "Failed to install Strimzi operator")
-
-		By("waiting for Strimzi operator to be available")
-		cmd = exec.Command("kubectl", "wait", "deployment/strimzi-cluster-operator",
-			"-n", "default", "--for=condition=Available", "--timeout=5m")
-		_, err = utils.Run(cmd)
-		Expect(err).NotTo(HaveOccurred(), "Strimzi operator did not become available")
-
 		By("deploying Kafka cluster")
-		cmd = exec.Command("kubectl", "apply", "-f",
-			"https://strimzi.io/examples/latest/kafka/kafka-single-node.yaml", "-n", "default")
+		cmd = exec.Command("kubectl", "apply", "-k", "config/kafka", "-n", "default")
 		_, err = utils.Run(cmd)
 		Expect(err).NotTo(HaveOccurred(), "Failed to deploy Kafka cluster")
 
 		By("waiting for Kafka cluster to be ready")
-		cmd = exec.Command("kubectl", "wait", "kafka/my-cluster",
-			"-n", "default", "--for=condition=Ready", "--timeout=10m")
+		cmd = exec.Command("kubectl", "rollout", "status", "statefulset/kafka",
+			"-n", "default", "--timeout=5m")
 		_, err = utils.Run(cmd)
 		Expect(err).NotTo(HaveOccurred(), "Kafka cluster did not become ready")
 
@@ -119,14 +106,7 @@ var _ = Describe("Manager", Ordered, func() {
 		_, _ = utils.Run(cmd)
 
 		By("deleting Kafka cluster")
-		cmd = exec.Command("kubectl", "delete", "-f",
-			"https://strimzi.io/examples/latest/kafka/kafka-single-node.yaml",
-			"-n", "default", "--ignore-not-found", "--timeout=60s")
-		_, _ = utils.Run(cmd)
-
-		By("deleting Strimzi operator")
-		cmd = exec.Command("kubectl", "delete", "-f",
-			"https://strimzi.io/install/latest?namespace=default",
+		cmd = exec.Command("kubectl", "delete", "-k", "config/kafka",
 			"-n", "default", "--ignore-not-found", "--timeout=60s")
 		_, _ = utils.Run(cmd)
 

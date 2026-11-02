@@ -1,0 +1,13 @@
+resources:
+  - statefulset.yaml
+  - service.yaml
+
+labels:
+  - pairs:
+      app.kubernetes.io/name: kafka
+    includeSelectors: true
+
+images:
+  - name: kafka
+    newName: docker.io/apache/kafka
+    newTag: 4.4.0
