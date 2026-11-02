@@ -37,6 +37,8 @@ import (
 //go:embed assets/kafka_connect_default_jmx_exporter_config.yml
 var defaultJMXExporterConfig string
 
+var lineBreakEscaper = strings.NewReplacer("\n", `\n`, "\r", `\r`)
+
 func marshalProperties(props map[string]string) string {
 	keys := make([]string, 0, len(props))
 	for k := range props {
@@ -46,7 +48,7 @@ func marshalProperties(props map[string]string) string {
 
 	b := &strings.Builder{}
 	for _, k := range keys {
-		fmt.Fprintf(b, "%s=%s\n", k, props[k])
+		fmt.Fprintf(b, "%s=%s\n", lineBreakEscaper.Replace(k), lineBreakEscaper.Replace(props[k]))
 	}
 	return b.String()
 }
