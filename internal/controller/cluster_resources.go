@@ -158,7 +158,7 @@ func deploymentForCluster(cluster *kcv1alpha1.Cluster) *appsv1ac.DeploymentApply
 	var log4jLayoutVolume *corev1ac.VolumeApplyConfiguration
 	var log4jLayoutMount *corev1ac.VolumeMountApplyConfiguration
 	if jsonLayoutEnabled {
-		log4jLayoutImage := "ghcr.io/b1zzu/kafka-connect-operator/log4j-layout-template-json:2.26.1"
+		log4jLayoutImage := "ghcr.io/b1zzu/kafka-connect-library/log4j-layout-template-json:2.26.1"
 		if cluster.Spec.Logging.Log4jJsonLayout.Image != nil {
 			log4jLayoutImage = *cluster.Spec.Logging.Log4jJsonLayout.Image
 		}
@@ -181,7 +181,7 @@ func deploymentForCluster(cluster *kcv1alpha1.Cluster) *appsv1ac.DeploymentApply
 	var jmxVolumes []*corev1ac.VolumeApplyConfiguration
 	var jmxMounts []*corev1ac.VolumeMountApplyConfiguration
 	if cluster.Spec.Metrics != nil && cluster.Spec.Metrics.JMXExporter != nil {
-		jmxImage := "ghcr.io/b1zzu/kafka-connect-operator/jmx-exporter:1.7.0"
+		jmxImage := "ghcr.io/b1zzu/kafka-connect-library/jmx-exporter:1.7.0"
 		if cluster.Spec.Metrics.JMXExporter.Image != nil {
 			jmxImage = *cluster.Spec.Metrics.JMXExporter.Image
 		}

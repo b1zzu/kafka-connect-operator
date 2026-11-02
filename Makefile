@@ -1,13 +1,6 @@
 # Image URL to use all building/pushing image targets
 IMG ?= ghcr.io/b1zzu/kafka-connect-operator:latest
 
-SAMPLE_PLUGINS_IMG ?= kafka-connect-operator/sample-plugins:latest
-JMX_EXPORTER_IMG ?= kafka-connect-operator/jmx-exporter:latest
-LOG4J_LAYOUT_IMG ?= kafka-connect-operator/log4j-layout-template-json:latest
-MSK_IAM_AUTH_IMG ?= kafka-connect-operator/msk-iam-auth:latest
-KAFKA_CONNECT_DATAGEN_IMG ?= kafka-connect-operator/kafka-connect-datagen:latest
-DEBEZIUM_POSTGRES_IMG ?= kafka-connect-operator/debezium-postgres:latest
-
 
 # Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
 ifeq (,$(shell go env GOBIN))
@@ -132,54 +125,6 @@ docker-build: ## Build docker image with the manager.
 .PHONY: docker-push
 docker-push: ## Push docker image with the manager.
 	$(CONTAINER_TOOL) push ${IMG}
-
-.PHONY: docker-build-sample-plugins
-docker-build-sample-plugins: ## Build sample-plugins OCI image.
-	$(CONTAINER_TOOL) build -t ${SAMPLE_PLUGINS_IMG} containers/sample-plugins
-
-.PHONY: docker-push-sample-plugins
-docker-push-sample-plugins: ## Push sample-plugins OCI image.
-	$(CONTAINER_TOOL) push ${SAMPLE_PLUGINS_IMG}
-
-.PHONY: docker-build-jmx-exporter
-docker-build-jmx-exporter: ## Build JMX Exporter OCI image.
-	$(CONTAINER_TOOL) build -t ${JMX_EXPORTER_IMG} containers/jmx-exporter
-
-.PHONY: docker-push-jmx-exporter
-docker-push-jmx-exporter: ## Push JMX Exporter OCI image.
-	$(CONTAINER_TOOL) push ${JMX_EXPORTER_IMG}
-
-.PHONY: docker-build-log4j-layout
-docker-build-log4j-layout: ## Build Log4j Layout Template JSON OCI image.
-	$(CONTAINER_TOOL) build -t ${LOG4J_LAYOUT_IMG} containers/log4j-layout-template-json
-
-.PHONY: docker-push-log4j-layout
-docker-push-log4j-layout: ## Push Log4j Layout Template JSON OCI image.
-	$(CONTAINER_TOOL) push ${LOG4J_LAYOUT_IMG}
-
-.PHONY: docker-build-msk-iam-auth
-docker-build-msk-iam-auth: ## Build MSK IAM Auth OCI image.
-	$(CONTAINER_TOOL) build -t ${MSK_IAM_AUTH_IMG} containers/msk-iam-auth
-
-.PHONY: docker-push-msk-iam-auth
-docker-push-msk-iam-auth: ## Push MSK IAM Auth OCI image.
-	$(CONTAINER_TOOL) push ${MSK_IAM_AUTH_IMG}
-
-.PHONY: docker-build-kafka-connect-datagen
-docker-build-kafka-connect-datagen: ## Build Kafka Connect Datagen OCI image.
-	$(CONTAINER_TOOL) build -t ${KAFKA_CONNECT_DATAGEN_IMG} containers/kafka-connect-datagen
-
-.PHONY: docker-push-kafka-connect-datagen
-docker-push-kafka-connect-datagen: ## Push Kafka Connect Datagen OCI image.
-	$(CONTAINER_TOOL) push ${KAFKA_CONNECT_DATAGEN_IMG}
-
-.PHONY: docker-build-debezium-postgres
-docker-build-debezium-postgres: ## Build Debezium PostgreSQL OCI image.
-	$(CONTAINER_TOOL) build -t ${DEBEZIUM_POSTGRES_IMG} containers/debezium-postgres
-
-.PHONY: docker-push-debezium-postgres
-docker-push-debezium-postgres: ## Push Debezium PostgreSQL OCI image.
-	$(CONTAINER_TOOL) push ${DEBEZIUM_POSTGRES_IMG}
 
 # PLATFORMS defines the target platforms for the manager image be built to provide support to multiple
 # architectures. (i.e. make docker-buildx IMG=myregistry/mypoperator:0.0.1). To use this option you need to:

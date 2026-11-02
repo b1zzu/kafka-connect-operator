@@ -33,12 +33,6 @@ import (
 var (
 	// managerImage is the manager image to be built and loaded for testing.
 	managerImage = "example.com/kafka-connect-operator:latest"
-	// pluginsImage is the sample-plugins image to be built and loaded for testing.
-	pluginsImage = "example.com/kafka-connect-operator/sample-plugins:latest"
-	// jmxExporterImage is the jmx-exporter image to be built and loaded for testing.
-	jmxExporterImage = "example.com/kafka-connect-operator/jmx-exporter:latest"
-	// log4jLayoutImage is the log4j-layout-template-json image to be built and loaded for testing.
-	log4jLayoutImage = "example.com/kafka-connect-operator/log4j-layout-template-json:latest"
 	// shouldCleanupCertManager tracks whether CertManager was installed by this suite.
 	shouldCleanupCertManager = false
 )
@@ -66,33 +60,6 @@ var _ = BeforeSuite(func() {
 	By("loading the manager image on Kind")
 	err = utils.LoadImageToKindClusterWithName(managerImage)
 	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to load the manager image into Kind")
-
-	By("building the sample-plugins image")
-	cmd = exec.Command("make", "docker-build-sample-plugins", fmt.Sprintf("SAMPLE_PLUGINS_IMG=%s", pluginsImage))
-	_, err = utils.Run(cmd)
-	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to build the sample-plugins image")
-
-	By("loading the sample-plugins image on Kind")
-	err = utils.LoadImageToKindClusterWithName(pluginsImage)
-	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to load the sample-plugins image into Kind")
-
-	By("building the jmx-exporter image")
-	cmd = exec.Command("make", "docker-build-jmx-exporter", fmt.Sprintf("JMX_EXPORTER_IMG=%s", jmxExporterImage))
-	_, err = utils.Run(cmd)
-	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to build the jmx-exporter image")
-
-	By("loading the jmx-exporter image on Kind")
-	err = utils.LoadImageToKindClusterWithName(jmxExporterImage)
-	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to load the jmx-exporter image into Kind")
-
-	By("building the log4j-layout-template-json image")
-	cmd = exec.Command("make", "docker-build-log4j-layout", fmt.Sprintf("LOG4J_LAYOUT_IMG=%s", log4jLayoutImage))
-	_, err = utils.Run(cmd)
-	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to build the log4j-layout-template-json image")
-
-	By("loading the log4j-layout-template-json image on Kind")
-	err = utils.LoadImageToKindClusterWithName(log4jLayoutImage)
-	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to load the log4j-layout-template-json image into Kind")
 
 	configureKubectlKubeRC()
 	setupCertManager()

@@ -407,7 +407,7 @@ kubectl get pod -n kafka-connect-operator --watch
 
 Deploy a Kafka Connect cluster configured to connect to MSK with IAM authentication, with the Debezium PostgreSQL plugin and the AWS Advanced JDBC Wrapper library:
 
-> Note: The `aws-advanced-jdbc-wrapper` library is packaged in the `ghcr.io/b1zzu/kafka-connect-operator/debezium-postgres` image
+> Note: The `aws-advanced-jdbc-wrapper` library is packaged in the `ghcr.io/b1zzu/kafka-connect-library/debezium-postgres` image
 
 ```bash
 kubectl apply -f - <<EOF
@@ -420,11 +420,11 @@ spec:
 
   plugins:
     - name: debezium-postgres
-      image: ghcr.io/b1zzu/kafka-connect-operator/debezium-postgres:latest
+      image: ghcr.io/b1zzu/kafka-connect-library/debezium-postgres:latest
 
   libraries:
     - name: msk-iam-auth
-      image: ghcr.io/b1zzu/kafka-connect-operator/msk-iam-auth:latest
+      image: ghcr.io/b1zzu/kafka-connect-library/msk-iam-auth:latest
 
   serviceAccountAnnotations:
     eks.amazonaws.com/role-arn: "${IRSA_ROLE_ARN}"
