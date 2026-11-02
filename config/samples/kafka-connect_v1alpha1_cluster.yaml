@@ -27,6 +27,12 @@ spec:
   #     secretRef:
   #       name: my-keystore
 
+  # configProviders:
+  #   - name: dir
+  #     class: org.apache.kafka.common.config.provider.DirectoryConfigProvider
+  #     params:
+  #       allowed.paths: /secrets
+
   config:
     bootstrap.servers: kafka:9092
     key.converter: org.apache.kafka.connect.json.JsonConverter

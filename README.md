@@ -194,6 +194,16 @@ spec:
       secretRef:
         name: my-keystore
 
+  # Additional config providers (optional, see "Config Providers" section below)
+  # Appended after the operator-managed env and file providers in config.providers.
+  # The names env and file are reserved.
+  configProviders:
+    - name: dir
+      class: org.apache.kafka.common.config.provider.DirectoryConfigProvider
+      # Passed as config.providers.{name}.param.{key} (optional)
+      params:
+        allowed.paths: /secrets
+
   # Network policy configuration (optional)
   networkPolicy:
     # Set to false to disable automatic NetworkPolicy creation
@@ -484,6 +494,43 @@ config:
 ```
 
 Secret content changes do not trigger a cluster restart.
+
+### Config Providers
+
+The operator owns `config.providers` and always configures two
+[config providers](https://kafka.apache.org/41/configuration/configuration-providers/):
+
+- `env` - `EnvVarConfigProvider`, limited to variables matching `^CONNECT_.*`
+- `file` - `FileConfigProvider`
+
+Additional providers listed in `spec.configProviders` are appended after them. For each provider the
+operator sets `config.providers.{name}.class` and one `config.providers.{name}.param.{key}` per entry
+in `params`. `config.providers` and `config.providers.*` keys are rejected in `spec.config`, and so are
+the reserved names `env` and `file`.
+
+For example, the Kafka built-in `DirectoryConfigProvider` reads every key of a mounted Secret:
+
+```yaml
+spec:
+  secrets:
+    - name: db
+      secretRef:
+        name: db-credentials
+  configProviders:
+    - name: dir
+      class: org.apache.kafka.common.config.provider.DirectoryConfigProvider
+      params:
+        allowed.paths: /secrets
+```
+
+```yaml
+config:
+  connection.password: "${dir:/secrets/db:password}"
+```
+
+Providers that are not part of Kafka, such as AWS Secrets Manager or HashiCorp Vault providers,
+are shipped as JARs: mount them with `spec.libraries` (see [Libraries](#libraries)) so they are on
+the classpath of the Kafka Connect worker.
 
 ## Authentication
 

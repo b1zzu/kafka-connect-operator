@@ -72,6 +72,15 @@ type ClusterSpec struct {
 	// +listMapKey=name
 	Secrets []SecretMount `json:"secrets,omitempty"`
 
+	// ConfigProviders is a list of additional Kafka config providers.
+	// They are appended after the operator-managed env and file providers in config.providers,
+	// so the names env and file are reserved. Provider JARs that are not part of
+	// Kafka can be added to the classpath with libraries.
+	// +optional
+	// +listType=map
+	// +listMapKey=name
+	ConfigProviders []ConfigProvider `json:"configProviders,omitempty"`
+
 	// NetworkPolicy configuration
 	// +optional
 	NetworkPolicy *NetworkPolicyConfig `json:"networkPolicy,omitempty"`
@@ -193,6 +202,24 @@ type SecretMount struct {
 
 	// SecretRef is a reference to a Kubernetes Secret in the same namespace.
 	SecretRef corev1.LocalObjectReference `json:"secretRef"`
+}
+
+// ConfigProvider defines an additional Kafka config provider.
+type ConfigProvider struct {
+	// Name is the provider name used in config references like ${name:path:key}.
+	// The names env and file are reserved for the operator-managed providers.
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:Pattern="^[a-zA-Z0-9_-]+$"
+	Name string `json:"name"`
+
+	// Class is the fully qualified name of the ConfigProvider implementation,
+	// e.g. org.apache.kafka.common.config.provider.DirectoryConfigProvider.
+	// +kubebuilder:validation:MinLength=1
+	Class string `json:"class"`
+
+	// Params are passed to the provider as config.providers.{name}.param.{key}.
+	// +optional
+	Params map[string]string `json:"params,omitempty"`
 }
 
 // NetworkPolicyConfig defines the NetworkPolicy configuration

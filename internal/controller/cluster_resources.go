@@ -392,11 +392,16 @@ func kafkaConnectConfigsForCluster(cluster *kcv1alpha1.Cluster) (map[string]stri
 		"rest.advertised.listener":                     "http",
 		"rest.advertised.port":                         "8083",
 		"rest.extension.classes":                       "", // cluster is secured using network policies
-		"config.providers":                             "env,file",
 		"config.providers.env.class":                   "org.apache.kafka.common.config.provider.EnvVarConfigProvider",
 		"config.providers.env.param.allowlist.pattern": "^CONNECT_.*",
 		"config.providers.file.class":                  "org.apache.kafka.common.config.provider.FileConfigProvider",
 	}
+
+	providerConfigs, err := configProviderConfigsForCluster(cluster)
+	if err != nil {
+		return nil, err
+	}
+	maps.Copy(managedConfigs, providerConfigs)
 
 	// Auto-configure plugin.path when plugins are present
 	if len(cluster.Spec.Plugins) > 0 {
@@ -409,8 +414,8 @@ func kafkaConnectConfigsForCluster(cluster *kcv1alpha1.Cluster) (map[string]stri
 
 	// Check for conflicts between user config and operator-managed keys
 	var conflicts []string
-	for key := range managedConfigs {
-		if _, exists := cluster.Spec.Config[key]; exists {
+	for key := range cluster.Spec.Config {
+		if _, exists := managedConfigs[key]; exists || isConfigProvidersKey(key) {
 			conflicts = append(conflicts, key)
 		}
 	}
@@ -425,6 +430,34 @@ func kafkaConnectConfigsForCluster(cluster *kcv1alpha1.Cluster) (map[string]stri
 	maps.Copy(configs, managedConfigs)
 
 	return configs, nil
+}
+
+// configProviderConfigsForCluster returns config.providers and the configs of
+// the providers in spec.configProviders, appended after the operator-managed
+// env and file providers.
+func configProviderConfigsForCluster(cluster *kcv1alpha1.Cluster) (map[string]string, error) {
+	names := []string{"env", "file"}
+	configs := map[string]string{}
+	for _, provider := range cluster.Spec.ConfigProviders {
+		if slices.Contains(names, provider.Name) {
+			return nil, fmt.Errorf("spec.configProviders contains a reserved or duplicate name: %s", provider.Name)
+		}
+		names = append(names, provider.Name)
+
+		prefix := "config.providers." + provider.Name
+		configs[prefix+".class"] = provider.Class
+		for key, value := range provider.Params {
+			configs[prefix+".param."+key] = value
+		}
+	}
+	configs["config.providers"] = strings.Join(names, ",")
+	return configs, nil
+}
+
+// isConfigProvidersKey reports whether key configures config providers, which
+// are owned by the operator and set through spec.configProviders.
+func isConfigProvidersKey(key string) bool {
+	return key == "config.providers" || strings.HasPrefix(key, "config.providers.")
 }
 
 func configMapNameForCluster(cluster *kcv1alpha1.Cluster) string {

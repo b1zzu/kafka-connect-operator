@@ -627,6 +627,57 @@ var _ = Describe("Manager", Ordered, func() {
 				g.Expect(err).To(HaveOccurred(), "my-test-connector should no longer exist")
 			}, 30*time.Second, 2*time.Second).Should(Succeed())
 		})
+
+		It("should resolve connector configs with an additional config provider", func() {
+			By("verifying the dir provider is appended to config.providers")
+			cmd := exec.Command("kubectl", "get", "configmap", "my-cluster-connect-config",
+				"-n", "default", "-o", "jsonpath={.data.connect\\.properties}")
+			output, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(output).To(ContainSubstring("config.providers=env,file,dir"))
+			Expect(output).To(ContainSubstring(
+				"config.providers.dir.class=org.apache.kafka.common.config.provider.DirectoryConfigProvider"))
+
+			By("creating a connector whose start.delay.ms is read from the mounted Secret")
+			cmd = exec.Command("kubectl", "apply", "-f",
+				"config/e2e/config_provider_connector.yaml", "-n", "default")
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+			DeferCleanup(func() {
+				cmd := exec.Command("kubectl", "delete", "-f",
+					"config/e2e/config_provider_connector.yaml", "-n", "default", "--ignore-not-found", "--timeout=60s")
+				_, _ = utils.Run(cmd)
+			})
+
+			By("verifying it reaches Running, which requires the placeholder to resolve to a number")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "connector", "my-config-provider-connector",
+					"-n", "default",
+					"-o", "jsonpath={.status.conditions[?(@.type=='Ready')].reason}")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(Equal("Running"), "Connector not yet Running")
+
+				cmd = exec.Command("kubectl", "get", "connector", "my-config-provider-connector",
+					"-n", "default",
+					"-o", "jsonpath={range .status.tasks[?(@.state=='RUNNING')]}x{end}")
+				output, err = utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).NotTo(BeEmpty(), "Connector should have at least one running task")
+			}, 2*time.Minute, 2*time.Second).Should(Succeed())
+
+			By("deleting the connector and verifying it is fully removed")
+			cmd = exec.Command("kubectl", "delete", "-f",
+				"config/e2e/config_provider_connector.yaml", "-n", "default", "--ignore-not-found", "--timeout=60s")
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "connector", "my-config-provider-connector", "-n", "default")
+				_, err := utils.Run(cmd)
+				g.Expect(err).To(HaveOccurred(), "my-config-provider-connector should no longer exist")
+			}, 30*time.Second, 2*time.Second).Should(Succeed())
+		})
 	})
 })
 
