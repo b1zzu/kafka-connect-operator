@@ -314,7 +314,7 @@ func init() {
 }
 ```
 
-When adding or changing a metric, update the unit tests in `internal/controller/metrics_test.go`, the e2e spec that scrapes the endpoint in `test/e2e/e2e_test.go`, and the "Operator Metrics" table in `README.md` (use the full metric names).
+When adding or changing a metric, update the unit tests in `internal/controller/metrics_test.go`, the e2e spec that scrapes the endpoint in `test/e2e/e2e_test.go`, and the "Operator Metrics" list in `README.md` (use the full metric names).
 
 **Reference:**
 - https://book.kubebuilder.io/reference/metrics.html (publishing custom metrics, securing the endpoint, ServiceMonitor)
