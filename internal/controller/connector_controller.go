@@ -19,9 +19,12 @@ package controller
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math/rand/v2"
+	"net/http"
 	"os/exec"
+	"strconv"
 	"strings"
 	"time"
 
@@ -47,6 +50,8 @@ const (
 	connectorFinalizer          = "kafka-connect.b1zzu.net/connector"
 	connectorRestartAnnotation  = "kafka-connect.b1zzu.net/restart"
 	connectorRestartTrue        = "true"
+
+	connectorRestartTaskAnnotation = "kafka-connect.b1zzu.net/restart-task"
 
 	connectorStatusRunning    = "RUNNING"
 	connectorStatusPaused     = "PAUSED"
@@ -133,6 +138,7 @@ func (r *ConnectorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		r.reconcileConnector,
 		r.reconcileConnectorState,
 		r.reconcileConnectorRestart,
+		r.reconcileConnectorRestartTask,
 		r.reconcileConnectorOffsets,
 		r.reconcileConnectorStatus,
 	} {
@@ -471,6 +477,60 @@ func (r *ConnectorReconciler) reconcileConnectorRestart(ctx context.Context, con
 	}
 
 	// Return nil to restart reconciliation
+	return nil, nil
+}
+
+func (r *ConnectorReconciler) reconcileConnectorRestartTask(ctx context.Context, connector *kcv1alpha1.Connector) (*kcv1alpha1.Connector, error) {
+	log := logf.FromContext(ctx)
+
+	annotation, ok := connector.Annotations[connectorRestartTaskAnnotation]
+	if !ok {
+		return connector, nil
+	}
+
+	taskID, err := strconv.Atoi(annotation)
+	if err != nil || taskID < 0 {
+		r.Recorder.Eventf(connector, nil, corev1.EventTypeWarning,
+			"FailedRestart", "RestartTask", "Invalid task ID in %s annotation: %q", connectorRestartTaskAnnotation, annotation)
+		return r.removeRestartTaskAnnotation(ctx, connector)
+	}
+
+	log.Info("Restarting task (manual restart requested)", "taskID", taskID)
+
+	kafkaConnect, err := r.NewKafkaConnectClientFunc(connector)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create the client: %w", err)
+	}
+
+	if err := kafkaConnect.RestartTask(ctx, connector.Name, taskID); err != nil {
+		r.Recorder.Eventf(connector, nil, corev1.EventTypeWarning,
+			"FailedRestart", "RestartTask", "Failed to restart task %d: %v", taskID, err)
+		var rerr *kafkaconnect.ResponseError
+		if errors.As(err, &rerr) && rerr.Response.StatusCode == http.StatusNotFound {
+			return r.removeRestartTaskAnnotation(ctx, connector)
+		}
+		return nil, fmt.Errorf("failed to restart task %d: %w", taskID, err)
+	}
+
+	r.Recorder.Eventf(connector, nil, corev1.EventTypeNormal,
+		"Restarted", "RestartTask", "Task %d restarted", taskID)
+
+	now := metav1.Now()
+	connector.Status.LastRestartAt = &now
+	connector.Status.RestartCount++
+	connectorRestarts(connector, metricsRestartTriggerManual).Inc()
+	if err := r.Status().Update(ctx, connector); err != nil {
+		return nil, fmt.Errorf("failed to update connector status after task restart: %w", err)
+	}
+
+	return r.removeRestartTaskAnnotation(ctx, connector)
+}
+
+func (r *ConnectorReconciler) removeRestartTaskAnnotation(ctx context.Context, connector *kcv1alpha1.Connector) (*kcv1alpha1.Connector, error) {
+	delete(connector.Annotations, connectorRestartTaskAnnotation)
+	if err := r.Update(ctx, connector); err != nil {
+		return nil, fmt.Errorf("failed to remove restart-task annotation: %w", err)
+	}
 	return nil, nil
 }
 

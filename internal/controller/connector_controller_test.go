@@ -30,6 +30,7 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -221,8 +222,24 @@ func (m *mockKafkaConnectServer) handleTaskRestart(w http.ResponseWriter, name, 
 	}
 	var taskID int
 	_, _ = fmt.Sscanf(taskIDStr, "%d", &taskID)
+	if !m.hasTask(taskID) {
+		http.Error(w, "unknown task", http.StatusNotFound)
+		return
+	}
 	m.restartedTasks = append(m.restartedTasks, taskID)
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (m *mockKafkaConnectServer) hasTask(id int) bool {
+	if m.taskStatuses == nil {
+		return id == 0
+	}
+	for _, t := range m.taskStatuses {
+		if t.ID == id {
+			return true
+		}
+	}
+	return false
 }
 
 func (m *mockKafkaConnectServer) handleStatus(w http.ResponseWriter, name string) {
@@ -571,6 +588,126 @@ var _ = Describe("Connector Controller", func() {
 			connector := getConnector(ctx, nn)
 			Expect(connector).NotTo(BeNil())
 			Expect(connector.Status.LastRestartAt).To(BeNil())
+			Expect(connector.Status.RestartCount).To(Equal(int32(0)))
+		})
+
+		It("should restart the task when restart-task annotation is set and remove it", func(ctx SpecContext) {
+			name := "restart-task-connector"
+			nn := nameFor(name)
+
+			mock := newMockKafkaConnectServer()
+			DeferCleanup(mock.Close)
+
+			createConnector(ctx, name, "my-cluster", map[string]string{"connector.class": "FileStreamSource"}, map[string]string{
+				"kafka-connect.b1zzu.net/restart-task": "0",
+			})
+			DeferCleanup(func(ctx SpecContext) {
+				c := getConnector(ctx, nn)
+				if c != nil {
+					c.Finalizers = nil
+					_ = k8sClient.Update(ctx, c)
+					_ = k8sClient.Delete(ctx, c)
+				}
+			})
+
+			r, recorder := newReconciler(mock)
+			restarts := connectorRestarts(&kafkaconnectv1alpha1.Connector{
+				ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"},
+				Spec:       kafkaconnectv1alpha1.ConnectorSpec{ClusterRef: corev1.LocalObjectReference{Name: "my-cluster"}},
+			}, metricsRestartTriggerManual)
+			before := testutil.ToFloat64(restarts)
+
+			result, err := reconcileN(ctx, r, nn, 7)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.RequeueAfter).To(Equal(3 * time.Second))
+
+			connector := getConnector(ctx, nn)
+			Expect(connector).NotTo(BeNil())
+			Expect(connector.Annotations).NotTo(HaveKey("kafka-connect.b1zzu.net/restart-task"))
+			Expect(connector.Status.LastRestartAt).NotTo(BeNil())
+			Expect(connector.Status.RestartCount).To(Equal(int32(1)))
+			Expect(testutil.ToFloat64(restarts)).To(Equal(before + 1))
+			Expect(drainEvents(recorder)).To(ContainElement(ContainSubstring("Task 0 restarted")))
+
+			mock.mu.Lock()
+			defer mock.mu.Unlock()
+			Expect(mock.restartedTasks).To(Equal([]int{0}))
+			Expect(mock.restartedConnectors).To(BeEmpty())
+		})
+
+		DescribeTable("should emit a warning event and remove an unusable restart-task annotation",
+			func(ctx SpecContext, name, value, event string) {
+				nn := nameFor(name)
+
+				mock := newMockKafkaConnectServer()
+				DeferCleanup(mock.Close)
+
+				createConnector(ctx, name, "my-cluster", map[string]string{"connector.class": "FileStreamSource"}, map[string]string{
+					"kafka-connect.b1zzu.net/restart-task": value,
+				})
+				DeferCleanup(func(ctx SpecContext) {
+					c := getConnector(ctx, nn)
+					if c != nil {
+						c.Finalizers = nil
+						_ = k8sClient.Update(ctx, c)
+						_ = k8sClient.Delete(ctx, c)
+					}
+				})
+
+				r, recorder := newReconciler(mock)
+
+				_, err := reconcileN(ctx, r, nn, 7)
+				Expect(err).NotTo(HaveOccurred())
+
+				connector := getConnector(ctx, nn)
+				Expect(connector).NotTo(BeNil())
+				Expect(connector.Annotations).NotTo(HaveKey("kafka-connect.b1zzu.net/restart-task"))
+				Expect(connector.Status.LastRestartAt).To(BeNil())
+				Expect(connector.Status.RestartCount).To(Equal(int32(0)))
+				Expect(drainEvents(recorder)).To(ContainElement(SatisfyAll(
+					HavePrefix(corev1.EventTypeWarning), ContainSubstring(event))))
+
+				mock.mu.Lock()
+				defer mock.mu.Unlock()
+				Expect(mock.restartedTasks).To(BeEmpty())
+			},
+			Entry("not a number", "restart-task-nan", "first", "Invalid task ID"),
+			Entry("negative", "restart-task-negative", "-1", "Invalid task ID"),
+			Entry("empty", "restart-task-empty", "", "Invalid task ID"),
+			Entry("unknown task", "restart-task-unknown", "5", "Failed to restart task 5"),
+		)
+
+		It("should keep the restart-task annotation and return error when the task restart fails", func(ctx SpecContext) {
+			name := "restart-task-fail"
+			nn := nameFor(name)
+
+			mock := newMockKafkaConnectServer()
+			mock.restartError = true
+			DeferCleanup(mock.Close)
+
+			createConnector(ctx, name, "my-cluster", map[string]string{"connector.class": "FileStreamSource"}, map[string]string{
+				"kafka-connect.b1zzu.net/restart-task": "0",
+			})
+			DeferCleanup(func(ctx SpecContext) {
+				c := getConnector(ctx, nn)
+				if c != nil {
+					c.Finalizers = nil
+					_ = k8sClient.Update(ctx, c)
+					_ = k8sClient.Delete(ctx, c)
+				}
+			})
+
+			r, _ := newReconciler(mock)
+
+			_, err := reconcileN(ctx, r, nn, 3)
+			Expect(err).NotTo(HaveOccurred())
+
+			_, err = r.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+			Expect(err).To(MatchError(ContainSubstring("failed to restart task 0")))
+
+			connector := getConnector(ctx, nn)
+			Expect(connector).NotTo(BeNil())
+			Expect(connector.Annotations).To(HaveKeyWithValue("kafka-connect.b1zzu.net/restart-task", "0"))
 			Expect(connector.Status.RestartCount).To(Equal(int32(0)))
 		})
 
