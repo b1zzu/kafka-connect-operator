@@ -118,6 +118,11 @@ func (in *ClusterSpec) DeepCopyInto(out *ClusterSpec) {
 			(*in)[i].DeepCopyInto(&(*out)[i])
 		}
 	}
+	if in.AdditionalPluginPaths != nil {
+		in, out := &in.AdditionalPluginPaths, &out.AdditionalPluginPaths
+		*out = make([]string, len(*in))
+		copy(*out, *in)
+	}
 	if in.Libraries != nil {
 		in, out := &in.Libraries, &out.Libraries
 		*out = make([]Library, len(*in))

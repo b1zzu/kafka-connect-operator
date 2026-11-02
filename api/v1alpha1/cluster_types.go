@@ -61,6 +61,15 @@ type ClusterSpec struct {
 	// +listMapKey=name
 	Plugins []Plugin `json:"plugins,omitempty"`
 
+	// AdditionalPluginPaths is a list of directories inside the Kafka Connect container,
+	// for example plugins baked into a custom image, that the operator appends to
+	// plugin.path after the /plugins/{name} directories of spec.plugins.
+	// Each entry must be an absolute path and must not contain commas or control characters.
+	// +optional
+	// +listType=set
+	// +kubebuilder:validation:items:Pattern=`^/[^,[:cntrl:]]*$`
+	AdditionalPluginPaths []string `json:"additionalPluginPaths,omitempty"`
+
 	// Libraries is a list of shared classpath libraries to mount from OCI images.
 	// Each library image is mounted as a read-only volume at /libraries/{name} and
 	// added to the CLASSPATH environment variable. Unlike plugins (which use isolated
