@@ -731,6 +731,124 @@ var _ = Describe("Manager", Ordered, func() {
 				g.Expect(err).To(HaveOccurred(), "my-env-connector should no longer exist")
 			}, 30*time.Second, 2*time.Second).Should(Succeed())
 		})
+
+		It("should auto-restart only the failed tasks up to maxRestarts and never when disabled", func() {
+			manifests := []string{
+				"config/e2e/auto_restart_connector.yaml",
+				"config/e2e/auto_restart_disabled_connector.yaml",
+			}
+			By("creating the connectors with a failing task")
+			for _, manifest := range manifests {
+				cmd := exec.Command("kubectl", "apply", "-f", manifest, "-n", "default")
+				_, err := utils.Run(cmd)
+				Expect(err).NotTo(HaveOccurred())
+				DeferCleanup(func() {
+					cmd := exec.Command("kubectl", "delete", "-f", manifest,
+						"-n", "default", "--ignore-not-found", "--timeout=60s")
+					_, _ = utils.Run(cmd)
+				})
+			}
+
+			getConnectorField := func(name, jsonPath string) (string, error) {
+				cmd := exec.Command("kubectl", "get", "connector", name,
+					"-n", "default", "-o", "jsonpath="+jsonPath)
+				return utils.Run(cmd)
+			}
+
+			countTaskStarts := func(task string) (int, error) {
+				cmd := exec.Command("kubectl", "logs", "deployment/my-cluster-connect", "-n", "default")
+				output, err := utils.Run(cmd)
+				if err != nil {
+					return 0, err
+				}
+				return strings.Count(output, "Creating task "+task+"\""), nil
+			}
+
+			const restarted = "my-auto-restart-connector"
+			const disabled = "my-auto-restart-disabled-connector"
+
+			By("verifying the failed task is restarted once and the limit is reported")
+			Eventually(func(g Gomega) {
+				count, err := getConnectorField(restarted, "{.status.autoRestart.restartCount}")
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(count).To(Equal("1"))
+
+				limit, err := getConnectorField(restarted,
+					"{.status.conditions[?(@.type=='AutoRestartLimitReached')].status}")
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(limit).To(Equal("True"))
+
+				starts, err := countTaskStarts(restarted + "-0")
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(starts).To(Equal(2), "the failed task 0 should be started twice")
+			}, 2*time.Minute, 2*time.Second).Should(Succeed())
+
+			By("verifying it is not restarted again and only the failed task was restarted")
+			Consistently(func(g Gomega) {
+				count, err := getConnectorField(restarted, "{.status.autoRestart.restartCount}")
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(count).To(Equal("1"))
+
+				total, err := getConnectorField(restarted, "{.status.restartCount}")
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(total).To(Equal("1"))
+
+				tasks, err := getConnectorField(restarted, "{.status.tasks[*].state}")
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(tasks).To(Equal("FAILED RUNNING"))
+
+				ready, err := getConnectorField(restarted, "{.status.conditions[?(@.type=='Ready')].reason}")
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(ready).To(Equal("FailedTasks"))
+
+				starts, err := countTaskStarts(restarted + "-0")
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(starts).To(Equal(2))
+
+				starts, err = countTaskStarts(restarted + "-1")
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(starts).To(Equal(1), "the running task 1 should not be restarted")
+			}, 30*time.Second, 3*time.Second).Should(Succeed())
+
+			By("verifying the connector with auto-restart disabled fails")
+			Eventually(func(g Gomega) {
+				tasks, err := getConnectorField(disabled, "{.status.tasks[*].state}")
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(tasks).To(Equal("FAILED"))
+			}, 2*time.Minute, 2*time.Second).Should(Succeed())
+
+			By("verifying the connector with auto-restart disabled is never restarted")
+			Consistently(func(g Gomega) {
+				total, err := getConnectorField(disabled, "{.status.restartCount}")
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(total).To(BeEmpty())
+
+				autoRestart, err := getConnectorField(disabled, "{.status.autoRestart}")
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(autoRestart).To(BeEmpty())
+
+				starts, err := countTaskStarts(disabled + "-0")
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(starts).To(Equal(1))
+			}, 20*time.Second, 3*time.Second).Should(Succeed())
+
+			// Delete and verify removal now: the finalizers must be cleared before AfterAll
+			// uninstalls the CRDs and undeploys the controller.
+			By("deleting the connectors and verifying they are fully removed")
+			for _, manifest := range manifests {
+				cmd := exec.Command("kubectl", "delete", "-f", manifest,
+					"-n", "default", "--ignore-not-found", "--timeout=60s")
+				_, err := utils.Run(cmd)
+				Expect(err).NotTo(HaveOccurred())
+			}
+			Eventually(func(g Gomega) {
+				for _, name := range []string{restarted, disabled} {
+					cmd := exec.Command("kubectl", "get", "connector", name, "-n", "default")
+					_, err := utils.Run(cmd)
+					g.Expect(err).To(HaveOccurred(), name+" should no longer exist")
+				}
+			}, 30*time.Second, 2*time.Second).Should(Succeed())
+		})
 	})
 })
 

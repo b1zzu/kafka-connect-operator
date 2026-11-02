@@ -233,7 +233,6 @@ func main() {
 		Scheme:                          mgr.GetScheme(),
 		Recorder:                        mgr.GetEventRecorder("connector-controller"),
 		ReconcileInterval:               time.Minute,
-		RestartFailedConnectorBackoff:   5 * time.Minute,
 		ConnectorStateTransitionBackoff: 2 * time.Minute,
 		NewKafkaConnectClientFunc:       kafkaConnectClientFunc,
 	}).SetupWithManager(mgr); err != nil {

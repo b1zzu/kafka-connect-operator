@@ -42,10 +42,11 @@ import (
 )
 
 const (
-	typeReadyConnector         = "Ready"
-	connectorFinalizer         = "kafka-connect.b1zzu.net/connector"
-	connectorRestartAnnotation = "kafka-connect.b1zzu.net/restart"
-	connectorRestartTrue       = "true"
+	typeReadyConnector          = "Ready"
+	typeAutoRestartLimitReached = "AutoRestartLimitReached"
+	connectorFinalizer          = "kafka-connect.b1zzu.net/connector"
+	connectorRestartAnnotation  = "kafka-connect.b1zzu.net/restart"
+	connectorRestartTrue        = "true"
 
 	connectorStatusRunning    = "RUNNING"
 	connectorStatusPaused     = "PAUSED"
@@ -72,10 +73,6 @@ type ConnectorReconciler struct {
 	// ReconcileInterval is the interval between each reconcile loop
 	// to monitor the status of the connector.
 	ReconcileInterval time.Duration
-
-	// RestartFailedConnectorBackoff is the time to wait before attempting
-	// to restart a failed connector after it was updated, or already restarted.
-	RestartFailedConnectorBackoff time.Duration
 
 	// ConnectorStateTransitionBackoff is the time to wait before attempting
 	// to change the connector state while it's already changing.
@@ -729,13 +726,13 @@ func (r *ConnectorReconciler) reconcileConnectorStatus(ctx context.Context, conn
 		return nil, nil
 	}
 
-	// Restart failed connectors/tasks when desired state is running
 	desiredState := getDesiredConnectorState(connector)
-	if desiredState == kcv1alpha1.ConnectorStateRunning {
-		err := r.restartFailedConnectorAndTasks(ctx, kafkaConnect, connector, status)
-		if err != nil {
+	if desiredState == kcv1alpha1.ConnectorStateRunning && autoRestartEnabled(connector) {
+		if err := r.autoRestartFailedConnectorAndTasks(ctx, kafkaConnect, connector, status); err != nil {
 			return nil, err
 		}
+	} else {
+		meta.RemoveStatusCondition(&connector.Status.Conditions, typeAutoRestartLimitReached)
 	}
 
 	// Populate connector and task status from Kafka Connect
@@ -770,9 +767,9 @@ func (r *ConnectorReconciler) reconcileConnectorStatus(ctx context.Context, conn
 	return connector, nil
 }
 
-// Try to restart the connector if in failed state and each failed task,
-// if successfully restarted it will update the LastRestartAt and RestartCount
-func (r *ConnectorReconciler) restartFailedConnectorAndTasks(
+// autoRestartFailedConnectorAndTasks restarts the failed connector and its failed tasks
+// following the auto-restart policy, and resets the policy once the connector is healthy.
+func (r *ConnectorReconciler) autoRestartFailedConnectorAndTasks(
 	ctx context.Context,
 	kafkaConnect *kafkaconnect.Client,
 	connector *kcv1alpha1.Connector,
@@ -780,75 +777,75 @@ func (r *ConnectorReconciler) restartFailedConnectorAndTasks(
 ) error {
 	log := logf.FromContext(ctx)
 
-	restarted := false
+	autoRestart := connector.Status.AutoRestart
 
-	if status.Connector.State == connectorStatusFailed {
-		if r.restartFailedConnectorBackoff(connector) {
-			log.Info("Skip restart of recently updated or restarted connector")
-			return nil
+	if status.Connector.State != connectorStatusFailed && countFailedTasks(status.Tasks) == 0 {
+		meta.RemoveStatusCondition(&connector.Status.Conditions, typeAutoRestartLimitReached)
+		if autoRestart != nil && time.Since(autoRestart.LastRestartAt.Time) > autoRestartBackoff(autoRestart.RestartCount) {
+			log.Info("Reset auto-restart count of healthy connector", "restartCount", autoRestart.RestartCount)
+			connector.Status.AutoRestart = nil
 		}
-
-		log.Info("Restarting failed connector")
-		if err := kafkaConnect.RestartConnector(ctx, connector.Name); err != nil {
-			r.Recorder.Eventf(connector, nil, corev1.EventTypeWarning, "FailedRestart", "Restart", "Failed to restart failed connector: %v", err)
-			return fmt.Errorf("failed to restart failed connector: %w", err)
-		}
-		r.Recorder.Eventf(connector, nil, corev1.EventTypeWarning, "Restarted", "Restart", "Restarted failed connector")
-		restarted = true
+		return nil
 	}
 
-	var failedTaskIDs []int
-	for _, task := range status.Tasks {
-		if task.State == connectorStatusFailed {
-			failedTaskIDs = append(failedTaskIDs, task.ID)
-		}
+	var count int32
+	if autoRestart != nil {
+		count = autoRestart.RestartCount
 	}
 
-	if len(failedTaskIDs) > 0 {
-		if r.restartFailedConnectorBackoff(connector) {
-			log.Info("Skip restart of recently updated or restarted connector")
-			return nil
+	var maxRestarts *int32
+	if connector.Spec.AutoRestart != nil {
+		maxRestarts = connector.Spec.AutoRestart.MaxRestarts
+	}
+	if maxRestarts != nil && count >= *maxRestarts {
+		if meta.FindStatusCondition(connector.Status.Conditions, typeAutoRestartLimitReached) == nil {
+			log.Info("Stopped auto-restart of failed connector, max restarts reached", "maxRestarts", *maxRestarts)
+			r.recordWarningEvent(connector, "Restart", "AutoRestartLimitReached",
+				"Stopped restarting the failed connector after %d automatic restart(s)", count)
 		}
-
-		log.Info("Restarting failed tasks", "taskIDs", failedTaskIDs)
-		for _, taskID := range failedTaskIDs {
-			if err := kafkaConnect.RestartTask(ctx, connector.Name, taskID); err != nil {
-				r.Recorder.Eventf(connector, nil, corev1.EventTypeWarning, "FailedRestart", "Restart", "Failed to restart task %d: %v", taskID, err)
-				return fmt.Errorf("failed to restart failed task with id %d: %w", taskID, err)
-			}
-		}
-		r.Recorder.Eventf(connector, nil, corev1.EventTypeWarning, "Restarted", "Restart", "Restarted %d failed task(s)", len(failedTaskIDs))
-		restarted = true
+		meta.SetStatusCondition(&connector.Status.Conditions, metav1.Condition{
+			Type:   typeAutoRestartLimitReached,
+			Status: metav1.ConditionTrue,
+			Reason: "MaxRestartsReached",
+			Message: fmt.Sprintf("Stopped restarting the failed connector after %d automatic restart(s), "+
+				"restart it manually with the %s annotation", count, connectorRestartAnnotation),
+			ObservedGeneration: connector.Generation,
+		})
+		return nil
 	}
 
-	// Update restart status if any restarts were performed
-	if restarted {
-		now := metav1.Now()
-		connector.Status.LastRestartAt = &now
-		connector.Status.RestartCount++
-		connectorRestarts(connector, metricsRestartTriggerAuto).Inc()
+	if autoRestart != nil && time.Since(autoRestart.LastRestartAt.Time) < autoRestartBackoff(count) {
+		log.Info("Skip auto-restart of failed connector during backoff",
+			"restartCount", count, "backoff", autoRestartBackoff(count))
+		return nil
 	}
+
+	log.Info("Restarting failed connector and tasks", "restartCount", count+1)
+	if err := kafkaConnect.RestartFailedConnectorAndTasks(ctx, connector.Name); err != nil {
+		r.recordWarningEvent(connector, "Restart", "FailedRestart", "Failed to restart failed connector and tasks: %v", err)
+		return fmt.Errorf("failed to restart failed connector and tasks: %w", err)
+	}
+	r.recordWarningEvent(connector, "Restart", "Restarted", "Restarted failed connector and tasks (automatic restart %d)", count+1)
+
+	now := metav1.Now()
+	connector.Status.AutoRestart = &kcv1alpha1.AutoRestartStatus{RestartCount: count + 1, LastRestartAt: now}
+	connector.Status.LastRestartAt = &now
+	connector.Status.RestartCount++
+	connectorRestarts(connector, metricsRestartTriggerAuto).Inc()
 	return nil
 }
 
-// restartFailedConnectorBackoff return true if the controller should backoff from trying to restart the connector.
-func (r *ConnectorReconciler) restartFailedConnectorBackoff(connector *kcv1alpha1.Connector) bool {
-	lastUpdatedAt := connector.Status.LastUpdatedAt
-	lastRestartAt := connector.Status.LastRestartAt
+// autoRestartEnabled reports whether the operator restarts the failed connector and tasks.
+func autoRestartEnabled(connector *kcv1alpha1.Connector) bool {
+	spec := connector.Spec.AutoRestart
+	return spec == nil || spec.Enabled == nil || *spec.Enabled
+}
 
-	if lastUpdatedAt == nil && lastRestartAt == nil {
-		return false
-	}
-
-	last := lastUpdatedAt
-	if last == nil {
-		last = lastRestartAt
-	}
-	if lastRestartAt != nil && lastRestartAt.After(last.Time) {
-		last = lastRestartAt
-	}
-
-	return last.After(time.Now().Add(-r.RestartFailedConnectorBackoff))
+// autoRestartBackoff returns the time to wait after n automatic restarts before the next one:
+// n^2+n minutes, capped at 60 minutes.
+func autoRestartBackoff(n int32) time.Duration {
+	minutes := min(int64(n)*int64(n)+int64(n), 60)
+	return time.Duration(minutes) * time.Minute
 }
 
 // stateTransitionBackoff return true if the controller should backoff from retry the state change or make another state change.

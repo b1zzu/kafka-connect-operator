@@ -328,6 +328,29 @@ func (c *Client) RestartConnector(ctx context.Context, name string) error {
 	return nil
 }
 
+// RestartFailedConnectorAndTasks restarts the connector if it is FAILED and only its FAILED tasks,
+// with a single request (KIP-745).
+func (c *Client) RestartFailedConnectorAndTasks(ctx context.Context, name string) error {
+	url := fmt.Sprintf("%s/connectors/%s/restart?includeTasks=true&onlyFailed=true", c.endpoint, name)
+
+	req, err := http.NewRequestWithContext(ctx, "POST", url, nil)
+	if err != nil {
+		return err
+	}
+
+	res, err := c.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to restart connector and tasks: %w", err)
+	}
+	defer func() { _ = res.Body.Close() }()
+
+	if res.StatusCode != 202 && res.StatusCode != 204 {
+		return NewResponseError(res)
+	}
+
+	return nil
+}
+
 func (c *Client) GetConnectorOffsets(ctx context.Context, name string) (*ConnectorOffsets, error) {
 	url := fmt.Sprintf("%s/connectors/%s/offsets", c.endpoint, name)
 

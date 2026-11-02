@@ -9,6 +9,9 @@ spec:
   cluster:
     name: my-cluster-connect
   # state: running
+  # autoRestart:
+  #   enabled: true
+  #   maxRestarts: 10
   config:
     connector.class: org.apache.kafka.connect.file.FileStreamSourceConnector
     tasks.max: "1"

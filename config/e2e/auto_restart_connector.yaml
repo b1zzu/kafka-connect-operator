@@ -1,0 +1,14 @@
+apiVersion: kafka-connect.b1zzu.net/v1alpha1
+kind: Connector
+metadata:
+  name: my-auto-restart-connector
+spec:
+  cluster:
+    name: my-cluster-connect
+  autoRestart:
+    maxRestarts: 1
+  config:
+    connector.class: com.example.kafka.connect.test.TestConnector
+    tasks.max: "2"
+    start.tasks.fail: "true"
+    start.tasks.fail.count: "1"

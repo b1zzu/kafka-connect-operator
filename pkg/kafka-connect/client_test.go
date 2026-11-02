@@ -128,6 +128,59 @@ func TestRestartConnector_Error(t *testing.T) {
 	}
 }
 
+func TestRestartFailedConnectorAndTasks_Success(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Errorf("expected POST, got %s", r.Method)
+		}
+		if r.URL.Path != "/connectors/my-connector/restart" {
+			t.Errorf("unexpected path: %s", r.URL.Path)
+		}
+		if got := r.URL.Query().Get("includeTasks"); got != "true" {
+			t.Errorf("includeTasks = %q, want true", got)
+		}
+		if got := r.URL.Query().Get("onlyFailed"); got != "true" {
+			t.Errorf("onlyFailed = %q, want true", got)
+		}
+		w.WriteHeader(http.StatusAccepted)
+		_, _ = w.Write([]byte(`{"name":"my-connector","tasks":[{"id":0,"state":"RESTARTING"}]}`))
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL)
+	err := client.RestartFailedConnectorAndTasks(t.Context(), "my-connector")
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+}
+
+func TestRestartFailedConnectorAndTasks_204(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL)
+	err := client.RestartFailedConnectorAndTasks(t.Context(), "my-connector")
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+}
+
+func TestRestartFailedConnectorAndTasks_Error(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusConflict)
+		_, _ = w.Write([]byte("rebalance in progress"))
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL)
+	err := client.RestartFailedConnectorAndTasks(t.Context(), "my-connector")
+	if _, ok := err.(*ResponseError); !ok {
+		t.Fatalf("expected error of type *kafkaconnect.ResponseError, got %T", err)
+	}
+}
+
 func TestRestartTask_Success(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {

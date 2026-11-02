@@ -375,6 +375,13 @@ spec:
   importOffsets:
     configMapRef:
       name: my-connector-offsets
+
+  # Automatic restart of the failed connector and tasks (optional, see "Restart" section below)
+  autoRestart:
+    # Restart the connector and its tasks when they are FAILED (optional, defaults to true)
+    enabled: true
+    # Maximum number of consecutive automatic restarts (optional, unlimited when not set)
+    maxRestarts: 10
 ```
 
 When a connector is created with state `paused` or `stopped`, the operator passes `initial_state` to the Kafka Connect API so the connector never starts running. This is useful for offset migration workflows where you need to configure offsets before the connector starts.
@@ -391,7 +398,22 @@ Annotations are removed automatically after the operation completes. And the ope
 
 ### Restart
 
-**Automatic restart:** The operator automatically restarts connectors and tasks that are in `FAILED` state when the desired state is `running`. No user action is required — the operator detects the failure during reconciliation, restarts the affected connector or tasks, and requeues for status verification.
+**Automatic restart:** When the desired state is `running`, the operator restarts a connector or tasks in `FAILED` state. It uses a single `POST /connectors/<name>/restart?includeTasks=true&onlyFailed=true` request ([KIP-745](https://cwiki.apache.org/confluence/display/KAFKA/KIP-745%3A+Connect+API+to+restart+connector+and+tasks)), so only the failed connector and the failed tasks are restarted, while the running tasks are left untouched.
+
+The first restart happens as soon as the failure is detected. After `n` consecutive restarts, the operator waits `n^2 + n` minutes before the next one, capped at 60 minutes: the restarts happen after 0, 2, 6, 12, 20, 30, 42 and 56 minutes, and then every 60 minutes. The count is reset once the connector and all its tasks have been healthy for longer than the current backoff (e.g. 6 minutes after the second restart).
+
+The policy is configured with `spec.autoRestart`:
+
+```yaml
+spec:
+  autoRestart:
+    enabled: true   # defaults to true, set to false to never restart automatically
+    maxRestarts: 5  # defaults to unlimited
+```
+
+The consecutive restarts are tracked in `status.autoRestart.restartCount` and `status.autoRestart.lastRestartAt`, while `status.restartCount` and `status.lastRestartAt` count every restart (automatic and manual) for the lifetime of the Connector. Each automatic restart emits a `Restarted` Event.
+
+When `maxRestarts` is reached and the connector is still failed, the operator stops restarting it, emits an `AutoRestartLimitReached` Warning Event and sets the `AutoRestartLimitReached` condition to `True`. The condition is removed once the connector is healthy again. To retry, restart it manually (see below), or fix the cause (for example the connector config).
 
 **Manual restart:** To manually trigger a restart of a connector (e.g. to pick up external configuration changes), annotate the Connector CR:
 
@@ -399,7 +421,7 @@ Annotations are removed automatically after the operation completes. And the ope
 kubectl annotate connector my-connector kafka-connect.b1zzu.net/restart=true
 ```
 
-The operator will restart the connector and automatically remove the annotation afterward.
+The operator will restart the connector and automatically remove the annotation afterward. A manual restart does not change the automatic restart count.
 
 ### Offsets Management
 
