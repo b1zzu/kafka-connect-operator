@@ -28,7 +28,7 @@ spec:
   #       name: my-keystore
 
   config:
-    bootstrap.servers: my-cluster-kafka-bootstrap:9092
+    bootstrap.servers: kafka:9092
     key.converter: org.apache.kafka.connect.json.JsonConverter
     value.converter: org.apache.kafka.connect.json.JsonConverter
     group.id: connect-my-cluster

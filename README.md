@@ -42,19 +42,29 @@ kubectl logs deployment/kafka-connect-controller-manager -n kafka-connect-operat
 
 ### Deploy an Apache Kafka Connect cluster
 
-To run a Kafka Connect cluster you need a Kafka cluster, and the easiest way is to use Strimzi.
+To run a Kafka Connect cluster you need a Kafka cluster. Any Kafka cluster reachable from Kubernetes works, for example:
 
-Deploy the Strimzi operator:
+- **Sample config**: the single-node Kafka cluster in `config/kafka`, the quickest option for testing and the one used below (bootstrap: `kafka:9092`).
+- **Strimzi**: a Kafka cluster managed by the [Strimzi](https://strimzi.io) operator.
+- **AWS MSK**: a managed cluster on AWS, see [AWS MSK IAM](#aws-msk-iam) for the authentication.
+
+Deploy the sample Kafka cluster:
+
+```bash
+kubectl apply -k config/kafka -n default
+```
+
+<details>
+<summary>Or deploy Kafka with Strimzi</summary>
 
 ```bash
 kubectl create -f 'https://strimzi.io/install/latest?namespace=default' -n default
-```
-
-Deploy the Kafka cluster:
-
-```bash
 kubectl apply -f 'https://strimzi.io/examples/latest/kafka/kafka-single-node.yaml' -n default
 ```
+
+Then use `bootstrap.servers: my-cluster-kafka-bootstrap:9092` in the Cluster below.
+
+</details>
 
 Deploy the Kafka Connect cluster:
 
@@ -67,7 +77,7 @@ metadata:
 spec:
   replicas: 1
   config:
-    bootstrap.servers: my-cluster-kafka-bootstrap:9092
+    bootstrap.servers: kafka:9092
     key.converter: org.apache.kafka.connect.json.JsonConverter
     value.converter: org.apache.kafka.connect.json.JsonConverter
     group.id: connect-my-cluster
@@ -110,8 +120,8 @@ spec:
     tasks.max: "1"
     source.cluster.alias: source
     target.cluster.alias: target
-    source.cluster.bootstrap.servers: my-cluster-kafka-bootstrap:9092
-    target.cluster.bootstrap.servers: my-cluster-kafka-bootstrap:9092
+    source.cluster.bootstrap.servers: kafka:9092
+    target.cluster.bootstrap.servers: kafka:9092
     topics: example-a
     replication.policy.class: org.apache.kafka.connect.mirror.DefaultReplicationPolicy
     transforms: rename
@@ -526,7 +536,7 @@ spec:
   metrics:
     jmxExporter: {}
   config:
-    bootstrap.servers: my-cluster-kafka-bootstrap:9092
+    bootstrap.servers: kafka:9092
     # ...
 ```
 
@@ -618,7 +628,7 @@ spec:
       - name: io.debezium
         level: TRACE
   config:
-    bootstrap.servers: my-cluster-kafka-bootstrap:9092
+    bootstrap.servers: kafka:9092
     # ...
 ```
 
@@ -639,7 +649,7 @@ spec:
   logging:
     log4jJsonLayout: {}
   config:
-    bootstrap.servers: my-cluster-kafka-bootstrap:9092
+    bootstrap.servers: kafka:9092
     # ...
 ```
 
@@ -674,11 +684,10 @@ Use kind (works with Podman)
 kind create cluster
 ```
 
-Deploy Kafka using the Strimzi operator
+Deploy a single-node Kafka cluster (or use Strimzi or MSK, see [Deploy an Apache Kafka Connect cluster](#deploy-an-apache-kafka-connect-cluster))
 
 ```bash
-kubectl create -f 'https://strimzi.io/install/latest?namespace=default'
-kubectl apply -f 'https://strimzi.io/examples/latest/kafka/kafka-single-node.yaml' -n default
+kubectl apply -k config/kafka -n default
 ```
 
 Install the CRDs

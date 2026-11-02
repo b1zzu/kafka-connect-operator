@@ -18,6 +18,7 @@ pkg/utils/                           Kubernetes helpers
 config/crd/bases/*                   Generated CRDs (DO NOT EDIT)
 config/rbac/role.yaml                Generated RBAC (DO NOT EDIT)
 config/samples/*                     Example CRs (edit these)
+config/kafka/                        Single-node Kafka (KRaft) for e2e and local development
 config/e2e/                          CRs and patches applied by the e2e tests
 config/e2e-manager/                  Manager overlay for e2e (local image, imagePullPolicy: Never)
 test/e2e/                            E2E tests (build tag `e2e`)
@@ -73,7 +74,7 @@ Always use `kubebuilder create api` and `kubebuilder create webhook` to scaffold
 When adding or changing a CRD field, annotation or user-visible behavior, update the matching section of `README.md` (the "Reference" section and the feature sections below it).
 
 ### E2E Tests Require an Isolated Kind Cluster
-The e2e tests install and delete Strimzi, Kafka and the operator. Only run them against the dedicated kind cluster `kafka-connect-operator-test-e2e` (created by `make test-e2e`), never against a nonprod or prod cluster.
+The e2e tests install and delete Kafka and the operator. Only run them against the dedicated kind cluster `kafka-connect-operator-test-e2e` (created by `make test-e2e`), never against a nonprod or prod cluster.
 
 ## After Making Changes
 
@@ -168,11 +169,11 @@ make run               # Run the manager locally (uses current kubeconfig contex
 
 Tests use **Ginkgo + Gomega** (BDD style). Check `internal/controller/suite_test.go` for setup.
 
-`make run` sets `KCO_PORT_FORWARD_CLIENT=true`: because the manager runs outside the cluster, it starts `kubectl port-forward` as a child process to reach the Kafka Connect REST API. See "Local Development" in the README for the full flow (kind, Strimzi, `make install`, `kubectl apply -k config/samples`).
+`make run` sets `KCO_PORT_FORWARD_CLIENT=true`: because the manager runs outside the cluster, it starts `kubectl port-forward` as a child process to reach the Kafka Connect REST API. See "Local Development" in the README for the full flow (kind, `kubectl apply -k config/kafka`, `make install`, `kubectl apply -k config/samples`).
 
 ### Running e2e tests locally
 
-Prerequisites: go, kind, kubectl, a container tool (Docker by default, same as CI) and network access (Strimzi, cert-manager and ghcr.io are downloaded).
+Prerequisites: go, kind, kubectl, a container tool (Docker by default, same as CI) and network access (cert-manager, Docker Hub and ghcr.io are downloaded).
 
 ```bash
 make test-e2e          # Create the kind cluster, run the suite, delete the cluster
@@ -189,11 +190,11 @@ What the suite does (`test/e2e/e2e_suite_test.go`, `test/e2e/e2e_test.go`):
 1. Builds the manager and the `sample-plugins`, `jmx-exporter` and `log4j-layout-template-json` images as `example.com/kafka-connect-operator[/...]:latest` and loads them into kind (`kind load docker-image`).
 2. Installs cert-manager (skipped when `CERT_MANAGER_INSTALL_SKIP=true` or it is already installed).
 3. Installs the CRDs and deploys the manager with `make install deploy-e2e` (`config/e2e-manager`, `imagePullPolicy: Never`).
-4. Installs Strimzi and a single-node Kafka cluster `my-cluster` in `default`, then applies `config/e2e`.
+4. Deploys a single-node Kafka cluster from `config/kafka` in `default`, then applies `config/e2e`.
 
 Useful variables: `KIND_CLUSTER` (cluster name), `CERT_MANAGER_INSTALL_SKIP=true`, `KUBECTL_KUBERC=true` (keep your kuberc, otherwise it is disabled for the run), `E2E_KEEP_ON_FAILURE=true` (when a spec fails, keep Kafka, Connect, the operator and CertManager running for debugging; `make cleanup-test-e2e` removes the cluster afterwards).
 
-To re-run a single spec against the cluster left behind by a failed run, call `go test` directly. The specs are `Ordered` and share state, and the Kafka wait alone can take up to 10 minutes, so raise the Go timeout:
+To re-run a single spec against the cluster left behind by a failed run, call `go test` directly. The specs are `Ordered` and share state, so raise the Go timeout:
 
 ```bash
 KIND=kind KIND_CLUSTER=kafka-connect-operator-test-e2e \
@@ -432,5 +433,5 @@ make docker-build docker-push IMG=$IMG
 - **controller-tools**: https://github.com/kubernetes-sigs/controller-tools
 - **Kubebuilder Repo**: https://github.com/kubernetes-sigs/kubebuilder
 - **kind**: https://github.com/kubernetes-sigs/kind
-- **Strimzi** (Kafka for e2e/local dev): https://strimzi.io
+- **Apache Kafka Docker image** (Kafka for e2e/local dev, `config/kafka`): https://hub.docker.com/r/apache/kafka
 - **Ginkgo**: https://onsi.github.io/ginkgo/ and **Gomega**: https://onsi.github.io/gomega/
