@@ -87,9 +87,15 @@ type ClusterReconciler struct {
 	// NewKafkaConnectClientFunc creates a Kafka Connect client for the Cluster.
 	NewKafkaConnectClientFunc KafkaConnectClientFunc
 
-	// pluginsGenerations maps each Cluster to the Deployment generation
-	// its connector plugins were last listed for.
-	pluginsGenerations sync.Map
+	// pluginsListings maps each Cluster to the listing its connector plugins were last persisted from.
+	pluginsListings sync.Map
+}
+
+// pluginsListing identifies the Cluster incarnation and Deployment generation
+// its connector plugins were listed for.
+type pluginsListing struct {
+	uid        types.UID
+	generation int64
 }
 
 // +kubebuilder:rbac:groups=kafka-connect.b1zzu.net,resources=clusters,verbs=get;list;watch;create;update;patch;delete
@@ -122,7 +128,7 @@ func (r *ClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 	if cluster == nil {
 		// The Cluster resource was deleted
-		r.pluginsGenerations.Delete(req.NamespacedName)
+		r.pluginsListings.Delete(req.NamespacedName)
 		return ctrl.Result{}, nil
 	}
 
@@ -486,7 +492,8 @@ func (r *ClusterReconciler) reconcileConnectorPlugins(ctx context.Context, clust
 	}
 
 	key := types.NamespacedName{Name: cluster.Name, Namespace: cluster.Namespace}
-	if g, ok := r.pluginsGenerations.Load(key); ok && g == deployment.Generation && cluster.Status.ConnectorPlugins != nil {
+	listing := pluginsListing{uid: cluster.UID, generation: deployment.Generation}
+	if l, ok := r.pluginsListings.Load(key); ok && l == listing {
 		return cluster, nil
 	}
 
@@ -500,14 +507,13 @@ func (r *ClusterReconciler) reconcileConnectorPlugins(ctx context.Context, clust
 		return nil, fmt.Errorf("failed to list connector plugins: %w", err)
 	}
 
-	r.pluginsGenerations.Store(key, deployment.Generation)
-
 	connectorPlugins := make([]kcv1alpha1.ConnectorPlugin, 0, len(plugins))
 	for _, p := range plugins {
-		connectorPlugins = append(connectorPlugins, kcv1alpha1.ConnectorPlugin{Class: p.Class, Type: p.Type, Version: p.Version})
+		connectorPlugins = append(connectorPlugins, kcv1alpha1.ConnectorPlugin(p))
 	}
 
 	if equality.Semantic.DeepEqual(cluster.Status.ConnectorPlugins, connectorPlugins) {
+		r.pluginsListings.Store(key, listing)
 		return cluster, nil
 	}
 
@@ -519,6 +525,8 @@ func (r *ClusterReconciler) reconcileConnectorPlugins(ctx context.Context, clust
 	if err != nil {
 		return nil, fmt.Errorf("failed to update Cluster status connectorPlugins: %w", err)
 	}
+
+	r.pluginsListings.Store(key, listing)
 
 	// Reconciliation will be re-triggered by the status update
 	return nil, nil

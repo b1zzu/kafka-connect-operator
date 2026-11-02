@@ -325,6 +325,24 @@ var _ = Describe("Cluster Controller", func() {
 			Expect(cluster.Status.ConnectorPlugins).To(HaveLen(2))
 			Expect(cluster.Status.ConnectorPlugins[1].Class).To(Equal("com.example.SourceConnector"))
 		})
+
+		It("should not list the connector plugins again when Kafka Connect has none", func() {
+			r := newReconciler()
+			r.NewKafkaConnectClientFunc = func(_, _ string) (*kafkaconnect.Client, error) {
+				return kafkaconnect.NewClient(server.URL), nil
+			}
+			nn := nameFor(name)
+			setPlugins()
+
+			reconcileN(ctx, r, nn, 4)
+			completeRollout(ctx)
+			reconcileN(ctx, r, nn, 4)
+			Expect(getCalls()).To(Equal(1))
+
+			cluster := &kafkaconnectv1alpha1.Cluster{}
+			Expect(k8sClient.Get(ctx, nn, cluster)).To(Succeed())
+			Expect(cluster.Status.ConnectorPlugins).To(BeEmpty())
+		})
 	})
 
 	Context("When the Cluster config contains a managed key", func() {

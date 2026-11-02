@@ -23,6 +23,7 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
@@ -45,18 +46,24 @@ func NewDefaultKafkaConnectClientFunc(namespace, cluster string) (*kafkaconnect.
 	return newInstrumentedClient(namespace, cluster, clusterURL(namespace, cluster)), nil
 }
 
+// PortForwardProcess is a kubectl port-forward started for a Cluster service.
 type PortForwardProcess struct {
 	Port      int
-	IsRunning bool
+	IsRunning atomic.Bool
 }
+
+const (
+	portForwardMinPort = 49152
+	portForwardMaxPort = 65535
+)
 
 var (
 	portForwardProcesses   = map[string]*PortForwardProcess{}
 	portForwardProcessesMu sync.Mutex
 )
 
-// NewPortForwardKafkaConnectClientFunc is a factory func that start the kubectl port-forward
-// in the bacgrkound and return the the Kafka Connect client using the port-forward as endpoint.
+// NewPortForwardKafkaConnectClientFunc is a factory func that starts a kubectl port-forward
+// in the background and returns a Kafka Connect client using the port-forward as endpoint.
 func NewPortForwardKafkaConnectClientFunc(namespace, cluster string) (*kafkaconnect.Client, error) {
 	log := logf.FromContext(context.TODO())
 
@@ -70,14 +77,13 @@ func NewPortForwardKafkaConnectClientFunc(namespace, cluster string) (*kafkaconn
 	}
 
 	// Check if kubectl port-forward is running
-	if process != nil && !process.IsRunning {
+	if process != nil && !process.IsRunning.Load() {
 		process = nil
 	}
 
 	if process == nil {
 		process = &PortForwardProcess{
-			Port:      49152 + rand.N(65535-49152+1), // Random port between 49152 and 65535
-			IsRunning: false,
+			Port: portForwardMinPort + rand.N(portForwardMaxPort-portForwardMinPort+1),
 		}
 
 		// Start a new kubectl port-forward process
@@ -87,20 +93,20 @@ func NewPortForwardKafkaConnectClientFunc(namespace, cluster string) (*kafkaconn
 			fmt.Sprintf("services/%s", cluster),
 			fmt.Sprintf("%d:8083", process.Port))
 
-		// Run a bacgrkound goroutine to update the process when exit
-		log.Info("Starting kubect port-forward", "command", strings.Join(cmd.Args, " "))
+		// Run a background goroutine to update the process when exit
+		log.Info("Starting kubectl port-forward", "command", strings.Join(cmd.Args, " "))
 		go func() {
-			process.IsRunning = true
+			process.IsRunning.Store(true)
 			out, err := cmd.CombinedOutput()
 			log.Error(err, "Kubectl port-forward exit", "output", string(out))
-			process.IsRunning = false
+			process.IsRunning.Store(false)
 		}()
 
-		// Wait 1 second after starting to process to make sure the kubectl port-fowarding
+		// Wait 1 second after starting to process to make sure the kubectl port-forwarding
 		// did not fail immediately
 		time.Sleep(time.Second)
 
-		if !process.IsRunning {
+		if !process.IsRunning.Load() {
 			return nil, fmt.Errorf("failed to run kubectl port-forward on local port %d", process.Port)
 		}
 
