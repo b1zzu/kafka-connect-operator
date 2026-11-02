@@ -10,3 +10,12 @@ spec:
     - name: test
       image: ghcr.io/b1zzu/kafka-connect-test:v0.1.0
       pullPolicy: IfNotPresent
+  secrets:
+    - name: config-provider-test
+      secretRef:
+        name: config-provider-test
+  configProviders:
+    - name: dir
+      class: org.apache.kafka.common.config.provider.DirectoryConfigProvider
+      params:
+        allowed.paths: /secrets

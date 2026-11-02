@@ -959,6 +959,41 @@ spec:
                   type: string
                 description: 'Kafka Connect configs: https://kafka.apache.org/41/configuration/kafka-connect-configs/'
                 type: object
+              configProviders:
+                description: |-
+                  ConfigProviders is a list of additional Kafka config providers.
+                  They are appended after the operator-managed env and file providers in config.providers,
+                  so the names env and file are reserved. Provider JARs that are not part of
+                  Kafka can be added to the classpath with libraries.
+                items:
+                  description: ConfigProvider defines an additional Kafka config provider.
+                  properties:
+                    class:
+                      description: |-
+                        Class is the fully qualified name of the ConfigProvider implementation,
+                        e.g. org.apache.kafka.common.config.provider.DirectoryConfigProvider.
+                      minLength: 1
+                      type: string
+                    name:
+                      description: |-
+                        Name is the provider name used in config references like ${name:path:key}.
+                        The names env and file are reserved for the operator-managed providers.
+                      minLength: 1
+                      pattern: ^[a-zA-Z0-9_-]+$
+                      type: string
+                    params:
+                      additionalProperties:
+                        type: string
+                      description: Params are passed to the provider as config.providers.{name}.param.{key}.
+                      type: object
+                  required:
+                  - class
+                  - name
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - name
+                x-kubernetes-list-type: map
               deploymentAnnotations:
                 additionalProperties:
                   type: string

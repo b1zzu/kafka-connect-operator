@@ -1156,6 +1156,56 @@ var _ = Describe("Cluster Resources", func() {
 			Expect(configs).To(HaveKeyWithValue("config.providers", "env,file"))
 			Expect(configs).To(HaveKeyWithValue("config.providers.file.class", "org.apache.kafka.common.config.provider.FileConfigProvider"))
 		})
+
+		It("should append configProviders after env and file", func() {
+			cluster := newCluster(nil)
+			cluster.Spec.ConfigProviders = []kcv1alpha1.ConfigProvider{
+				{
+					Name:  "dir",
+					Class: "org.apache.kafka.common.config.provider.DirectoryConfigProvider",
+					Params: map[string]string{
+						"allowed.paths": "/secrets",
+					},
+				},
+				{Name: "vault", Class: "com.example.VaultConfigProvider"},
+			}
+			configs, err := kafkaConnectConfigsForCluster(cluster)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(configs).To(HaveKeyWithValue("config.providers", "env,file,dir,vault"))
+			Expect(configs).To(HaveKeyWithValue("config.providers.dir.class", "org.apache.kafka.common.config.provider.DirectoryConfigProvider"))
+			Expect(configs).To(HaveKeyWithValue("config.providers.dir.param.allowed.paths", "/secrets"))
+			Expect(configs).To(HaveKeyWithValue("config.providers.vault.class", "com.example.VaultConfigProvider"))
+			Expect(configs).To(HaveKeyWithValue("config.providers.env.class", "org.apache.kafka.common.config.provider.EnvVarConfigProvider"))
+			Expect(configs).To(HaveKeyWithValue("config.providers.file.class", "org.apache.kafka.common.config.provider.FileConfigProvider"))
+		})
+
+		DescribeTable("should reject reserved and duplicate configProviders names",
+			func(name string, providers ...kcv1alpha1.ConfigProvider) {
+				cluster := newCluster(nil)
+				cluster.Spec.ConfigProviders = providers
+				_, err := kafkaConnectConfigsForCluster(cluster)
+				Expect(err).To(MatchError(ContainSubstring("spec.configProviders contains a reserved or duplicate name: " + name)))
+			},
+			Entry("env", "env", kcv1alpha1.ConfigProvider{Name: "env", Class: "com.example.Env"}),
+			Entry("file", "file", kcv1alpha1.ConfigProvider{Name: "file", Class: "com.example.File"}),
+			Entry("duplicate", "dir",
+				kcv1alpha1.ConfigProvider{Name: "dir", Class: "com.example.A"},
+				kcv1alpha1.ConfigProvider{Name: "dir", Class: "com.example.B"},
+			),
+		)
+
+		DescribeTable("should reject config.providers keys in spec.config",
+			func(key string) {
+				cluster := newCluster(nil)
+				cluster.Spec.Config[key] = "value"
+				_, err := kafkaConnectConfigsForCluster(cluster)
+				Expect(err).To(MatchError(ContainSubstring(key)))
+			},
+			Entry("config.providers", "config.providers"),
+			Entry("managed provider class", "config.providers.file.class"),
+			Entry("unknown provider class", "config.providers.dir.class"),
+			Entry("unknown provider param", "config.providers.dir.param.allowed.paths"),
+		)
 	})
 
 	Describe("configMapForCluster", func() {

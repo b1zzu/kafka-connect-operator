@@ -1,5 +1,6 @@
 resources:
   - ../samples
+  - config_provider_secret.yaml
 
 patches:
   - path: cluster_patch.yaml
