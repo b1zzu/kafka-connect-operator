@@ -153,6 +153,12 @@ spec:
   # The Kafka Connect image to use (optional)
   image: docker.io/apache/kafka:4.2.0
 
+  # Secrets used to pull images from private registries (optional)
+  # Applied to the pod, so they also apply to the OCI image volumes used for
+  # plugins, libraries, the JMX exporter and the JSON layout.
+  imagePullSecrets:
+    - name: my-registry-credentials
+
   # Kafka Connect configuration
   # See: https://kafka.apache.org/41/configuration/kafka-connect-configs/
   config:

@@ -975,6 +975,31 @@ spec:
                 description: Image used to deploy Kafka Connect, it should be based
                   on docker.io/apache/kafka
                 type: string
+              imagePullSecrets:
+                description: |-
+                  ImagePullSecrets is a list of Secrets in the Cluster namespace used to pull the
+                  Kafka Connect image and the OCI image volumes (plugins, libraries, JMX exporter
+                  and JSON layout).
+                items:
+                  description: |-
+                    LocalObjectReference contains enough information to let you locate the
+                    referenced object inside the same namespace.
+                  properties:
+                    name:
+                      default: ""
+                      description: |-
+                        Name of the referent.
+                        This field is effectively required, but due to backwards compatibility is
+                        allowed to be empty. Instances of this type with an empty value here are
+                        almost certainly wrong.
+                        More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                      type: string
+                  type: object
+                  x-kubernetes-map-type: atomic
+                type: array
+                x-kubernetes-list-map-keys:
+                - name
+                x-kubernetes-list-type: map
               libraries:
                 description: |-
                   Libraries is a list of shared classpath libraries to mount from OCI images.

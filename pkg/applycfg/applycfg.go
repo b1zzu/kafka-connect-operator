@@ -85,6 +85,15 @@ func toleration(t *corev1.Toleration) *corev1ac.TolerationApplyConfiguration {
 	}
 }
 
+// LocalObjectReferences converts a slice of corev1.LocalObjectReference to a slice of apply configuration pointers.
+func LocalObjectReferences(refs []corev1.LocalObjectReference) []*corev1ac.LocalObjectReferenceApplyConfiguration {
+	acs := make([]*corev1ac.LocalObjectReferenceApplyConfiguration, len(refs))
+	for i := range refs {
+		acs[i] = corev1ac.LocalObjectReference().WithName(refs[i].Name)
+	}
+	return acs
+}
+
 // Affinity converts a corev1.Affinity to its apply configuration.
 func Affinity(a *corev1.Affinity) *corev1ac.AffinityApplyConfiguration {
 	if a == nil {
