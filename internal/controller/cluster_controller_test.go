@@ -244,6 +244,39 @@ var _ = Describe("Cluster Controller", func() {
 		})
 	})
 
+	Context("When creating a Cluster with additional plugin paths", func() {
+		newClusterWithPaths := func(name string, paths ...string) *kafkaconnectv1alpha1.Cluster {
+			return &kafkaconnectv1alpha1.Cluster{
+				ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"},
+				Spec: kafkaconnectv1alpha1.ClusterSpec{
+					Config:                map[string]string{"bootstrap.servers": "kafka:9092"},
+					AdditionalPluginPaths: paths,
+				},
+			}
+		}
+
+		It("should accept absolute paths", func() {
+			cluster := newClusterWithPaths("cluster-plugin-paths-valid", "/opt/connectors", "/usr/share/java")
+			Expect(k8sClient.Create(ctx, cluster)).To(Succeed())
+			Expect(k8sClient.Delete(ctx, cluster)).To(Succeed())
+		})
+
+		DescribeTable("should reject invalid paths",
+			func(path string) {
+				err := k8sClient.Create(ctx, newClusterWithPaths("cluster-plugin-paths-invalid", path))
+				Expect(apierrors.IsInvalid(err)).To(BeTrue(), "expected Invalid error, got %v", err)
+			},
+			Entry("relative path", "opt/connectors"),
+			Entry("empty path", ""),
+			Entry("path with a comma", "/opt/a,/opt/b"),
+		)
+
+		It("should reject duplicate paths", func() {
+			err := k8sClient.Create(ctx, newClusterWithPaths("cluster-plugin-paths-dup", "/opt/connectors", "/opt/connectors"))
+			Expect(apierrors.IsInvalid(err)).To(BeTrue(), "expected Invalid error, got %v", err)
+		})
+	})
+
 	Context("When NetworkPolicy is disabled", func() {
 		const name = "cluster-no-np"
 

@@ -403,12 +403,13 @@ func kafkaConnectConfigsForCluster(cluster *kcv1alpha1.Cluster) (map[string]stri
 	}
 	maps.Copy(managedConfigs, providerConfigs)
 
-	// Auto-configure plugin.path when plugins are present
-	if len(cluster.Spec.Plugins) > 0 {
-		paths := make([]string, len(cluster.Spec.Plugins))
-		for i, plugin := range cluster.Spec.Plugins {
-			paths[i] = fmt.Sprintf("/plugins/%s", plugin.Name)
-		}
+	// Auto-configure plugin.path when plugins or additional plugin paths are present
+	paths := make([]string, 0, len(cluster.Spec.Plugins)+len(cluster.Spec.AdditionalPluginPaths))
+	for _, plugin := range cluster.Spec.Plugins {
+		paths = append(paths, fmt.Sprintf("/plugins/%s", plugin.Name))
+	}
+	paths = append(paths, cluster.Spec.AdditionalPluginPaths...)
+	if len(paths) > 0 {
 		managedConfigs["plugin.path"] = strings.Join(paths, ",")
 	}
 

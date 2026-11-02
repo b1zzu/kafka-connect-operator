@@ -12,6 +12,9 @@ spec:
     - name: sample-plugins
       image: ghcr.io/b1zzu/kafka-connect-library/sample-plugins:latest
 
+  # additionalPluginPaths:
+  #   - /opt/connectors
+
   # libraries:
   #   - name: msk-iam-auth
   #     image: ghcr.io/b1zzu/kafka-connect-library/msk-iam-auth:2.3.9

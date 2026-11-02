@@ -1101,6 +1101,40 @@ var _ = Describe("Cluster Resources", func() {
 			Expect(configs).To(HaveKeyWithValue("plugin.path", "/plugins/plugin-a,/plugins/plugin-b,/plugins/plugin-c"))
 		})
 
+		It("should set plugin.path from additional plugin paths when no plugins are specified", func() {
+			cluster := newCluster(nil)
+			cluster.Spec.AdditionalPluginPaths = []string{"/opt/connectors", "/opt/more-connectors"}
+			configs, err := kafkaConnectConfigsForCluster(cluster)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(configs).To(HaveKeyWithValue("plugin.path", "/opt/connectors,/opt/more-connectors"))
+		})
+
+		It("should append additional plugin paths after the plugin directories", func() {
+			cluster := newCluster([]kcv1alpha1.Plugin{
+				{Name: "plugin-a", Image: "registry.example.com/plugin-a:1.0"},
+				{Name: "plugin-b", Image: "registry.example.com/plugin-b:2.0"},
+			})
+			cluster.Spec.AdditionalPluginPaths = []string{"/opt/connectors"}
+			configs, err := kafkaConnectConfigsForCluster(cluster)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(configs).To(HaveKeyWithValue("plugin.path", "/plugins/plugin-a,/plugins/plugin-b,/opt/connectors"))
+		})
+
+		It("should reject plugin.path in user config when additional plugin paths are present", func() {
+			cluster := &kcv1alpha1.Cluster{
+				Spec: kcv1alpha1.ClusterSpec{
+					Config: map[string]string{
+						"bootstrap.servers": "localhost:9092",
+						"plugin.path":       "/custom/plugins",
+					},
+					AdditionalPluginPaths: []string{"/opt/connectors"},
+				},
+			}
+			_, err := kafkaConnectConfigsForCluster(cluster)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("plugin.path"))
+		})
+
 		It("should return no error for valid user config", func() {
 			cluster := newCluster(nil)
 			configs, err := kafkaConnectConfigsForCluster(cluster)

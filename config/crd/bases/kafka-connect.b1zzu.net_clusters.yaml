@@ -39,6 +39,17 @@ spec:
           spec:
             description: spec defines the desired state of Cluster
             properties:
+              additionalPluginPaths:
+                description: |-
+                  AdditionalPluginPaths is a list of directories inside the Kafka Connect container,
+                  for example plugins baked into a custom image, that the operator appends to
+                  plugin.path after the /plugins/{name} directories of spec.plugins.
+                  Each entry must be an absolute path and must not contain commas.
+                items:
+                  pattern: ^/[^,]*$
+                  type: string
+                type: array
+                x-kubernetes-list-type: set
               affinity:
                 description: |-
                   Affinity defines scheduling constraints for pods including node affinity,

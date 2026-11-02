@@ -179,6 +179,12 @@ spec:
       image: registry.example.com/my-plugin:1.0
       pullPolicy: IfNotPresent # optional (Always, Never, IfNotPresent)
 
+  # Additional directories to add to plugin.path (optional)
+  # Appended after the /plugins/{name} directories, e.g. plugins baked into a custom image
+  # Each entry must be an absolute path without commas
+  additionalPluginPaths:
+    - /opt/connectors
+
   # Libraries to mount on the shared classpath from OCI images (optional)
   # Each library image is mounted read-only at /libraries/{name}
   # The operator automatically sets the CLASSPATH environment variable
@@ -432,7 +438,9 @@ spec:
 
 Plugins listed in `spec.plugins` are mounted from OCI images as read-only volumes at `/plugins/{name}`.
 The operator automatically sets `plugin.path` in the Kafka Connect configuration to include all
-plugin mount directories. Do not set `plugin.path` manually when `spec.plugins` is defined.
+plugin mount directories, followed by the directories listed in `spec.additionalPluginPaths`.
+Setting `plugin.path` in `spec.config` is an error when `spec.plugins` or `spec.additionalPluginPaths`
+is defined.
 
 ```yaml
 plugins:
@@ -451,6 +459,21 @@ Each plugin requires:
 Optional:
 
 - `pullPolicy` - one of `Always`, `Never`, `IfNotPresent` (defaults to `Always` for `:latest` tags, `IfNotPresent` otherwise)
+
+Plugins that are already in the container, for example baked into a custom `spec.image`, are added
+with `spec.additionalPluginPaths`. Each entry must be an absolute path without commas, and entries must
+be unique:
+
+```yaml
+image: registry.example.com/my-kafka-connect:4.2.0
+plugins:
+  - name: s3-sink
+    image: ghcr.io/example/s3-sink:1.0
+additionalPluginPaths:
+  - /opt/connectors
+```
+
+With this spec the operator sets `plugin.path=/plugins/s3-sink,/opt/connectors`.
 
 ### Libraries
 
