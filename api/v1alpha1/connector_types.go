@@ -93,8 +93,8 @@ type ConnectorSpec struct {
 
 	// Automatic restart of the connector and its tasks when they are in FAILED state.
 	// The operator restarts them after a backoff of n^2+n minutes (n = restarts so far,
-	// capped at 60 minutes), and resets the count once the connector has been healthy
-	// for longer than the backoff. Enabled with unlimited restarts when not set.
+	// capped at 60 minutes), and resets the count when the connector is running once the
+	// backoff has passed. Enabled with unlimited restarts when not set.
 	// +optional
 	AutoRestart *AutoRestartSpec `json:"autoRestart,omitempty"`
 }
@@ -142,7 +142,8 @@ type ConnectorStatus struct {
 	RestartCount int32 `json:"restartCount,omitempty"`
 
 	// autoRestart tracks the consecutive automatic restarts of the failed connector and tasks.
-	// It is cleared once the connector has been healthy for longer than the restart backoff.
+	// It is cleared when the connector is running once the restart backoff has passed,
+	// or when auto-restart is disabled.
 	// +optional
 	AutoRestart *AutoRestartStatus `json:"autoRestart,omitempty"`
 

@@ -400,7 +400,9 @@ Annotations are removed automatically after the operation completes. And the ope
 
 **Automatic restart:** When the desired state is `running`, the operator restarts a connector or tasks in `FAILED` state. It uses a single `POST /connectors/<name>/restart?includeTasks=true&onlyFailed=true` request ([KIP-745](https://cwiki.apache.org/confluence/display/KAFKA/KIP-745%3A+Connect+API+to+restart+connector+and+tasks)), so only the failed connector and the failed tasks are restarted, while the running tasks are left untouched. This requires Kafka Connect with KIP-745 support (Apache Kafka 3.0 or later): older workers ignore the parameters and restart only the connector.
 
-The first restart happens as soon as the failure is detected. After `n` consecutive restarts, the operator waits `n^2 + n` minutes before the next one, capped at 60 minutes: the restarts happen after 0, 2, 6, 12, 20, 30, 42 and 56 minutes, and then every 60 minutes. The count is reset once the connector and all its tasks have been healthy for longer than the current backoff (e.g. 6 minutes after the second restart).
+The first restart happens as soon as the failure is detected. After `n` consecutive restarts, the operator waits `n^2 + n` minutes before the next one, capped at 60 minutes: the restarts happen after 0, 2, 6, 12, 20, 30, 42 and 56 minutes, and then every 60 minutes. Once the backoff after the last restart has passed, the next reconciliation that finds the connector and all its tasks running resets the count.
+
+A connector that runs for longer than the backoff before failing again is never stopped by `maxRestarts`. For example, take a task that fails 3 minutes after it starts. The operator restarts it, finds it running and resets the count after 2 minutes, then restarts it again as a first restart when it fails. Use `enabled: false` for connectors that should not be restarted in this case.
 
 The policy is configured with `spec.autoRestart`:
 
@@ -413,7 +415,9 @@ spec:
 
 The consecutive restarts are tracked in `status.autoRestart.restartCount` and `status.autoRestart.lastRestartAt`, while `status.restartCount` and `status.lastRestartAt` count every restart (automatic and manual) for the lifetime of the Connector. Each automatic restart emits a `Restarted` Event.
 
-When `maxRestarts` is reached and the connector is still failed, the operator stops restarting it, emits an `AutoRestartLimitReached` Warning Event and sets the `AutoRestartLimitReached` condition to `True`. The condition is removed once the connector is healthy again. To retry, restart it manually (see below), or fix the cause (for example the connector config).
+When `maxRestarts` is reached and the connector is still failed, the operator stops restarting it, emits an `AutoRestartLimitReached` Warning Event and sets the `AutoRestartLimitReached` condition to `True`. The condition is removed when the count is reset or `maxRestarts` is raised above it. To retry, restart the connector manually (see below), or fix the cause (for example the connector config).
+
+Setting `enabled: false` clears the count and the condition, so the connector starts with a clean count when auto-restart is enabled again. While the desired state is not `running`, the operator neither restarts the connector nor changes the count or the condition.
 
 **Manual restart:** To manually trigger a restart of a connector (e.g. to pick up external configuration changes), annotate the Connector CR:
 

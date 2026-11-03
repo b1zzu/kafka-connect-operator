@@ -697,7 +697,7 @@ var _ = Describe("Connector Controller", func() {
 			Expect(connector.Status.AutoRestart.RestartCount).To(Equal(int32(1)))
 			Expect(connector.Status.RestartCount).To(Equal(int32(1)))
 			Expect(connector.Status.LastRestartAt).NotTo(BeNil())
-			Expect(drainEvents(recorder)).To(ContainElement(ContainSubstring("automatic restart 1")))
+			Expect(drainEvents(recorder)).To(ContainElement(ContainSubstring("Restarted failed connector and tasks")))
 		})
 
 		It("should not restart again during the backoff", func(ctx SpecContext) {
@@ -749,11 +749,20 @@ var _ = Describe("Connector Controller", func() {
 			Expect(events).To(HaveLen(1))
 			Expect(events[0]).To(ContainSubstring("AutoRestartLimitReached"))
 
-			By("removing the condition once the connector is healthy again")
+			By("keeping the condition while running within the backoff")
+			setAutoRestartStatus(ctx, name, 1, time.Minute)
 			setTasks(mock, nil)
 			_, err = r.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
 			Expect(err).NotTo(HaveOccurred())
 			connector = getConnector(ctx, nn)
+			Expect(meta.FindStatusCondition(connector.Status.Conditions, typeAutoRestartLimitReached)).NotTo(BeNil())
+
+			By("removing the condition once the count is reset")
+			setAutoRestartStatus(ctx, name, 1, 3*time.Minute)
+			_, err = r.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+			Expect(err).NotTo(HaveOccurred())
+			connector = getConnector(ctx, nn)
+			Expect(connector.Status.AutoRestart).To(BeNil())
 			Expect(meta.FindStatusCondition(connector.Status.Conditions, typeAutoRestartLimitReached)).To(BeNil())
 		})
 
@@ -823,6 +832,50 @@ var _ = Describe("Connector Controller", func() {
 			connector := getConnector(ctx, nn)
 			Expect(connector.Status.AutoRestart).To(BeNil())
 			Expect(connector.Status.RestartCount).To(Equal(int32(0)))
+		})
+
+		It("should reset the count and the limit condition when disabled", func(ctx SpecContext) {
+			name := "auto-restart-disable-resets"
+			nn := nameFor(name)
+			mock, r, _ := setupConnector(ctx, name, &kafkaconnectv1alpha1.AutoRestartSpec{MaxRestarts: ptr.To[int32](1)})
+
+			setAutoRestartStatus(ctx, name, 1, time.Minute)
+			setTasks(mock, failedTasks)
+			_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(meta.FindStatusCondition(getConnector(ctx, nn).Status.Conditions, typeAutoRestartLimitReached)).NotTo(BeNil())
+
+			connector := getConnector(ctx, nn)
+			connector.Spec.AutoRestart.Enabled = ptr.To(false)
+			Expect(k8sClient.Update(ctx, connector)).To(Succeed())
+			_, err = r.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+			Expect(err).NotTo(HaveOccurred())
+
+			connector = getConnector(ctx, nn)
+			Expect(connector.Status.AutoRestart).To(BeNil())
+			Expect(meta.FindStatusCondition(connector.Status.Conditions, typeAutoRestartLimitReached)).To(BeNil())
+			Expect(restartQueries(mock)).To(BeEmpty())
+		})
+
+		It("should keep the count and the limit condition while the desired state is not running", func(ctx SpecContext) {
+			name := "auto-restart-paused"
+			nn := nameFor(name)
+			mock, r, _ := setupConnector(ctx, name, &kafkaconnectv1alpha1.AutoRestartSpec{MaxRestarts: ptr.To[int32](1)})
+
+			setAutoRestartStatus(ctx, name, 1, time.Hour)
+			setTasks(mock, failedTasks)
+			_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+			Expect(err).NotTo(HaveOccurred())
+
+			connector := getConnector(ctx, nn)
+			connector.Spec.State = kafkaconnectv1alpha1.ConnectorStatePaused
+			Expect(k8sClient.Update(ctx, connector)).To(Succeed())
+			_, err = reconcileN(ctx, r, nn, 3)
+			Expect(err).NotTo(HaveOccurred())
+
+			connector = getConnector(ctx, nn)
+			Expect(connector.Status.AutoRestart).NotTo(BeNil())
+			Expect(meta.FindStatusCondition(connector.Status.Conditions, typeAutoRestartLimitReached)).NotTo(BeNil())
 		})
 
 		It("should reset the restart count once healthy for longer than the backoff", func(ctx SpecContext) {

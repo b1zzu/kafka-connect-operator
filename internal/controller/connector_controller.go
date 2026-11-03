@@ -727,12 +727,10 @@ func (r *ConnectorReconciler) reconcileConnectorStatus(ctx context.Context, conn
 	}
 
 	desiredState := getDesiredConnectorState(connector)
-	if desiredState == kcv1alpha1.ConnectorStateRunning && autoRestartEnabled(connector) {
+	if desiredState == kcv1alpha1.ConnectorStateRunning {
 		if err := r.autoRestartFailedConnectorAndTasks(ctx, kafkaConnect, connector, status); err != nil {
 			return nil, err
 		}
-	} else {
-		meta.RemoveStatusCondition(&connector.Status.Conditions, typeAutoRestartLimitReached)
 	}
 
 	// Populate connector and task status from Kafka Connect
@@ -768,7 +766,7 @@ func (r *ConnectorReconciler) reconcileConnectorStatus(ctx context.Context, conn
 }
 
 // autoRestartFailedConnectorAndTasks restarts the failed connector and its failed tasks
-// following the auto-restart policy, and resets the policy once the connector is healthy.
+// following the auto-restart policy, and resets the policy once the connector is running.
 func (r *ConnectorReconciler) autoRestartFailedConnectorAndTasks(
 	ctx context.Context,
 	kafkaConnect *kafkaconnect.Client,
@@ -777,47 +775,62 @@ func (r *ConnectorReconciler) autoRestartFailedConnectorAndTasks(
 ) error {
 	log := logf.FromContext(ctx)
 
-	autoRestart := connector.Status.AutoRestart
-
-	needsRestart := status.Connector.State == connectorStatusFailed || countFailedTasks(status.Tasks) > 0
-	if !needsRestart {
+	autoRestart := connector.Spec.AutoRestart
+	if autoRestart != nil && autoRestart.Enabled != nil && !*autoRestart.Enabled {
+		connector.Status.AutoRestart = nil
 		meta.RemoveStatusCondition(&connector.Status.Conditions, typeAutoRestartLimitReached)
-		healthy := status.Connector.State == connectorStatusRunning
-		if healthy && autoRestart != nil && time.Since(autoRestart.LastRestartAt.Time) > autoRestartBackoff(autoRestart.RestartCount) {
-			log.Info("Reset auto-restart count of healthy connector", "restartCount", autoRestart.RestartCount)
-			connector.Status.AutoRestart = nil
-		}
 		return nil
 	}
 
-	var count int32
+	var maxRestarts *int32
 	if autoRestart != nil {
-		count = autoRestart.RestartCount
+		maxRestarts = autoRestart.MaxRestarts
 	}
 
-	var maxRestarts *int32
-	if connector.Spec.AutoRestart != nil {
-		maxRestarts = connector.Spec.AutoRestart.MaxRestarts
+	autoRestartStatus := connector.Status.AutoRestart
+	var count int32
+	if autoRestartStatus != nil {
+		count = autoRestartStatus.RestartCount
 	}
-	if maxRestarts != nil && count >= *maxRestarts {
+
+	failed := status.Connector.State == connectorStatusFailed || countFailedTasks(status.Tasks) > 0
+	running := !failed && status.Connector.State == connectorStatusRunning
+	if running && (autoRestartStatus == nil || time.Since(autoRestartStatus.LastRestartAt.Time) > autoRestartBackoff(count)) {
+		if autoRestartStatus != nil {
+			log.Info("Reset auto-restart count of running connector", "restartCount", count)
+		}
+		connector.Status.AutoRestart = nil
+		meta.RemoveStatusCondition(&connector.Status.Conditions, typeAutoRestartLimitReached)
+		return nil
+	}
+
+	limitReached := maxRestarts != nil && count >= *maxRestarts
+	if !limitReached {
+		meta.RemoveStatusCondition(&connector.Status.Conditions, typeAutoRestartLimitReached)
+	}
+
+	if !failed {
+		return nil
+	}
+
+	if limitReached {
 		if meta.FindStatusCondition(connector.Status.Conditions, typeAutoRestartLimitReached) == nil {
 			log.Info("Stopped auto-restart of failed connector, max restarts reached", "maxRestarts", *maxRestarts)
 			r.recordWarningEvent(connector, "Restart", "AutoRestartLimitReached",
 				"Stopped restarting the failed connector after %d automatic restart(s)", count)
+			meta.SetStatusCondition(&connector.Status.Conditions, metav1.Condition{
+				Type:   typeAutoRestartLimitReached,
+				Status: metav1.ConditionTrue,
+				Reason: "MaxRestartsReached",
+				Message: fmt.Sprintf("Stopped restarting the failed connector after %d automatic restart(s), "+
+					"restart it manually with the %s annotation", count, connectorRestartAnnotation),
+				ObservedGeneration: connector.Generation,
+			})
 		}
-		meta.SetStatusCondition(&connector.Status.Conditions, metav1.Condition{
-			Type:   typeAutoRestartLimitReached,
-			Status: metav1.ConditionTrue,
-			Reason: "MaxRestartsReached",
-			Message: fmt.Sprintf("Stopped restarting the failed connector after %d automatic restart(s), "+
-				"restart it manually with the %s annotation", count, connectorRestartAnnotation),
-			ObservedGeneration: connector.Generation,
-		})
 		return nil
 	}
-	meta.RemoveStatusCondition(&connector.Status.Conditions, typeAutoRestartLimitReached)
 
-	if autoRestart != nil && time.Since(autoRestart.LastRestartAt.Time) < autoRestartBackoff(count) {
+	if autoRestartStatus != nil && time.Since(autoRestartStatus.LastRestartAt.Time) < autoRestartBackoff(count) {
 		log.Info("Skip auto-restart of failed connector during backoff",
 			"restartCount", count, "backoff", autoRestartBackoff(count))
 		return nil
@@ -828,7 +841,7 @@ func (r *ConnectorReconciler) autoRestartFailedConnectorAndTasks(
 		r.recordWarningEvent(connector, "Restart", "FailedRestart", "Failed to restart failed connector and tasks: %v", err)
 		return fmt.Errorf("failed to restart failed connector and tasks: %w", err)
 	}
-	r.recordWarningEvent(connector, "Restart", "Restarted", "Restarted failed connector and tasks (automatic restart %d)", count+1)
+	r.recordWarningEvent(connector, "Restart", "Restarted", "Restarted failed connector and tasks")
 
 	now := metav1.Now()
 	connector.Status.AutoRestart = &kcv1alpha1.AutoRestartStatus{RestartCount: count + 1, LastRestartAt: now}
@@ -840,12 +853,6 @@ func (r *ConnectorReconciler) autoRestartFailedConnectorAndTasks(
 		return fmt.Errorf("failed to update connector status after auto-restart: %w", err)
 	}
 	return nil
-}
-
-// autoRestartEnabled reports whether the operator restarts the failed connector and tasks.
-func autoRestartEnabled(connector *kcv1alpha1.Connector) bool {
-	spec := connector.Spec.AutoRestart
-	return spec == nil || spec.Enabled == nil || *spec.Enabled
 }
 
 // autoRestartBackoff returns the time to wait after n automatic restarts before the next one:
