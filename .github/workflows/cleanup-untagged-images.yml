@@ -9,6 +9,12 @@ on:
         description: Only list what would be deleted
         type: boolean
         default: true
+      delete-tags:
+        description: Comma-separated tags to delete as well, wildcards allowed
+        type: string
+      exclude-tags:
+        description: Comma-separated tags to keep, wildcards allowed
+        type: string
 
 jobs:
   cleanup:
@@ -17,9 +23,11 @@ jobs:
       packages: write
 
     steps:
-      - name: Delete untagged image versions
+      - name: Delete untagged image versions and given tags
         uses: dataaxiom/ghcr-cleanup-action@v1
         with:
           package: kafka-connect-operator
           delete-untagged: true
+          delete-tags: ${{ inputs.delete-tags }}
+          exclude-tags: ${{ inputs.exclude-tags }}
           dry-run: ${{ inputs.dry-run || false }}
