@@ -435,14 +435,6 @@ kubectl annotate connector my-connector kafka-connect.b1zzu.net/restart=true
 
 The operator will restart the connector and automatically remove the annotation afterward. A manual restart does not change the automatic restart count.
 
-**Manual task restart:** To restart a single task without touching the connector or the other tasks, annotate the Connector CR with the task ID (as listed in `status.tasks`):
-
-```bash
-kubectl annotate connector my-connector kafka-connect.b1zzu.net/restart-task=0
-```
-
-The operator restarts the task, emits a `Restarted` event and removes the annotation. A value that is not a non-negative integer, or a task ID that Kafka Connect does not know, produces a `FailedRestart` warning event and the annotation is removed. Other failures (e.g. Kafka Connect unreachable) keep the annotation and are retried. Like a connector restart, a task restart updates `status.lastRestartAt` and `status.restartCount`.
-
 ### Offsets Management
 
 The operator supports exporting, importing, and resetting connector offsets. These operations are useful for migrating connectors between clusters or resetting consumption positions.
