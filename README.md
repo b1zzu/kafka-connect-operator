@@ -407,10 +407,15 @@ A connector that runs for longer than the backoff before failing again is never 
 The policy is configured with `spec.autoRestart`:
 
 ```yaml
+apiVersion: kafka-connect.b1zzu.net/v1alpha1
+kind: Connector
+metadata:
+  name: my-connector
 spec:
   autoRestart:
     enabled: true   # defaults to true, set to false to never restart automatically
     maxRestarts: 5  # defaults to unlimited
+  # ...
 ```
 
 The consecutive restarts are tracked in `status.autoRestart.restartCount` and `status.autoRestart.lastRestartAt`, while `status.restartCount` and `status.lastRestartAt` count every restart (automatic and manual) for the lifetime of the Connector. Each automatic restart emits a `Restarted` Event.
