@@ -28,6 +28,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -676,6 +677,58 @@ var _ = Describe("Manager", Ordered, func() {
 				cmd := exec.Command("kubectl", "get", "connector", "my-config-provider-connector", "-n", "default")
 				_, err := utils.Run(cmd)
 				g.Expect(err).To(HaveOccurred(), "my-config-provider-connector should no longer exist")
+			}, 30*time.Second, 2*time.Second).Should(Succeed())
+		})
+
+		It("should apply the JVM options and env vars to the Connect pod", func() {
+			By("waiting for the Connect rollout to finish")
+			cmd := exec.Command("kubectl", "rollout", "status", "deployment/my-cluster-connect",
+				"-n", "default", "--timeout=5m")
+			_, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("verifying the JVM options reach the Kafka Connect java process")
+			cmd = exec.Command("kubectl", "exec", "deployment/my-cluster-connect", "-n", "default",
+				"--", "cat", "/proc/1/cmdline")
+			output, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+			args := strings.Split(strings.TrimRight(output, "\x00"), "\x00")
+			Expect(args).To(ContainElements("-Xms512m", "-Xmx512m", "-Dkco.e2e=true"))
+			Expect(args).NotTo(ContainElement("-XX:MaxRAMPercentage=75.0"))
+
+			By("creating a connector whose config references the extra env var")
+			cmd = exec.Command("kubectl", "apply", "-f", "config/e2e/env_connector.yaml", "-n", "default")
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+			// Fallback only: deletes and moves on without waiting, in case the test fails
+			// before reaching the explicit, verified deletion at the end of this spec.
+			DeferCleanup(func() {
+				cmd := exec.Command("kubectl", "delete", "-f", "config/e2e/env_connector.yaml",
+					"-n", "default", "--ignore-not-found", "--timeout=60s")
+				_, _ = utils.Run(cmd)
+			})
+
+			// start.fail is a boolean: Kafka Connect rejects the config unless
+			// ${env:CONNECT_E2E_VALUE} resolves to "false".
+			By("verifying the env var resolves and the connector reaches Running")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "connector", "my-env-connector", "-n", "default",
+					"-o", "jsonpath={.status.conditions[?(@.type=='Ready')].reason}/{.status.connector.state}")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(Equal("Running/RUNNING"))
+			}, 2*time.Minute, 2*time.Second).Should(Succeed())
+
+			By("deleting the env connector and verifying it is fully removed")
+			cmd = exec.Command("kubectl", "delete", "-f", "config/e2e/env_connector.yaml",
+				"-n", "default", "--ignore-not-found", "--timeout=60s")
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "connector", "my-env-connector", "-n", "default")
+				_, err := utils.Run(cmd)
+				g.Expect(err).To(HaveOccurred(), "my-env-connector should no longer exist")
 			}, 30*time.Second, 2*time.Second).Should(Succeed())
 		})
 	})

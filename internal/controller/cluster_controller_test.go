@@ -278,6 +278,56 @@ var _ = Describe("Cluster Controller", func() {
 		})
 	})
 
+	Context("When the Cluster env contains an operator-managed variable", func() {
+		It("should reject the Cluster", func() {
+			for _, name := range []string{
+				"CONNECT_REST_ADVERTISED_HOST_NAME", "KAFKA_HEAP_OPTS", "KAFKA_LOG4J_OPTS", "KAFKA_OPTS", "CLASSPATH",
+			} {
+				cluster := &kafkaconnectv1alpha1.Cluster{
+					ObjectMeta: metav1.ObjectMeta{Name: "cluster-managed-env", Namespace: "default"},
+					Spec: kafkaconnectv1alpha1.ClusterSpec{
+						Env: []corev1.EnvVar{{Name: name, Value: "value"}},
+					},
+				}
+				err := k8sClient.Create(ctx, cluster)
+				Expect(apierrors.IsInvalid(err)).To(BeTrue(), "expected %s to be rejected, got: %v", name, err)
+				Expect(err.Error()).To(ContainSubstring("the environment variable is managed by the operator"))
+			}
+		})
+
+		It("should accept other variables", func() {
+			cluster := &kafkaconnectv1alpha1.Cluster{
+				ObjectMeta: metav1.ObjectMeta{Name: "cluster-extra-env", Namespace: "default"},
+				Spec: kafkaconnectv1alpha1.ClusterSpec{
+					Env: []corev1.EnvVar{
+						{Name: "CONNECT_DB_HOST", Value: "db.example.com"},
+						{Name: "KAFKA_JVM_PERFORMANCE_OPTS", Value: "-XX:+UseZGC"},
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, cluster)).To(Succeed())
+			Expect(k8sClient.Delete(ctx, cluster)).To(Succeed())
+		})
+	})
+
+	Context("When the Cluster jvmOptions.extraOpts contains an invalid option", func() {
+		DescribeTable("should reject the Cluster",
+			func(opt string) {
+				cluster := &kafkaconnectv1alpha1.Cluster{
+					ObjectMeta: metav1.ObjectMeta{Name: "cluster-invalid-extra-opts", Namespace: "default"},
+					Spec: kafkaconnectv1alpha1.ClusterSpec{
+						JVMOptions: &kafkaconnectv1alpha1.JVMOptions{ExtraOpts: []string{opt}},
+					},
+				}
+				err := k8sClient.Create(ctx, cluster)
+				Expect(apierrors.IsInvalid(err)).To(BeTrue(), "expected Invalid error, got %v", err)
+			},
+			Entry("empty option", ""),
+			Entry("option with a space", "-Dfoo=a b"),
+			Entry("two options in one entry", "-Xss1m -Dfoo=bar"),
+		)
+	})
+
 	Context("When NetworkPolicy is disabled", func() {
 		const name = "cluster-no-np"
 

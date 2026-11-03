@@ -36,6 +36,12 @@ spec:
   #     params:
   #       allowed.paths: /secrets
 
+  # jvmOptions:
+  #   heapOpts: "-Xms1g -Xmx1g"
+  # env:
+  #   - name: CONNECT_MY_VALUE
+  #     value: my-value
+
   config:
     bootstrap.servers: kafka:9092
     key.converter: org.apache.kafka.connect.json.JsonConverter

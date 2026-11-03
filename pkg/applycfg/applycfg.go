@@ -229,3 +229,71 @@ func LabelSelector(ls *metav1.LabelSelector) *metav1ac.LabelSelectorApplyConfigu
 	}
 	return ac
 }
+
+// EnvVars converts a slice of corev1.EnvVar to a slice of apply configuration pointers.
+func EnvVars(envVars []corev1.EnvVar) []*corev1ac.EnvVarApplyConfiguration {
+	acs := make([]*corev1ac.EnvVarApplyConfiguration, len(envVars))
+	for i := range envVars {
+		acs[i] = envVar(&envVars[i])
+	}
+	return acs
+}
+
+func envVar(e *corev1.EnvVar) *corev1ac.EnvVarApplyConfiguration {
+	ac := corev1ac.EnvVar().WithName(e.Name)
+	if e.Value != "" {
+		ac.WithValue(e.Value)
+	}
+	if e.ValueFrom != nil {
+		ac.WithValueFrom(envVarSource(e.ValueFrom))
+	}
+	return ac
+}
+
+func envVarSource(s *corev1.EnvVarSource) *corev1ac.EnvVarSourceApplyConfiguration {
+	ac := corev1ac.EnvVarSource()
+	if s.FieldRef != nil {
+		ref := corev1ac.ObjectFieldSelector().WithFieldPath(s.FieldRef.FieldPath)
+		if s.FieldRef.APIVersion != "" {
+			ref.WithAPIVersion(s.FieldRef.APIVersion)
+		}
+		ac.WithFieldRef(ref)
+	}
+	if s.ResourceFieldRef != nil {
+		ref := corev1ac.ResourceFieldSelector().WithResource(s.ResourceFieldRef.Resource)
+		if s.ResourceFieldRef.ContainerName != "" {
+			ref.WithContainerName(s.ResourceFieldRef.ContainerName)
+		}
+		if !s.ResourceFieldRef.Divisor.IsZero() {
+			ref.WithDivisor(s.ResourceFieldRef.Divisor)
+		}
+		ac.WithResourceFieldRef(ref)
+	}
+	if s.ConfigMapKeyRef != nil {
+		ac.WithConfigMapKeyRef(&corev1ac.ConfigMapKeySelectorApplyConfiguration{
+			LocalObjectReferenceApplyConfiguration: corev1ac.LocalObjectReferenceApplyConfiguration{
+				Name: &s.ConfigMapKeyRef.Name,
+			},
+			Key:      &s.ConfigMapKeyRef.Key,
+			Optional: s.ConfigMapKeyRef.Optional,
+		})
+	}
+	if s.SecretKeyRef != nil {
+		ac.WithSecretKeyRef(&corev1ac.SecretKeySelectorApplyConfiguration{
+			LocalObjectReferenceApplyConfiguration: corev1ac.LocalObjectReferenceApplyConfiguration{
+				Name: &s.SecretKeyRef.Name,
+			},
+			Key:      &s.SecretKeyRef.Key,
+			Optional: s.SecretKeyRef.Optional,
+		})
+	}
+	if s.FileKeyRef != nil {
+		ac.WithFileKeyRef(&corev1ac.FileKeySelectorApplyConfiguration{
+			VolumeName: &s.FileKeyRef.VolumeName,
+			Path:       &s.FileKeyRef.Path,
+			Key:        &s.FileKeyRef.Key,
+			Optional:   s.FileKeyRef.Optional,
+		})
+	}
+	return ac
+}

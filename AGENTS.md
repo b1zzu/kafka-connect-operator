@@ -73,6 +73,11 @@ Always use `kubebuilder create api` and `kubebuilder create webhook` to scaffold
 ### Keep the README in Sync
 When adding or changing a CRD field, annotation or user-visible behavior, update the matching section of `README.md` (the "Reference" section and the feature sections below it).
 
+YAML examples in the feature sections usually follow the "Monitoring" section:
+- The first example shows the whole resource (`apiVersion`, `kind`, `metadata`, `spec`) and ends the `spec` with `# ...`, so it is clear where the fields go and that other fields sit next to them. Do not add placeholder fields such as `config.bootstrap.servers` just to fill it.
+- The following examples in the same section show only `spec:`, because the first one already shows where it sits.
+- An example for a different resource (a Connector in a Cluster section, a PodMonitor) shows that whole resource again.
+
 ### E2E Tests Require an Isolated Kind Cluster
 The e2e tests install and delete Kafka and the operator. Only run them against the dedicated kind cluster `kafka-connect-operator-test-e2e` (created by `make test-e2e`), never against a nonprod or prod cluster.
 

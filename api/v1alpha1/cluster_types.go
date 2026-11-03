@@ -179,6 +179,38 @@ type ClusterSpec struct {
 	// Defaults to 1 when not set.
 	// +optional
 	MaxUnavailable *intstr.IntOrString `json:"maxUnavailable,omitempty"`
+
+	// JVMOptions configures the JVM of the Kafka Connect container.
+	// When not set, the heap is sized to 75% of the container memory limit.
+	// +optional
+	JVMOptions *JVMOptions `json:"jvmOptions,omitempty"`
+
+	// Env is a list of extra environment variables for the Kafka Connect container.
+	// The variables managed by the operator (CONNECT_REST_ADVERTISED_HOST_NAME, KAFKA_HEAP_OPTS,
+	// KAFKA_LOG4J_OPTS, KAFKA_OPTS and CLASSPATH) are rejected. Use jvmOptions for the JVM options,
+	// libraries for the classpath and logging for Log4j2.
+	// Variables named CONNECT_* can be referenced in connector configs with ${env:NAME}.
+	// +optional
+	// +listType=map
+	// +listMapKey=name
+	// +kubebuilder:validation:items:XValidation:rule="!(self.name in ['CONNECT_REST_ADVERTISED_HOST_NAME', 'KAFKA_HEAP_OPTS', 'KAFKA_LOG4J_OPTS', 'KAFKA_OPTS', 'CLASSPATH'])",message="the environment variable is managed by the operator"
+	Env []corev1.EnvVar `json:"env,omitempty"`
+}
+
+// JVMOptions configures the JVM of the Kafka Connect container.
+type JVMOptions struct {
+	// HeapOpts replaces the KAFKA_HEAP_OPTS environment variable, for example "-Xms2g -Xmx2g".
+	// Defaults to "-XX:MaxRAMPercentage=75.0".
+	// +optional
+	// +kubebuilder:validation:MinLength=1
+	HeapOpts *string `json:"heapOpts,omitempty"`
+
+	// ExtraOpts is a list of extra JVM options appended to the KAFKA_OPTS environment variable.
+	// They come last on the java command line, so they take precedence over the defaults
+	// of the Kafka start scripts. Each option must be a single argument without whitespace.
+	// +optional
+	// +kubebuilder:validation:items:Pattern=`^\S+$`
+	ExtraOpts []string `json:"extraOpts,omitempty"`
 }
 
 // Plugin defines a Kafka Connect plugin to be mounted from an OCI image.
