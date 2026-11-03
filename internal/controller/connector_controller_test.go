@@ -20,8 +20,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -34,6 +36,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/events"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -50,6 +53,7 @@ type mockKafkaConnectServer struct {
 	offsets             map[string]*kafkaconnect.ConnectorOffsets
 	restartedConnectors []string
 	restartedTasks      []int
+	restartQueries      []string
 	server              *httptest.Server
 
 	// connectorStatus overrides the status returned for connectors (default: RUNNING)
@@ -192,7 +196,7 @@ func (m *mockKafkaConnectServer) handleConnectorAction(w http.ResponseWriter, r 
 	}
 }
 
-func (m *mockKafkaConnectServer) handleRestart(w http.ResponseWriter, _ *http.Request, name string) {
+func (m *mockKafkaConnectServer) handleRestart(w http.ResponseWriter, r *http.Request, name string) {
 	if _, ok := m.connectors[name]; !ok {
 		http.Error(w, "not found", http.StatusNotFound)
 		return
@@ -202,6 +206,7 @@ func (m *mockKafkaConnectServer) handleRestart(w http.ResponseWriter, _ *http.Re
 		return
 	}
 	m.restartedConnectors = append(m.restartedConnectors, name)
+	m.restartQueries = append(m.restartQueries, r.URL.RawQuery)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -302,12 +307,11 @@ var _ = Describe("Connector Controller", func() {
 	newReconciler := func(mock *mockKafkaConnectServer) (*ConnectorReconciler, *events.FakeRecorder) {
 		recorder := events.NewFakeRecorder(10)
 		r := &ConnectorReconciler{
-			Client:                        k8sClient,
-			Scheme:                        k8sClient.Scheme(),
-			Recorder:                      recorder,
-			NewKafkaConnectClientFunc:     NewDefaultKafkaConnectClientFunc,
-			ReconcileInterval:             time.Minute,
-			RestartFailedConnectorBackoff: 5 * time.Minute,
+			Client:                    k8sClient,
+			Scheme:                    k8sClient.Scheme(),
+			Recorder:                  recorder,
+			NewKafkaConnectClientFunc: NewDefaultKafkaConnectClientFunc,
+			ReconcileInterval:         time.Minute,
 		}
 		if mock != nil {
 			r.NewKafkaConnectClientFunc = func(connector *kafkaconnectv1alpha1.Connector) (*kafkaconnect.Client, error) {
@@ -570,107 +574,6 @@ var _ = Describe("Connector Controller", func() {
 			Expect(connector.Status.RestartCount).To(Equal(int32(0)))
 		})
 
-		It("should auto-restart failed connector, emit event, and update restart status", func(ctx SpecContext) {
-			name := "auto-restart-connector"
-			nn := nameFor(name)
-
-			mock := newMockKafkaConnectServer()
-			DeferCleanup(mock.Close)
-
-			createConnector(ctx, name, "my-cluster", map[string]string{"connector.class": "FileStreamSource"}, nil)
-			DeferCleanup(func(ctx SpecContext) {
-				c := getConnector(ctx, nn)
-				if c != nil {
-					c.Finalizers = nil
-					_ = k8sClient.Update(ctx, c)
-					_ = k8sClient.Delete(ctx, c)
-				}
-			})
-
-			// Use a reconciler with very short backoff (1ms) so it elapses quickly
-			recorder := events.NewFakeRecorder(10)
-			r := &ConnectorReconciler{
-				Client:                        k8sClient,
-				Scheme:                        k8sClient.Scheme(),
-				Recorder:                      recorder,
-				NewKafkaConnectClientFunc:     NewDefaultKafkaConnectClientFunc,
-				ReconcileInterval:             time.Minute,
-				RestartFailedConnectorBackoff: 1 * time.Millisecond,
-			}
-			r.NewKafkaConnectClientFunc = func(connector *kafkaconnectv1alpha1.Connector) (*kafkaconnect.Client, error) {
-				return kafkaconnect.NewClient(mock.server.URL), nil
-			}
-
-			// Reconcile 4 times: init conditions, add finalizer, create connector, restart loop
-			_, err := reconcileN(ctx, r, nn, 4)
-			Expect(err).NotTo(HaveOccurred())
-
-			// Wait for backoff to elapse
-			time.Sleep(10 * time.Millisecond)
-
-			// Now set mock to return FAILED status
-			mock.mu.Lock()
-			mock.connectorStatus = connectorStatusFailed
-			mock.mu.Unlock()
-
-			// Reconcile once more — auto restart should happen
-			result, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
-			Expect(err).NotTo(HaveOccurred())
-			// Requeue is short right after activity (LastRestartAt just set)
-			Expect(result.RequeueAfter).To(Equal(3 * time.Second))
-
-			// Verify restart status fields
-			connector := getConnector(ctx, nn)
-			Expect(connector).NotTo(BeNil())
-			Expect(connector.Status.LastRestartAt).NotTo(BeNil())
-			Expect(connector.Status.RestartCount).To(Equal(int32(1)))
-
-			// Verify the connector was restarted via the mock
-			mock.mu.Lock()
-			defer mock.mu.Unlock()
-			Expect(mock.restartedConnectors).To(ContainElement(name))
-		})
-
-		It("should emit warning event and return no-error when auto-restart fails", func(ctx SpecContext) {
-			name := "auto-restart-fail"
-			nn := nameFor(name)
-
-			mock := newMockKafkaConnectServer()
-			DeferCleanup(mock.Close)
-
-			createConnector(ctx, name, "my-cluster", map[string]string{"connector.class": "FileStreamSource"}, nil)
-			DeferCleanup(func(ctx SpecContext) {
-				c := getConnector(ctx, nn)
-				if c != nil {
-					c.Finalizers = nil
-					_ = k8sClient.Update(ctx, c)
-					_ = k8sClient.Delete(ctx, c)
-				}
-			})
-
-			r, _ := newReconciler(mock)
-
-			// Reconcile 4 times: init conditions, add finalizer, create connector, restart loop
-			_, err := reconcileN(ctx, r, nn, 4)
-			Expect(err).NotTo(HaveOccurred())
-
-			// Now set mock to return FAILED status and make restart fail
-			mock.mu.Lock()
-			mock.connectorStatus = connectorStatusFailed
-			mock.restartError = true
-			mock.mu.Unlock()
-
-			// Reconcile — auto restart should fail and return no-error
-			_, err = r.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
-			Expect(err).NotTo(HaveOccurred())
-
-			// Verify restart status fields are NOT updated on failure
-			connector := getConnector(ctx, nn)
-			Expect(connector).NotTo(BeNil())
-			Expect(connector.Status.LastRestartAt).To(BeNil())
-			Expect(connector.Status.RestartCount).To(Equal(int32(0)))
-		})
-
 		It("should update LastUpdatedAt when connector config is changed", func(ctx SpecContext) {
 			name := "config-update"
 			nn := nameFor(name)
@@ -716,15 +619,29 @@ var _ = Describe("Connector Controller", func() {
 				updatedConnector.Status.LastUpdatedAt.Equal(firstUpdatedAt)
 			Expect(isAfterOrEqual).To(BeTrue(), "LastUpdatedAt should be >= first update time")
 		})
+	})
 
-		It("should skip auto-restart when connector was recently created", func(ctx SpecContext) {
-			name := "skip-restart-recent"
+	Context("Auto-restart", func() {
+		failedTasks := []kafkaconnect.ConnectorStatusTask{
+			{ID: 0, State: connectorStatusFailed, WorkerID: "worker-1"},
+			{ID: 1, State: connectorStatusRunning, WorkerID: "worker-1"},
+		}
+
+		// setupConnector creates a running connector with the given auto-restart spec,
+		// reconciles it until synced and returns its mock and reconciler.
+		setupConnector := func(
+			ctx context.Context, name string, autoRestart *kafkaconnectv1alpha1.AutoRestartSpec,
+		) (*mockKafkaConnectServer, *ConnectorReconciler, *events.FakeRecorder) {
 			nn := nameFor(name)
 
 			mock := newMockKafkaConnectServer()
 			DeferCleanup(mock.Close)
 
-			createConnector(ctx, name, "my-cluster", map[string]string{"connector.class": "FileStreamSource"}, nil)
+			createConnectorWithSpec(ctx, name, nil, kafkaconnectv1alpha1.ConnectorSpec{
+				ClusterRef:  corev1.LocalObjectReference{Name: "my-cluster"},
+				Config:      map[string]string{"connector.class": "FileStreamSource"},
+				AutoRestart: autoRestart,
+			})
 			DeferCleanup(func(ctx SpecContext) {
 				c := getConnector(ctx, nn)
 				if c != nil {
@@ -734,94 +651,346 @@ var _ = Describe("Connector Controller", func() {
 				}
 			})
 
-			// Use a reconciler with a long backoff window (1 hour) for testing
-			recorder := events.NewFakeRecorder(10)
-			r := &ConnectorReconciler{
-				Client:                        k8sClient,
-				Scheme:                        k8sClient.Scheme(),
-				Recorder:                      recorder,
-				NewKafkaConnectClientFunc:     NewDefaultKafkaConnectClientFunc,
-				ReconcileInterval:             time.Minute,
-				RestartFailedConnectorBackoff: 1 * time.Hour,
-			}
-			r.NewKafkaConnectClientFunc = func(connector *kafkaconnectv1alpha1.Connector) (*kafkaconnect.Client, error) {
-				return kafkaconnect.NewClient(mock.server.URL), nil
-			}
-
-			// Reconcile to completion to get connector created
+			r, recorder := newReconciler(mock)
 			_, err := reconcileN(ctx, r, nn, 5)
+			Expect(err).NotTo(HaveOccurred())
+			drainEvents(recorder)
+			return mock, r, recorder
+		}
+
+		setAutoRestartStatus := func(ctx context.Context, name string, count int32, lastRestartAgo time.Duration) {
+			connector := getConnector(ctx, nameFor(name))
+			connector.Status.AutoRestart = &kafkaconnectv1alpha1.AutoRestartStatus{
+				RestartCount:  count,
+				LastRestartAt: metav1.NewTime(time.Now().Add(-lastRestartAgo)),
+			}
+			Expect(k8sClient.Status().Update(ctx, connector)).To(Succeed())
+		}
+
+		setLastUpdatedAt := func(ctx context.Context, name string, ago time.Duration) {
+			connector := getConnector(ctx, nameFor(name))
+			connector.Status.LastUpdatedAt = ptr.To(metav1.NewTime(time.Now().Add(-ago)))
+			Expect(k8sClient.Status().Update(ctx, connector)).To(Succeed())
+		}
+
+		setTasks := func(mock *mockKafkaConnectServer, tasks []kafkaconnect.ConnectorStatusTask) {
+			mock.mu.Lock()
+			defer mock.mu.Unlock()
+			mock.taskStatuses = tasks
+		}
+
+		restartQueries := func(mock *mockKafkaConnectServer) []string {
+			mock.mu.Lock()
+			defer mock.mu.Unlock()
+			return slices.Clone(mock.restartQueries)
+		}
+
+		It("should immediately restart only the failed connector and tasks on the first failure", func(ctx SpecContext) {
+			name := "auto-restart-first"
+			nn := nameFor(name)
+			mock, r, recorder := setupConnector(ctx, name, nil)
+
+			setTasks(mock, failedTasks)
+			result, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+			Expect(err).NotTo(HaveOccurred())
+			// Requeue is short right after activity (LastRestartAt just set)
+			Expect(result.RequeueAfter).To(Equal(3 * time.Second))
+
+			Expect(restartQueries(mock)).To(Equal([]string{"includeTasks=true&onlyFailed=true"}))
+
+			connector := getConnector(ctx, nn)
+			Expect(connector.Status.AutoRestart).NotTo(BeNil())
+			Expect(connector.Status.AutoRestart.RestartCount).To(Equal(int32(1)))
+			Expect(connector.Status.RestartCount).To(Equal(int32(1)))
+			Expect(connector.Status.LastRestartAt).NotTo(BeNil())
+			Expect(drainEvents(recorder)).To(ContainElement(ContainSubstring("Restarted failed connector and tasks")))
+		})
+
+		It("should not restart again during the backoff", func(ctx SpecContext) {
+			name := "auto-restart-backoff"
+			nn := nameFor(name)
+			mock, r, _ := setupConnector(ctx, name, nil)
+
+			setAutoRestartStatus(ctx, name, 1, time.Minute)
+			setTasks(mock, failedTasks)
+			_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(restartQueries(mock)).To(BeEmpty())
+			Expect(getConnector(ctx, nn).Status.AutoRestart.RestartCount).To(Equal(int32(1)))
+		})
+
+		It("should restart again once the backoff has elapsed", func(ctx SpecContext) {
+			name := "auto-restart-after-backoff"
+			nn := nameFor(name)
+			mock, r, _ := setupConnector(ctx, name, nil)
+
+			setAutoRestartStatus(ctx, name, 1, 3*time.Minute)
+			setTasks(mock, failedTasks)
+			_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(restartQueries(mock)).To(HaveLen(1))
+			Expect(getConnector(ctx, nn).Status.AutoRestart.RestartCount).To(Equal(int32(2)))
+		})
+
+		It("should stop restarting once maxRestarts is reached and report it", func(ctx SpecContext) {
+			name := "auto-restart-max"
+			nn := nameFor(name)
+			mock, r, recorder := setupConnector(ctx, name, &kafkaconnectv1alpha1.AutoRestartSpec{MaxRestarts: ptr.To[int32](1)})
+
+			setAutoRestartStatus(ctx, name, 1, time.Hour)
+			setTasks(mock, failedTasks)
+			_, err := reconcileN(ctx, r, nn, 2)
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(restartQueries(mock)).To(BeEmpty())
+			connector := getConnector(ctx, nn)
+			Expect(connector.Status.AutoRestart.RestartCount).To(Equal(int32(1)))
+			condition := meta.FindStatusCondition(connector.Status.Conditions, typeAutoRestartLimitReached)
+			Expect(condition).NotTo(BeNil())
+			Expect(condition.Status).To(Equal(metav1.ConditionTrue))
+			Expect(condition.Reason).To(Equal("MaxRestartsReached"))
+			events := drainEvents(recorder)
+			Expect(events).To(HaveLen(1))
+			Expect(events[0]).To(ContainSubstring("AutoRestartLimitReached"))
+
+			By("keeping the condition while running within the backoff")
+			setAutoRestartStatus(ctx, name, 1, time.Minute)
+			setTasks(mock, nil)
+			_, err = r.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+			Expect(err).NotTo(HaveOccurred())
+			connector = getConnector(ctx, nn)
+			Expect(meta.FindStatusCondition(connector.Status.Conditions, typeAutoRestartLimitReached)).NotTo(BeNil())
+
+			By("removing the condition once the count is reset")
+			setAutoRestartStatus(ctx, name, 1, 3*time.Minute)
+			_, err = r.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+			Expect(err).NotTo(HaveOccurred())
+			connector = getConnector(ctx, nn)
+			Expect(connector.Status.AutoRestart).To(BeNil())
+			Expect(meta.FindStatusCondition(connector.Status.Conditions, typeAutoRestartLimitReached)).To(BeNil())
+		})
+
+		It("should clear the limit condition and restart again when maxRestarts is raised", func(ctx SpecContext) {
+			name := "auto-restart-max-raised"
+			nn := nameFor(name)
+			mock, r, _ := setupConnector(ctx, name, &kafkaconnectv1alpha1.AutoRestartSpec{MaxRestarts: ptr.To[int32](1)})
+
+			setAutoRestartStatus(ctx, name, 1, time.Hour)
+			setTasks(mock, failedTasks)
+			_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(meta.FindStatusCondition(getConnector(ctx, nn).Status.Conditions, typeAutoRestartLimitReached)).NotTo(BeNil())
+
+			connector := getConnector(ctx, nn)
+			connector.Spec.AutoRestart.MaxRestarts = ptr.To[int32](2)
+			Expect(k8sClient.Update(ctx, connector)).To(Succeed())
+			_, err = r.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(restartQueries(mock)).To(HaveLen(1))
+			connector = getConnector(ctx, nn)
+			Expect(connector.Status.AutoRestart.RestartCount).To(Equal(int32(2)))
+			Expect(meta.FindStatusCondition(connector.Status.Conditions, typeAutoRestartLimitReached)).To(BeNil())
+		})
+
+		It("should not reset the restart count while the connector is not running", func(ctx SpecContext) {
+			name := "auto-restart-unassigned"
+			nn := nameFor(name)
+			mock, r, _ := setupConnector(ctx, name, nil)
+
+			setAutoRestartStatus(ctx, name, 1, time.Hour)
+			mock.mu.Lock()
+			mock.connectorStatus = connectorStatusUnassigned
+			mock.mu.Unlock()
+			_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(getConnector(ctx, nn).Status.AutoRestart).NotTo(BeNil())
+		})
+
+		It("should never restart when maxRestarts is 0", func(ctx SpecContext) {
+			name := "auto-restart-max-zero"
+			nn := nameFor(name)
+			mock, r, _ := setupConnector(ctx, name, &kafkaconnectv1alpha1.AutoRestartSpec{MaxRestarts: ptr.To[int32](0)})
+
+			setTasks(mock, failedTasks)
+			_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(restartQueries(mock)).To(BeEmpty())
+			Expect(meta.FindStatusCondition(getConnector(ctx, nn).Status.Conditions, typeAutoRestartLimitReached)).NotTo(BeNil())
+		})
+
+		It("should never restart when disabled", func(ctx SpecContext) {
+			name := "auto-restart-disabled"
+			nn := nameFor(name)
+			mock, r, _ := setupConnector(ctx, name, &kafkaconnectv1alpha1.AutoRestartSpec{Enabled: ptr.To(false)})
+
+			mock.mu.Lock()
+			mock.connectorStatus = connectorStatusFailed
+			mock.mu.Unlock()
+			_, err := reconcileN(ctx, r, nn, 2)
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(restartQueries(mock)).To(BeEmpty())
+			connector := getConnector(ctx, nn)
+			Expect(connector.Status.AutoRestart).To(BeNil())
+			Expect(connector.Status.RestartCount).To(Equal(int32(0)))
+		})
+
+		It("should reset the count and the limit condition when disabled", func(ctx SpecContext) {
+			name := "auto-restart-disable-resets"
+			nn := nameFor(name)
+			mock, r, _ := setupConnector(ctx, name, &kafkaconnectv1alpha1.AutoRestartSpec{MaxRestarts: ptr.To[int32](1)})
+
+			setAutoRestartStatus(ctx, name, 1, time.Minute)
+			setTasks(mock, failedTasks)
+			_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(meta.FindStatusCondition(getConnector(ctx, nn).Status.Conditions, typeAutoRestartLimitReached)).NotTo(BeNil())
+
+			connector := getConnector(ctx, nn)
+			connector.Spec.AutoRestart.Enabled = ptr.To(false)
+			Expect(k8sClient.Update(ctx, connector)).To(Succeed())
+			_, err = r.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+			Expect(err).NotTo(HaveOccurred())
+
+			connector = getConnector(ctx, nn)
+			Expect(connector.Status.AutoRestart).To(BeNil())
+			Expect(meta.FindStatusCondition(connector.Status.Conditions, typeAutoRestartLimitReached)).To(BeNil())
+			Expect(restartQueries(mock)).To(BeEmpty())
+		})
+
+		It("should keep the count and the limit condition while the desired state is not running", func(ctx SpecContext) {
+			name := "auto-restart-paused"
+			nn := nameFor(name)
+			mock, r, _ := setupConnector(ctx, name, &kafkaconnectv1alpha1.AutoRestartSpec{MaxRestarts: ptr.To[int32](1)})
+
+			setAutoRestartStatus(ctx, name, 1, time.Hour)
+			setTasks(mock, failedTasks)
+			_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
 			Expect(err).NotTo(HaveOccurred())
 
 			connector := getConnector(ctx, nn)
-			Expect(connector).NotTo(BeNil())
-
-			// Immediately set mock to return FAILED status (still within backoff window)
-			mock.mu.Lock()
-			mock.connectorStatus = connectorStatusFailed
-			mock.mu.Unlock()
-
-			// Reconcile — auto restart should be skipped because LastUpdatedAt is recent (within 1 hour)
-			_, err = r.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+			connector.Spec.State = kafkaconnectv1alpha1.ConnectorStatePaused
+			Expect(k8sClient.Update(ctx, connector)).To(Succeed())
+			_, err = reconcileN(ctx, r, nn, 3)
 			Expect(err).NotTo(HaveOccurred())
 
-			// Verify restart was NOT called
-			mock.mu.Lock()
-			defer mock.mu.Unlock()
-			Expect(mock.restartedConnectors).NotTo(ContainElement(name))
+			connector = getConnector(ctx, nn)
+			Expect(connector.Status.AutoRestart).NotTo(BeNil())
+			Expect(meta.FindStatusCondition(connector.Status.Conditions, typeAutoRestartLimitReached)).NotTo(BeNil())
 		})
 
-		It("should auto-restart failed connector after backoff has elapsed", func(ctx SpecContext) {
-			name := "restart-after-backoff"
+		It("should reset the restart count once healthy for longer than the backoff", func(ctx SpecContext) {
+			name := "auto-restart-reset"
 			nn := nameFor(name)
+			_, r, _ := setupConnector(ctx, name, nil)
 
-			mock := newMockKafkaConnectServer()
-			DeferCleanup(mock.Close)
-
-			createConnector(ctx, name, "my-cluster", map[string]string{"connector.class": "FileStreamSource"}, nil)
-			DeferCleanup(func(ctx SpecContext) {
-				c := getConnector(ctx, nn)
-				if c != nil {
-					c.Finalizers = nil
-					_ = k8sClient.Update(ctx, c)
-					_ = k8sClient.Delete(ctx, c)
-				}
-			})
-
-			// Use a reconciler with a very short backoff window (1ms) for testing
-			recorder := events.NewFakeRecorder(10)
-			r := &ConnectorReconciler{
-				Client:                        k8sClient,
-				Scheme:                        k8sClient.Scheme(),
-				Recorder:                      recorder,
-				NewKafkaConnectClientFunc:     NewDefaultKafkaConnectClientFunc,
-				ReconcileInterval:             time.Minute,
-				RestartFailedConnectorBackoff: 1 * time.Millisecond,
-			}
-			r.NewKafkaConnectClientFunc = func(connector *kafkaconnectv1alpha1.Connector) (*kafkaconnect.Client, error) {
-				return kafkaconnect.NewClient(mock.server.URL), nil
-			}
-
-			// Reconcile to completion to get connector created
-			_, err := reconcileN(ctx, r, nn, 5)
+			By("keeping the count while healthy for less than the backoff")
+			setAutoRestartStatus(ctx, name, 2, 5*time.Minute)
+			_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
 			Expect(err).NotTo(HaveOccurred())
+			Expect(getConnector(ctx, nn).Status.AutoRestart).NotTo(BeNil())
 
-			// Wait for backoff to elapse
-			time.Sleep(10 * time.Millisecond)
-
-			// Set mock to return FAILED status
-			mock.mu.Lock()
-			mock.connectorStatus = connectorStatusFailed
-			mock.mu.Unlock()
-
-			// Reconcile — auto restart should happen because backoff has elapsed
+			By("resetting the count while healthy for longer than the backoff")
+			setAutoRestartStatus(ctx, name, 2, 7*time.Minute)
 			_, err = r.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
 			Expect(err).NotTo(HaveOccurred())
-
-			// Verify restart WAS called
-			mock.mu.Lock()
-			defer mock.mu.Unlock()
-			Expect(mock.restartedConnectors).To(ContainElement(name))
+			Expect(getConnector(ctx, nn).Status.AutoRestart).To(BeNil())
 		})
+
+		It("should not reset the restart count while a task is not running", func(ctx SpecContext) {
+			name := "auto-restart-task-unassigned"
+			nn := nameFor(name)
+			mock, r, _ := setupConnector(ctx, name, nil)
+
+			setAutoRestartStatus(ctx, name, 1, time.Hour)
+			setTasks(mock, []kafkaconnect.ConnectorStatusTask{
+				{ID: 0, State: connectorStatusUnassigned, WorkerID: "worker-1"},
+				{ID: 1, State: connectorStatusRunning, WorkerID: "worker-1"},
+			})
+			_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(getConnector(ctx, nn).Status.AutoRestart).NotTo(BeNil())
+			Expect(restartQueries(mock)).To(BeEmpty())
+		})
+
+		It("should not restart during the grace period after the connector was updated", func(ctx SpecContext) {
+			name := "auto-restart-grace"
+			nn := nameFor(name)
+			mock, r, _ := setupConnector(ctx, name, nil)
+			r.AutoRestartGracePeriod = time.Hour
+
+			setTasks(mock, failedTasks)
+			_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(restartQueries(mock)).To(BeEmpty())
+			Expect(getConnector(ctx, nn).Status.AutoRestart).To(BeNil())
+		})
+
+		It("should restart once the grace period has passed", func(ctx SpecContext) {
+			name := "auto-restart-grace-passed"
+			nn := nameFor(name)
+			mock, r, _ := setupConnector(ctx, name, nil)
+			r.AutoRestartGracePeriod = 3 * time.Minute
+
+			setLastUpdatedAt(ctx, name, 4*time.Minute)
+			setTasks(mock, failedTasks)
+			_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(restartQueries(mock)).To(HaveLen(1))
+			Expect(getConnector(ctx, nn).Status.AutoRestart.RestartCount).To(Equal(int32(1)))
+		})
+
+		It("should not report the limit during the grace period", func(ctx SpecContext) {
+			name := "auto-restart-grace-limit"
+			nn := nameFor(name)
+			mock, r, _ := setupConnector(ctx, name, &kafkaconnectv1alpha1.AutoRestartSpec{MaxRestarts: ptr.To[int32](1)})
+			r.AutoRestartGracePeriod = time.Hour
+
+			setAutoRestartStatus(ctx, name, 1, time.Hour)
+			setTasks(mock, failedTasks)
+			_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(meta.FindStatusCondition(getConnector(ctx, nn).Status.Conditions, typeAutoRestartLimitReached)).To(BeNil())
+		})
+
+		It("should emit a warning event and return an error when the restart fails", func(ctx SpecContext) {
+			name := "auto-restart-fail"
+			nn := nameFor(name)
+			mock, r, recorder := setupConnector(ctx, name, nil)
+
+			mock.mu.Lock()
+			mock.connectorStatus = connectorStatusFailed
+			mock.restartError = true
+			mock.mu.Unlock()
+			_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+			Expect(err).To(MatchError(ContainSubstring("failed to restart failed connector and tasks")))
+
+			connector := getConnector(ctx, nn)
+			Expect(connector.Status.AutoRestart).To(BeNil())
+			Expect(connector.Status.RestartCount).To(Equal(int32(0)))
+			Expect(drainEvents(recorder)).To(ContainElement(ContainSubstring("FailedRestart")))
+		})
+
+		DescribeTable("autoRestartBackoff should grow as n^2+n minutes capped at 60 minutes",
+			func(n int32, expected time.Duration) {
+				Expect(autoRestartBackoff(n)).To(Equal(expected))
+			},
+			Entry("no restarts", int32(0), time.Duration(0)),
+			Entry("1 restart", int32(1), 2*time.Minute),
+			Entry("2 restarts", int32(2), 6*time.Minute),
+			Entry("7 restarts", int32(7), 56*time.Minute),
+			Entry("8 restarts, capped", int32(8), time.Hour),
+			Entry("max int32 restarts, capped", int32(math.MaxInt32), time.Hour),
+		)
 	})
 
 	Context("Connector state transition", func() {
@@ -937,7 +1106,6 @@ var _ = Describe("Connector Controller", func() {
 				Recorder:                        recorder,
 				NewKafkaConnectClientFunc:       NewDefaultKafkaConnectClientFunc,
 				ReconcileInterval:               time.Minute,
-				RestartFailedConnectorBackoff:   5 * time.Minute,
 				ConnectorStateTransitionBackoff: 1 * time.Hour,
 			}
 			r.NewKafkaConnectClientFunc = func(connector *kafkaconnectv1alpha1.Connector) (*kafkaconnect.Client, error) {

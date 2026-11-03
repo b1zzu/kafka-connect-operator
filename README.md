@@ -375,6 +375,13 @@ spec:
   importOffsets:
     configMapRef:
       name: my-connector-offsets
+
+  # Automatic restart of the failed connector and tasks (optional, see "Restart" section below)
+  autoRestart:
+    # Restart the connector and its tasks when they are FAILED (optional, defaults to true)
+    enabled: true
+    # Maximum number of consecutive automatic restarts (optional, unlimited when not set)
+    maxRestarts: 10
 ```
 
 When a connector is created with state `paused` or `stopped`, the operator passes `initial_state` to the Kafka Connect API so the connector never starts running. This is useful for offset migration workflows where you need to configure offsets before the connector starts.
@@ -391,7 +398,33 @@ Annotations are removed automatically after the operation completes. And the ope
 
 ### Restart
 
-**Automatic restart:** The operator automatically restarts connectors and tasks that are in `FAILED` state when the desired state is `running`. No user action is required — the operator detects the failure during reconciliation, restarts the affected connector or tasks, and requeues for status verification.
+**Automatic restart:** When the desired state is `running`, the operator restarts a connector or tasks in `FAILED` state. It uses a single `POST /connectors/<name>/restart?includeTasks=true&onlyFailed=true` request ([KIP-745](https://cwiki.apache.org/confluence/display/KAFKA/KIP-745%3A+Connect+API+to+restart+connector+and+tasks)), so only the failed connector and the failed tasks are restarted, while the running tasks are left untouched. This requires Kafka Connect with KIP-745 support (Apache Kafka 3.0 or later): older workers ignore the parameters and restart only the connector. Only `FAILED` triggers a restart: a connector or task that is `UNASSIGNED` (not scheduled yet, still starting, or during a rebalance) is not restarted and does not reset the count.
+
+The first restart happens as soon as the failure is detected, except within the grace period of 3 minutes (manager flag `--connector-auto-restart-grace-period`) after the Connector is created or its config updated. During that time the operator does not restart it, so Kafka Connect can apply the new config first, and the failure does not count toward `maxRestarts`. A config update does not reset the count: it is reset only once the connector is running, as described below.
+
+After `n` consecutive restarts, the operator waits `n^2 + n` minutes before the next one, capped at 60 minutes: it waits 2, 6, 12, 20, 30, 42, 56, then 60 minutes between restarts, so the restarts happen at 0, 2, 8, 20, 40, 70, 112 and 168 minutes, and then every 60 minutes. Once the backoff after the last restart has passed, the next reconciliation that finds the connector and all its tasks running resets the count.
+
+A connector that runs for longer than the backoff before failing again is never stopped by `maxRestarts`. For example, take a task that fails 3 minutes after it starts. The operator restarts it, finds it running and resets the count after 2 minutes, then restarts it again as a first restart when it fails. Use `enabled: false` for connectors that should not be restarted in this case.
+
+The policy is configured with `spec.autoRestart`:
+
+```yaml
+apiVersion: kafka-connect.b1zzu.net/v1alpha1
+kind: Connector
+metadata:
+  name: my-connector
+spec:
+  autoRestart:
+    enabled: true   # defaults to true, set to false to never restart automatically
+    maxRestarts: 5  # defaults to unlimited
+  # ...
+```
+
+The consecutive restarts are tracked in `status.autoRestart.restartCount` and `status.autoRestart.lastRestartAt`, while `status.restartCount` and `status.lastRestartAt` count every restart (automatic and manual) for the lifetime of the Connector. Each automatic restart emits a `Restarted` Event.
+
+When `maxRestarts` is reached and the connector is still failed, the operator stops restarting it, emits an `AutoRestartLimitReached` Warning Event and sets the `AutoRestartLimitReached` condition to `True`. The condition is removed when the count is reset or `maxRestarts` is raised above it. To retry, fix the cause (for example the connector config) or restart the connector manually (see below). Neither resets the count: if the connector runs, the count is reset once the backoff has passed. If the connector fails again before the count is reset, the operator does not restart it.
+
+Setting `enabled: false` clears the count and the condition, so the connector starts with a clean count when auto-restart is enabled again. While the desired state is not `running`, the operator neither restarts the connector nor changes the count or the condition. This also applies to `enabled: false`: the count and the condition are only cleared once the desired state is `running` again, so disabling and re-enabling auto-restart while the connector is paused or stopped keeps the old count.
 
 **Manual restart:** To manually trigger a restart of a connector (e.g. to pick up external configuration changes), annotate the Connector CR:
 
@@ -399,7 +432,7 @@ Annotations are removed automatically after the operation completes. And the ope
 kubectl annotate connector my-connector kafka-connect.b1zzu.net/restart=true
 ```
 
-The operator will restart the connector and automatically remove the annotation afterward.
+The operator will restart the connector and automatically remove the annotation afterward. A manual restart does not change the automatic restart count.
 
 ### Offsets Management
 

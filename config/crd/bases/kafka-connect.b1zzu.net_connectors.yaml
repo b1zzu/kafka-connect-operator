@@ -46,6 +46,27 @@ spec:
           spec:
             description: spec defines the desired state of Connector
             properties:
+              autoRestart:
+                description: |-
+                  Automatic restart of the connector and its tasks when they are in FAILED state.
+                  The operator restarts them after a backoff of n^2+n minutes (n = restarts so far,
+                  capped at 60 minutes), and resets the count when the connector is running once the
+                  backoff has passed. Enabled with unlimited restarts when not set.
+                properties:
+                  enabled:
+                    default: true
+                    description: Whether the operator restarts the connector and its
+                      tasks when they are in FAILED state.
+                    type: boolean
+                  maxRestarts:
+                    description: |-
+                      The maximum number of consecutive automatic restarts. Once reached, the operator stops
+                      restarting the connector while it stays failed, and it must be restarted manually with the
+                      kafka-connect.b1zzu.net/restart annotation. Unlimited when not set.
+                    format: int32
+                    minimum: 0
+                    type: integer
+                type: object
               cluster:
                 description: The name of the Kafka Connect cluster hosting the connector.
                 properties:
@@ -131,6 +152,26 @@ spec:
           status:
             description: status defines the observed state of Connector
             properties:
+              autoRestart:
+                description: |-
+                  autoRestart tracks the consecutive automatic restarts of the failed connector and tasks.
+                  It is cleared when the connector is running once the restart backoff has passed,
+                  or when auto-restart is disabled.
+                properties:
+                  lastRestartAt:
+                    description: lastRestartAt is the timestamp of the last automatic
+                      restart.
+                    format: date-time
+                    type: string
+                  restartCount:
+                    description: restartCount is the number of consecutive automatic
+                      restarts.
+                    format: int32
+                    type: integer
+                required:
+                - lastRestartAt
+                - restartCount
+                type: object
               conditions:
                 description: |-
                   conditions represent the current state of the Connector resource.

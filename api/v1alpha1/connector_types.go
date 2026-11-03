@@ -41,6 +41,21 @@ type OffsetsSpec struct {
 	ConfigMapRef corev1.LocalObjectReference `json:"configMapRef"`
 }
 
+// AutoRestartSpec configures the automatic restart of a failed connector and its failed tasks.
+type AutoRestartSpec struct {
+	// Whether the operator restarts the connector and its tasks when they are in FAILED state.
+	// +kubebuilder:default=true
+	// +optional
+	Enabled *bool `json:"enabled,omitempty"`
+
+	// The maximum number of consecutive automatic restarts. Once reached, the operator stops
+	// restarting the connector while it stays failed, and it must be restarted manually with the
+	// kafka-connect.b1zzu.net/restart annotation. Unlimited when not set.
+	// +kubebuilder:validation:Minimum=0
+	// +optional
+	MaxRestarts *int32 `json:"maxRestarts,omitempty"`
+}
+
 // ConnectorSpec defines the desired state of Connector
 type ConnectorSpec struct {
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
@@ -75,6 +90,13 @@ type ConnectorSpec struct {
 	// The connector must be in the stopped state before importing.
 	// +optional
 	ImportOffsets *OffsetsSpec `json:"importOffsets,omitempty"`
+
+	// Automatic restart of the connector and its tasks when they are in FAILED state.
+	// The operator restarts them after a backoff of n^2+n minutes (n = restarts so far,
+	// capped at 60 minutes), and resets the count when the connector is running once the
+	// backoff has passed. Enabled with unlimited restarts when not set.
+	// +optional
+	AutoRestart *AutoRestartSpec `json:"autoRestart,omitempty"`
 }
 
 // ConnectorStatus defines the observed state of Connector.
@@ -119,6 +141,12 @@ type ConnectorStatus struct {
 	// +optional
 	RestartCount int32 `json:"restartCount,omitempty"`
 
+	// autoRestart tracks the consecutive automatic restarts of the failed connector and tasks.
+	// It is cleared when the connector is running once the restart backoff has passed,
+	// or when auto-restart is disabled.
+	// +optional
+	AutoRestart *AutoRestartStatus `json:"autoRestart,omitempty"`
+
 	// stateTransitionTo is set to the target state when the connector is trying to transition from
 	// one state to another, otherwise is nil.
 	// +optional
@@ -134,6 +162,14 @@ type ConnectorStatus struct {
 	LastImportedOffsetsAt *metav1.Time `json:"lastImportedOffsetsAt,omitempty"`
 	// +optional
 	LastResetOffsetsAt *metav1.Time `json:"lastResetOffsetsAt,omitempty"`
+}
+
+// AutoRestartStatus tracks the consecutive automatic restarts of a connector.
+type AutoRestartStatus struct {
+	// restartCount is the number of consecutive automatic restarts.
+	RestartCount int32 `json:"restartCount"`
+	// lastRestartAt is the timestamp of the last automatic restart.
+	LastRestartAt metav1.Time `json:"lastRestartAt"`
 }
 
 // ConnectorStateStatus represents the state of the connector as reported by Kafka Connect.

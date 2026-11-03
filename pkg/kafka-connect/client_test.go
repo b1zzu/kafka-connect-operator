@@ -128,52 +128,56 @@ func TestRestartConnector_Error(t *testing.T) {
 	}
 }
 
-func TestRestartTask_Success(t *testing.T) {
+func TestRestartFailedConnectorAndTasks_Success(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			t.Errorf("expected POST, got %s", r.Method)
 		}
-		if r.URL.Path != "/connectors/my-connector/tasks/2/restart" {
+		if r.URL.Path != "/connectors/my-connector/restart" {
 			t.Errorf("unexpected path: %s", r.URL.Path)
 		}
-		w.WriteHeader(http.StatusOK)
+		if got := r.URL.Query().Get("includeTasks"); got != "true" {
+			t.Errorf("includeTasks = %q, want true", got)
+		}
+		if got := r.URL.Query().Get("onlyFailed"); got != "true" {
+			t.Errorf("onlyFailed = %q, want true", got)
+		}
+		w.WriteHeader(http.StatusAccepted)
+		_, _ = w.Write([]byte(`{"name":"my-connector","tasks":[{"id":0,"state":"RESTARTING"}]}`))
 	}))
 	defer server.Close()
 
 	client := NewClient(server.URL)
-	err := client.RestartTask(t.Context(), "my-connector", 2)
+	err := client.RestartFailedConnectorAndTasks(t.Context(), "my-connector")
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
 }
 
-func TestRestartTask_204(t *testing.T) {
+func TestRestartFailedConnectorAndTasks_204(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	}))
 	defer server.Close()
 
 	client := NewClient(server.URL)
-	err := client.RestartTask(t.Context(), "my-connector", 0)
+	err := client.RestartFailedConnectorAndTasks(t.Context(), "my-connector")
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
 }
 
-func TestRestartTask_Error(t *testing.T) {
+func TestRestartFailedConnectorAndTasks_Error(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusInternalServerError)
-		_, _ = w.Write([]byte("internal error"))
+		w.WriteHeader(http.StatusConflict)
+		_, _ = w.Write([]byte("rebalance in progress"))
 	}))
 	defer server.Close()
 
 	client := NewClient(server.URL)
-	err := client.RestartTask(t.Context(), "my-connector", 1)
-	if err == nil {
-		t.Fatal("expected error, got nil")
-	}
-	if got := err.Error(); got == "" {
-		t.Fatal("expected non-empty error message")
+	err := client.RestartFailedConnectorAndTasks(t.Context(), "my-connector")
+	if _, ok := err.(*ResponseError); !ok {
+		t.Fatalf("expected error of type *kafkaconnect.ResponseError, got %T", err)
 	}
 }
 

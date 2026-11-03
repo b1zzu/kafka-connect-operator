@@ -78,6 +78,7 @@ func main() {
 	var probeAddr string
 	var secureMetrics bool
 	var enableHTTP2 bool
+	var autoRestartGracePeriod time.Duration
 	var tlsOpts []func(*tls.Config)
 	flag.StringVar(&metricsAddr, "metrics-bind-address", "0", "The address the metrics endpoint binds to. "+
 		"Use :8443 for HTTPS or :8080 for HTTP, or leave as 0 to disable the metrics service.")
@@ -99,6 +100,8 @@ func main() {
 	opts := zap.Options{
 		Development: true,
 	}
+	flag.DurationVar(&autoRestartGracePeriod, "connector-auto-restart-grace-period", 3*time.Minute,
+		"The time to wait after a Connector is created or its config updated before restarting it automatically.")
 	opts.BindFlags(flag.CommandLine)
 	flag.Parse()
 
@@ -233,8 +236,8 @@ func main() {
 		Scheme:                          mgr.GetScheme(),
 		Recorder:                        mgr.GetEventRecorder("connector-controller"),
 		ReconcileInterval:               time.Minute,
-		RestartFailedConnectorBackoff:   5 * time.Minute,
 		ConnectorStateTransitionBackoff: 2 * time.Minute,
+		AutoRestartGracePeriod:          autoRestartGracePeriod,
 		NewKafkaConnectClientFunc:       kafkaConnectClientFunc,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "connector")

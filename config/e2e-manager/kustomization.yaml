@@ -24,3 +24,6 @@ patches:
       - op: add
         path: /spec/template/spec/containers/0/imagePullPolicy
         value: Never
+      - op: add
+        path: /spec/template/spec/containers/0/args/-
+        value: --connector-auto-restart-grace-period=20s
