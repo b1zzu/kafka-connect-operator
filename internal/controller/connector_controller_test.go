@@ -896,6 +896,23 @@ var _ = Describe("Connector Controller", func() {
 			Expect(getConnector(ctx, nn).Status.AutoRestart).To(BeNil())
 		})
 
+		It("should not reset the restart count while a task is not running", func(ctx SpecContext) {
+			name := "auto-restart-task-unassigned"
+			nn := nameFor(name)
+			mock, r, _ := setupConnector(ctx, name, nil)
+
+			setAutoRestartStatus(ctx, name, 1, time.Hour)
+			setTasks(mock, []kafkaconnect.ConnectorStatusTask{
+				{ID: 0, State: connectorStatusUnassigned, WorkerID: "worker-1"},
+				{ID: 1, State: connectorStatusRunning, WorkerID: "worker-1"},
+			})
+			_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(getConnector(ctx, nn).Status.AutoRestart).NotTo(BeNil())
+			Expect(restartQueries(mock)).To(BeEmpty())
+		})
+
 		It("should emit a warning event and return an error when the restart fails", func(ctx SpecContext) {
 			name := "auto-restart-fail"
 			nn := nameFor(name)

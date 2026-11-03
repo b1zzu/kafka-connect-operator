@@ -794,7 +794,7 @@ func (r *ConnectorReconciler) autoRestartFailedConnectorAndTasks(
 	}
 
 	failed := status.Connector.State == connectorStatusFailed || countFailedTasks(status.Tasks) > 0
-	running := !failed && status.Connector.State == connectorStatusRunning
+	running := status.Connector.State == connectorStatusRunning && allTasksRunning(status.Tasks)
 	if running && (autoRestartStatus == nil || time.Since(autoRestartStatus.LastRestartAt.Time) > autoRestartBackoff(count)) {
 		if autoRestartStatus != nil {
 			log.Info("Reset auto-restart count of running connector", "restartCount", count)
@@ -1042,6 +1042,16 @@ func connectorConfigsEqual(actual, desired map[string]string) bool {
 		}
 	}
 
+	return true
+}
+
+// allTasksRunning reports whether every task is in RUNNING state.
+func allTasksRunning(tasks []kafkaconnect.ConnectorStatusTask) bool {
+	for _, task := range tasks {
+		if task.State != connectorStatusRunning {
+			return false
+		}
+	}
 	return true
 }
 
