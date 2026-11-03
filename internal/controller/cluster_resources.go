@@ -263,6 +263,15 @@ func deploymentForCluster(cluster *kcv1alpha1.Cluster) *appsv1ac.DeploymentApply
 	volumeMounts = append(volumeMounts, secretMounts...)
 	volumeMounts = append(volumeMounts, jmxMounts...)
 
+	heapOpts := "-XX:MaxRAMPercentage=75.0"
+	var extraJVMOpts []string
+	if cluster.Spec.JVMOptions != nil {
+		if cluster.Spec.JVMOptions.HeapOpts != nil {
+			heapOpts = *cluster.Spec.JVMOptions.HeapOpts
+		}
+		extraJVMOpts = cluster.Spec.JVMOptions.ExtraOpts
+	}
+
 	// Build env vars
 	envVars := []*corev1ac.EnvVarApplyConfiguration{
 		corev1ac.EnvVar().
@@ -270,15 +279,20 @@ func deploymentForCluster(cluster *kcv1alpha1.Cluster) *appsv1ac.DeploymentApply
 			WithValueFrom(corev1ac.EnvVarSource().WithFieldRef(corev1ac.ObjectFieldSelector().WithFieldPath("status.podIP"))),
 		corev1ac.EnvVar().
 			WithName("KAFKA_HEAP_OPTS").
-			WithValue("-XX:MaxRAMPercentage=75.0"),
+			WithValue(heapOpts),
 		corev1ac.EnvVar().
 			WithName("KAFKA_LOG4J_OPTS").
 			WithValue("-Dlog4j2.configurationFile=/config/connect-log4j2.properties"),
 	}
+	var kafkaOpts []string
 	if cluster.Spec.Metrics != nil && cluster.Spec.Metrics.JMXExporter != nil {
+		kafkaOpts = append(kafkaOpts, "-javaagent:/opt/jmx-exporter/jmx_prometheus_javaagent.jar=9404:/config/jmx-exporter-config.yaml")
+	}
+	kafkaOpts = append(kafkaOpts, extraJVMOpts...)
+	if len(kafkaOpts) > 0 {
 		envVars = append(envVars, corev1ac.EnvVar().
 			WithName("KAFKA_OPTS").
-			WithValue("-javaagent:/opt/jmx-exporter/jmx_prometheus_javaagent.jar=9404:/config/jmx-exporter-config.yaml"))
+			WithValue(strings.Join(kafkaOpts, " ")))
 	}
 	classpathEntries := make([]string, 0, 1+len(cluster.Spec.Libraries))
 	if jsonLayoutEnabled {
@@ -292,6 +306,7 @@ func deploymentForCluster(cluster *kcv1alpha1.Cluster) *appsv1ac.DeploymentApply
 			WithName("CLASSPATH").
 			WithValue(strings.Join(classpathEntries, ":")))
 	}
+	envVars = append(envVars, applycfg.EnvVars(cluster.Spec.Env)...)
 
 	// Build ports
 	ports := []*corev1ac.ContainerPortApplyConfiguration{

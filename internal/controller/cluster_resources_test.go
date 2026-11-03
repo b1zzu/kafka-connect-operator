@@ -21,6 +21,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	appsv1ac "k8s.io/client-go/applyconfigurations/apps/v1"
 	corev1ac "k8s.io/client-go/applyconfigurations/core/v1"
 
 	kcv1alpha1 "github.com/b1zzu/kafka-connect-operator/api/v1alpha1"
@@ -372,6 +373,76 @@ var _ = Describe("Cluster Resources", func() {
 			}
 			Expect(heapOpts).NotTo(BeNil())
 			Expect(*heapOpts.Value).To(Equal("-XX:MaxRAMPercentage=75.0"))
+		})
+
+		findEnv := func(dep *appsv1ac.DeploymentApplyConfiguration, name string) *corev1ac.EnvVarApplyConfiguration {
+			envVars := dep.Spec.Template.Spec.Containers[0].Env
+			for i := range envVars {
+				if *envVars[i].Name == name {
+					return &envVars[i]
+				}
+			}
+			return nil
+		}
+
+		It("should replace KAFKA_HEAP_OPTS when jvmOptions.heapOpts is set", func() {
+			cluster := newCluster(nil)
+			cluster.Spec.JVMOptions = &kcv1alpha1.JVMOptions{HeapOpts: new("-Xms2g -Xmx2g")}
+			dep := deploymentForCluster(cluster)
+
+			heapOpts := findEnv(dep, "KAFKA_HEAP_OPTS")
+			Expect(heapOpts).NotTo(BeNil())
+			Expect(*heapOpts.Value).To(Equal("-Xms2g -Xmx2g"))
+		})
+
+		It("should set KAFKA_OPTS to jvmOptions.extraOpts when metrics is nil", func() {
+			cluster := newCluster(nil)
+			cluster.Spec.JVMOptions = &kcv1alpha1.JVMOptions{
+				ExtraOpts: []string{"-XX:+ExitOnOutOfMemoryError", "-Dfoo=bar"},
+			}
+			dep := deploymentForCluster(cluster)
+
+			kafkaOpts := findEnv(dep, "KAFKA_OPTS")
+			Expect(kafkaOpts).NotTo(BeNil())
+			Expect(*kafkaOpts.Value).To(Equal("-XX:+ExitOnOutOfMemoryError -Dfoo=bar"))
+		})
+
+		It("should append jvmOptions.extraOpts after the JMX exporter agent in KAFKA_OPTS", func() {
+			cluster := newClusterWithMetrics(&kcv1alpha1.MetricsConfig{
+				JMXExporter: &kcv1alpha1.JMXExporterConfig{},
+			})
+			cluster.Spec.JVMOptions = &kcv1alpha1.JVMOptions{ExtraOpts: []string{"-Dfoo=bar"}}
+			dep := deploymentForCluster(cluster)
+
+			kafkaOpts := findEnv(dep, "KAFKA_OPTS")
+			Expect(kafkaOpts).NotTo(BeNil())
+			Expect(*kafkaOpts.Value).To(Equal(
+				"-javaagent:/opt/jmx-exporter/jmx_prometheus_javaagent.jar=9404:/config/jmx-exporter-config.yaml -Dfoo=bar"))
+		})
+
+		It("should append the extra env vars after the operator-managed ones", func() {
+			cluster := newCluster(nil)
+			cluster.Spec.Env = []corev1.EnvVar{
+				{Name: "CONNECT_DB_HOST", Value: "db.example.com"},
+				{Name: "CONNECT_DB_PASSWORD", ValueFrom: &corev1.EnvVarSource{
+					SecretKeyRef: &corev1.SecretKeySelector{
+						LocalObjectReference: corev1.LocalObjectReference{Name: "db"},
+						Key:                  "password",
+					},
+				}},
+			}
+			dep := deploymentForCluster(cluster)
+
+			envVars := dep.Spec.Template.Spec.Containers[0].Env
+			Expect(len(envVars)).To(BeNumerically(">", 2))
+			host := envVars[len(envVars)-2]
+			Expect(*host.Name).To(Equal("CONNECT_DB_HOST"))
+			Expect(*host.Value).To(Equal("db.example.com"))
+			password := envVars[len(envVars)-1]
+			Expect(*password.Name).To(Equal("CONNECT_DB_PASSWORD"))
+			Expect(password.Value).To(BeNil())
+			Expect(*password.ValueFrom.SecretKeyRef.Name).To(Equal("db"))
+			Expect(*password.ValueFrom.SecretKeyRef.Key).To(Equal("password"))
 		})
 
 		It("should not have JMX exporter volume/mount/env/port when metrics is nil", func() {

@@ -19,3 +19,10 @@ spec:
       class: org.apache.kafka.common.config.provider.DirectoryConfigProvider
       params:
         allowed.paths: /secrets
+  jvmOptions:
+    heapOpts: "-Xms512m -Xmx512m"
+    extraOpts:
+      - -Dkco.e2e=true
+  env:
+    - name: CONNECT_E2E_VALUE
+      value: "false"

@@ -323,6 +323,14 @@ spec:
   # Used in the PodDisruptionBudget. Can be an absolute number (e.g. 1) or a percentage (e.g. "25%").
   # Defaults to 1 when not set.
   maxUnavailable: 1
+
+  # Extra environment variables for the Kafka Connect container (optional)
+  # Variables named CONNECT_* can be used in connector configs with ${env:NAME}.
+  # CONNECT_REST_ADVERTISED_HOST_NAME, KAFKA_HEAP_OPTS, KAFKA_LOG4J_OPTS, KAFKA_OPTS
+  # and CLASSPATH are managed by the operator and rejected.
+  env:
+    - name: CONNECT_DB_HOST
+      value: db.example.com
 ```
 
 **Annotations:**
@@ -432,7 +440,7 @@ The operator automatically creates NetworkPolicies for each Kafka Connect cluste
 The operator will automatically detect the namespace where it's running to set-up the cross-namespace ingress policy.
 
 **To disable NetworkPolicies:**
-If you need to disable NetworkPolicy creation (not recommended for production), add the following to your Cluster CR:
+If you need to disable NetworkPolicy creation (not recommended for production), add the following to your Cluster:
 
 ```yaml
 apiVersion: kafka-connect.b1zzu.net/v1alpha1
@@ -442,6 +450,7 @@ metadata:
 spec:
   networkPolicy:
     enabled: false
+  # ...
 ```
 
 ### Plugins
@@ -453,12 +462,18 @@ Setting `plugin.path` in `spec.config` is an error when `spec.plugins` or `spec.
 is defined.
 
 ```yaml
-plugins:
-  - name: debezium-postgres
-    image: ghcr.io/example/debezium-postgres:2.5
-  - name: s3-sink
-    image: ghcr.io/example/s3-sink:1.0
-    pullPolicy: Always
+apiVersion: kafka-connect.b1zzu.net/v1alpha1
+kind: Cluster
+metadata:
+  name: my-cluster
+spec:
+  plugins:
+    - name: debezium-postgres
+      image: ghcr.io/example/debezium-postgres:2.5
+    - name: s3-sink
+      image: ghcr.io/example/s3-sink:1.0
+      pullPolicy: Always
+  # ...
 ```
 
 Each plugin requires:
@@ -475,12 +490,13 @@ with `spec.additionalPluginPaths`. Each entry must be an absolute path without c
 characters, and entries must be unique:
 
 ```yaml
-image: registry.example.com/my-kafka-connect:4.2.0
-plugins:
-  - name: s3-sink
-    image: ghcr.io/example/s3-sink:1.0
-additionalPluginPaths:
-  - /opt/connectors
+spec:
+  image: registry.example.com/my-kafka-connect:4.2.0
+  plugins:
+    - name: s3-sink
+      image: ghcr.io/example/s3-sink:1.0
+  additionalPluginPaths:
+    - /opt/connectors
 ```
 
 With this spec the operator sets `plugin.path=/plugins/s3-sink,/opt/connectors`.
@@ -497,9 +513,15 @@ shared classpath. Use libraries for JARs that must be visible to the Kafka Conne
 such as authentication providers or custom SASL mechanisms.
 
 ```yaml
-libraries:
-  - name: msk-iam-auth
-    image: ghcr.io/b1zzu/kafka-connect-library/msk-iam-auth:2.3.9
+apiVersion: kafka-connect.b1zzu.net/v1alpha1
+kind: Cluster
+metadata:
+  name: my-cluster
+spec:
+  libraries:
+    - name: msk-iam-auth
+      image: ghcr.io/b1zzu/kafka-connect-library/msk-iam-auth:2.3.9
+  # ...
 ```
 
 Pre-built plugin and library images for common use cases are published by [kafka-connect-library](https://github.com/b1zzu/kafka-connect-library).
@@ -521,9 +543,19 @@ Secrets listed in `spec.secrets` are mounted read-only at `/secrets/{name}`. Use
 (enabled by default) to reference secret files in your connector or cluster config:
 
 ```yaml
-config:
-  ssl.truststore.location: /secrets/my-keystore/truststore.jks
-  ssl.truststore.password: "${file:/secrets/my-keystore/truststore.password:password}"
+apiVersion: kafka-connect.b1zzu.net/v1alpha1
+kind: Cluster
+metadata:
+  name: my-cluster
+spec:
+  secrets:
+    - name: my-keystore
+      secretRef:
+        name: my-keystore
+  config:
+    ssl.truststore.location: /secrets/my-keystore/truststore.jks
+    ssl.truststore.password: "${file:/secrets/my-keystore/truststore.password:password}"
+    # ...
 ```
 
 Secret content changes do not trigger a cluster restart.
@@ -544,6 +576,10 @@ the reserved names `env` and `file`.
 For example, the Kafka built-in `DirectoryConfigProvider` reads every key of a mounted Secret:
 
 ```yaml
+apiVersion: kafka-connect.b1zzu.net/v1alpha1
+kind: Cluster
+metadata:
+  name: my-cluster
 spec:
   secrets:
     - name: db
@@ -554,11 +590,22 @@ spec:
       class: org.apache.kafka.common.config.provider.DirectoryConfigProvider
       params:
         allowed.paths: /secrets
+  # ...
 ```
 
+Then reference the keys in a Connector:
+
 ```yaml
-config:
-  connection.password: "${dir:/secrets/db:password}"
+apiVersion: kafka-connect.b1zzu.net/v1alpha1
+kind: Connector
+metadata:
+  name: my-connector
+spec:
+  cluster:
+    name: my-cluster
+  config:
+    connection.password: "${dir:/secrets/db:password}"
+    # ...
 ```
 
 Providers that are not part of Kafka, such as AWS Secrets Manager or HashiCorp Vault providers,
@@ -621,9 +668,7 @@ metadata:
 spec:
   metrics:
     jmxExporter: {}
-  config:
-    bootstrap.servers: kafka:9092
-    # ...
+  # ...
 ```
 
 **Use a custom JMX Exporter image:**
@@ -713,9 +758,7 @@ spec:
         level: DEBUG
       - name: io.debezium
         level: TRACE
-  config:
-    bootstrap.servers: kafka:9092
-    # ...
+  # ...
 ```
 
 Supported levels: `OFF`, `FATAL`, `ERROR`, `WARN`, `INFO`, `DEBUG`, `TRACE`, `ALL`.
@@ -734,9 +777,7 @@ metadata:
 spec:
   logging:
     log4jJsonLayout: {}
-  config:
-    bootstrap.servers: kafka:9092
-    # ...
+  # ...
 ```
 
 Enabling `log4jJsonLayout` mounts the `log4j-layout-template-json` JAR (via an OCI image volume) and adds it to the `CLASSPATH`. You can override the image and pull policy:
@@ -748,6 +789,30 @@ spec:
       image: ghcr.io/b1zzu/kafka-connect-library/log4j-layout-template-json:2.26.1
       pullPolicy: IfNotPresent
 ```
+
+## JVM Options
+
+By default the heap is sized to 75% of the container memory limit (`KAFKA_HEAP_OPTS=-XX:MaxRAMPercentage=75.0`), so in most cases there is no need to tweak the JVM: changing `spec.resources.limits.memory` is enough. `spec.jvmOptions` overrides it:
+
+```yaml
+apiVersion: kafka-connect.b1zzu.net/v1alpha1
+kind: Cluster
+metadata:
+  name: my-cluster
+spec:
+  jvmOptions:
+    # Replaces KAFKA_HEAP_OPTS (optional)
+    heapOpts: "-Xms2g -Xmx2g"
+    # Appended to KAFKA_OPTS (optional)
+    extraOpts:
+      - -XX:+ExitOnOutOfMemoryError
+      - -Dnetworkaddress.cache.ttl=60
+  # ...
+```
+
+Each `extraOpts` entry must be a single JVM argument without whitespace. They are added to `KAFKA_OPTS` after the JMX Exporter agent (when `spec.metrics.jmxExporter` is set). `kafka-run-class.sh` puts `KAFKA_OPTS` last on the `java` command line, so these options take precedence over its defaults (for example the G1 settings in `KAFKA_JVM_PERFORMANCE_OPTS`). To replace `KAFKA_JVM_PERFORMANCE_OPTS` or `KAFKA_GC_LOG_OPTS` entirely, set them with `spec.env`.
+
+Changing `spec.jvmOptions` restarts the Kafka Connect pods.
 
 ## Development
 
