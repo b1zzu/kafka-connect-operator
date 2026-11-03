@@ -202,17 +202,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Cluster
-	if err := (&controller.ClusterReconciler{
-		Client:    mgr.GetClient(),
-		Scheme:    mgr.GetScheme(),
-		Namespace: operatorNamespace,
-	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "Failed to create controller", "controller", "cluster")
-		os.Exit(1)
-	}
-
-	// Connector
 	usePortFowradClient := false
 	if e, ok := os.LookupEnv("KCO_PORT_FORWARD_CLIENT"); ok {
 		if e == "true" {
@@ -228,6 +217,18 @@ func main() {
 		kafkaConnectClientFunc = controller.NewPortForwardKafkaConnectClientFunc
 	}
 
+	// Cluster
+	if err := (&controller.ClusterReconciler{
+		Client:                    mgr.GetClient(),
+		Scheme:                    mgr.GetScheme(),
+		Namespace:                 operatorNamespace,
+		NewKafkaConnectClientFunc: kafkaConnectClientFunc,
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "Failed to create controller", "controller", "cluster")
+		os.Exit(1)
+	}
+
+	// Connector
 	if err := (&controller.ConnectorReconciler{
 		Client:                          mgr.GetClient(),
 		Scheme:                          mgr.GetScheme(),

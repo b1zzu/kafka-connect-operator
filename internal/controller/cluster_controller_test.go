@@ -18,7 +18,11 @@ package controller
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"sync"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -35,6 +39,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kafkaconnectv1alpha1 "github.com/b1zzu/kafka-connect-operator/api/v1alpha1"
+	kafkaconnect "github.com/b1zzu/kafka-connect-operator/pkg/kafka-connect"
 )
 
 // gvkFixClient wraps a client.Client to populate TypeMeta after Get calls.
@@ -165,8 +170,8 @@ var _ = Describe("Cluster Controller", func() {
 			r := newReconciler()
 			nn := nameFor(name)
 
-			// 3 reconcile calls: 1) init conditions, 2) configHash update, 3) full pass
-			reconcileN(ctx, r, nn, 3)
+			// 4 reconcile calls: 1) init conditions, 2) url update, 3) configHash update, 4) full pass
+			reconcileN(ctx, r, nn, 4)
 
 			By("checking the Service")
 			svc := &corev1.Service{}
@@ -198,6 +203,145 @@ var _ = Describe("Cluster Controller", func() {
 			cluster := &kafkaconnectv1alpha1.Cluster{}
 			Expect(k8sClient.Get(ctx, nn, cluster)).To(Succeed())
 			Expect(cluster.Status.ConfigHash).NotTo(BeNil())
+
+			By("checking the Cluster status url")
+			Expect(cluster.Status.URL).To(Equal("http://cluster-happy.default.svc:8083"))
+		})
+	})
+
+	Context("When the Deployment rollout is complete", func() {
+		const name = "cluster-plugins"
+
+		var (
+			mu      sync.Mutex
+			plugins []kafkaconnect.ConnectorPlugin
+			calls   int
+			server  *httptest.Server
+		)
+
+		setPlugins := func(p ...kafkaconnect.ConnectorPlugin) {
+			mu.Lock()
+			defer mu.Unlock()
+			plugins = p
+		}
+
+		getCalls := func() int {
+			mu.Lock()
+			defer mu.Unlock()
+			return calls
+		}
+
+		completeRollout := func(ctx context.Context) {
+			dep := &appsv1.Deployment{}
+			Expect(k8sClient.Get(ctx, nameFor(name), dep)).To(Succeed())
+			replicas := *dep.Spec.Replicas
+			dep.Status = appsv1.DeploymentStatus{
+				ObservedGeneration: dep.Generation,
+				Replicas:           replicas,
+				UpdatedReplicas:    replicas,
+				ReadyReplicas:      replicas,
+				AvailableReplicas:  replicas,
+				Conditions: []appsv1.DeploymentCondition{{
+					Type:   appsv1.DeploymentAvailable,
+					Status: corev1.ConditionTrue,
+					Reason: "MinimumReplicasAvailable",
+				}},
+			}
+			Expect(k8sClient.Status().Update(ctx, dep)).To(Succeed())
+		}
+
+		BeforeEach(func() {
+			calls = 0
+			server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				mu.Lock()
+				defer mu.Unlock()
+				if r.URL.Path != "/connector-plugins" {
+					http.Error(w, "not found", http.StatusNotFound)
+					return
+				}
+				calls++
+				_ = json.NewEncoder(w).Encode(plugins)
+			}))
+			setPlugins(kafkaconnect.ConnectorPlugin{Class: "com.example.SinkConnector", Type: "sink", Version: "1.0.0"})
+
+			createCluster(ctx, name, kafkaconnectv1alpha1.ClusterSpec{
+				Config: map[string]string{
+					"bootstrap.servers": "kafka:9092",
+					"group.id":          "plugins-group",
+				},
+			})
+		})
+
+		AfterEach(func() {
+			server.Close()
+			cluster := &kafkaconnectv1alpha1.Cluster{}
+			Expect(k8sClient.Get(ctx, nameFor(name), cluster)).To(Succeed())
+			Expect(k8sClient.Delete(ctx, cluster)).To(Succeed())
+		})
+
+		It("should list the connector plugins once per Deployment generation", func() {
+			r := newReconciler()
+			r.NewKafkaConnectClientFunc = func(_, _ string) (*kafkaconnect.Client, error) {
+				return kafkaconnect.NewClient(server.URL), nil
+			}
+			nn := nameFor(name)
+			cluster := &kafkaconnectv1alpha1.Cluster{}
+
+			By("not listing the plugins before the rollout is complete")
+			reconcileN(ctx, r, nn, 4)
+			Expect(getCalls()).To(Equal(0))
+			Expect(k8sClient.Get(ctx, nn, cluster)).To(Succeed())
+			Expect(cluster.Status.ConnectorPlugins).To(BeEmpty())
+
+			By("listing the plugins after the rollout is complete")
+			completeRollout(ctx)
+			// 1) Available condition update, 2) connectorPlugins update, 3) full pass
+			reconcileN(ctx, r, nn, 3)
+			Expect(getCalls()).To(Equal(1))
+			Expect(k8sClient.Get(ctx, nn, cluster)).To(Succeed())
+			Expect(cluster.Status.ConnectorPlugins).To(Equal([]kafkaconnectv1alpha1.ConnectorPlugin{
+				{Class: "com.example.SinkConnector", Type: "sink", Version: "1.0.0"},
+			}))
+
+			By("not listing the plugins again for the same Deployment generation")
+			reconcileN(ctx, r, nn, 2)
+			Expect(getCalls()).To(Equal(1))
+
+			By("listing the plugins again after a new rollout")
+			setPlugins(
+				kafkaconnect.ConnectorPlugin{Class: "com.example.SinkConnector", Type: "sink", Version: "1.0.0"},
+				kafkaconnect.ConnectorPlugin{Class: "com.example.SourceConnector", Type: "source", Version: "2.0.0"},
+			)
+			cluster.Spec.Plugins = []kafkaconnectv1alpha1.Plugin{{Name: "source", Image: "example.com/source:2.0.0"}}
+			Expect(k8sClient.Update(ctx, cluster)).To(Succeed())
+			// 1) configHash update, 2) Deployment update, 3) full pass
+			reconcileN(ctx, r, nn, 3)
+			Expect(getCalls()).To(Equal(1))
+			completeRollout(ctx)
+			// 1) connectorPlugins update, 2) full pass
+			reconcileN(ctx, r, nn, 2)
+			Expect(getCalls()).To(Equal(2))
+			Expect(k8sClient.Get(ctx, nn, cluster)).To(Succeed())
+			Expect(cluster.Status.ConnectorPlugins).To(HaveLen(2))
+			Expect(cluster.Status.ConnectorPlugins[1].Class).To(Equal("com.example.SourceConnector"))
+		})
+
+		It("should not list the connector plugins again when Kafka Connect has none", func() {
+			r := newReconciler()
+			r.NewKafkaConnectClientFunc = func(_, _ string) (*kafkaconnect.Client, error) {
+				return kafkaconnect.NewClient(server.URL), nil
+			}
+			nn := nameFor(name)
+			setPlugins()
+
+			reconcileN(ctx, r, nn, 4)
+			completeRollout(ctx)
+			reconcileN(ctx, r, nn, 4)
+			Expect(getCalls()).To(Equal(1))
+
+			cluster := &kafkaconnectv1alpha1.Cluster{}
+			Expect(k8sClient.Get(ctx, nn, cluster)).To(Succeed())
+			Expect(cluster.Status.ConnectorPlugins).To(BeEmpty())
 		})
 	})
 
@@ -224,8 +368,8 @@ var _ = Describe("Cluster Controller", func() {
 			r := newReconciler()
 			nn := nameFor(name)
 
-			// 1) init conditions, 2) hits config validation error
-			reconcileN(ctx, r, nn, 2)
+			// 1) init conditions, 2) url update, 3) hits config validation error
+			reconcileN(ctx, r, nn, 3)
 
 			cluster := &kafkaconnectv1alpha1.Cluster{}
 			Expect(k8sClient.Get(ctx, nn, cluster)).To(Succeed())
@@ -354,7 +498,7 @@ var _ = Describe("Cluster Controller", func() {
 			r := newReconciler()
 			nn := nameFor(name)
 
-			reconcileN(ctx, r, nn, 3)
+			reconcileN(ctx, r, nn, 4)
 
 			By("checking that NetworkPolicy does NOT exist")
 			np := &netv1.NetworkPolicy{}
@@ -581,8 +725,8 @@ var _ = Describe("Cluster Controller", func() {
 			Expect(k8sClient.Update(ctx, cluster)).To(Succeed())
 
 			// Now reconcile should proceed normally
-			// 3 reconcile calls: 1) init conditions, 2) configHash update, 3) full pass
-			reconcileN(ctx, r, nn, 3)
+			// 4 reconcile calls: 1) init conditions, 2) url update, 3) configHash update, 4) full pass
+			reconcileN(ctx, r, nn, 4)
 
 			// Status should be initialized
 			Expect(k8sClient.Get(ctx, nn, cluster)).To(Succeed())
@@ -609,8 +753,8 @@ var _ = Describe("Cluster Controller", func() {
 			r := newReconciler()
 
 			// Reconcile should proceed normally since annotation is not "true"
-			// 3 reconcile calls: 1) init conditions, 2) configHash update, 3) full pass
-			reconcileN(ctx, r, nn, 3)
+			// 4 reconcile calls: 1) init conditions, 2) url update, 3) configHash update, 4) full pass
+			reconcileN(ctx, r, nn, 4)
 
 			// Status should be initialized
 			Expect(k8sClient.Get(ctx, nn, cluster)).To(Succeed())

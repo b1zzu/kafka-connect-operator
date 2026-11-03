@@ -385,6 +385,25 @@ var _ = Describe("Manager", Ordered, func() {
 			Expect(output).To(Equal("Running"), "Unexpected Connector condition reason")
 		})
 
+		It("should report the URL and the connector plugins in the Cluster status", func() {
+			By("verifying the Cluster status url")
+			cmd := exec.Command("kubectl", "get", "cluster", "my-cluster-connect",
+				"-n", "default", "-o", "jsonpath={.status.url}")
+			output, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(output).To(Equal("http://my-cluster-connect.default.svc:8083"))
+
+			By("waiting for the test connector plugin in the Cluster status")
+			verifyConnectorPlugins := func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "cluster", "my-cluster-connect",
+					"-n", "default", "-o", "jsonpath={.status.connectorPlugins[*].class}")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(strings.Fields(output)).To(ContainElement("com.example.kafka.connect.test.TestConnector"))
+			}
+			Eventually(verifyConnectorPlugins, 3*time.Minute, 10*time.Second).Should(Succeed())
+		})
+
 		It("should expose JMX Exporter metrics on the Connect pod", func() {
 			By("getting the Kafka Connect pod IP")
 			var connectPodIP string

@@ -22,11 +22,13 @@ import (
 	"fmt"
 	"hash/fnv"
 	"strconv"
+	"sync"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	netv1 "k8s.io/api/networking/v1"
 	policyv1 "k8s.io/api/policy/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -81,6 +83,19 @@ type ClusterReconciler struct {
 	client.Client
 	Scheme    *runtime.Scheme
 	Namespace string
+
+	// NewKafkaConnectClientFunc creates a Kafka Connect client for the Cluster.
+	NewKafkaConnectClientFunc KafkaConnectClientFunc
+
+	// pluginsListings maps each Cluster to the listing its connector plugins were last persisted from.
+	pluginsListings sync.Map
+}
+
+// pluginsListing identifies the Cluster incarnation and Deployment generation
+// its connector plugins were listed for.
+type pluginsListing struct {
+	uid        types.UID
+	generation int64
 }
 
 // +kubebuilder:rbac:groups=kafka-connect.b1zzu.net,resources=clusters,verbs=get;list;watch;create;update;patch;delete
@@ -113,6 +128,7 @@ func (r *ClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 	if cluster == nil {
 		// The Cluster resource was deleted
+		r.pluginsListings.Delete(req.NamespacedName)
 		return ctrl.Result{}, nil
 	}
 
@@ -137,6 +153,7 @@ func (r *ClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		r.reconcilePodDisruptionBudget,
 		r.reconcileConfigMap,
 		r.reconcileDeployment,
+		r.reconcileConnectorPlugins,
 	} {
 		cluster, err = reconcile(ctx, cluster)
 		if err != nil || cluster == nil {
@@ -274,10 +291,31 @@ func (r *ClusterReconciler) serverSideApply(ctx context.Context, cluster *kcv1al
 }
 
 func (r *ClusterReconciler) reconcileService(ctx context.Context, cluster *kcv1alpha1.Cluster) (*kcv1alpha1.Cluster, error) {
+	log := logf.FromContext(ctx)
+
 	cluster, err := r.serverSideApply(ctx, cluster, serviceForCluster(cluster))
 	if err != nil {
 		return nil, &ClusterReconciliationError{err: err, msg: "failed to apply Service", cluster: cluster}
 	}
+	if cluster == nil {
+		return nil, nil
+	}
+
+	url := clusterURL(cluster.Namespace, cluster.Name)
+	if cluster.Status.URL != url {
+		cluster.Status.URL = url
+
+		log.Info("Update Cluster status url", "url", url)
+
+		err := r.Status().Update(ctx, cluster)
+		if err != nil {
+			return nil, fmt.Errorf("failed to update Cluster status url: %w", err)
+		}
+
+		// Reconciliation will be re-triggered by the status update
+		return nil, nil
+	}
+
 	return cluster, nil
 }
 
@@ -421,4 +459,75 @@ func (r *ClusterReconciler) reconcileDeployment(ctx context.Context, cluster *kc
 
 	// Deployment applied and status unchanged
 	return cluster, nil
+}
+
+// rolloutComplete reports whether all the replicas of the Deployment run
+// the latest pod template and are available.
+func rolloutComplete(deployment *appsv1.Deployment) bool {
+	replicas := int32(1)
+	if deployment.Spec.Replicas != nil {
+		replicas = *deployment.Spec.Replicas
+	}
+	status := deployment.Status
+	return replicas > 0 &&
+		status.ObservedGeneration >= deployment.Generation &&
+		status.UpdatedReplicas == replicas &&
+		status.Replicas == replicas &&
+		status.AvailableReplicas == replicas
+}
+
+// reconcileConnectorPlugins lists the connector plugins from Kafka Connect
+// once per Deployment generation, after its rollout is complete.
+func (r *ClusterReconciler) reconcileConnectorPlugins(ctx context.Context, cluster *kcv1alpha1.Cluster) (*kcv1alpha1.Cluster, error) {
+	log := logf.FromContext(ctx)
+
+	deployment := &appsv1.Deployment{}
+	err := r.Get(ctx, types.NamespacedName{Name: cluster.Name, Namespace: cluster.Namespace}, deployment)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get Deployment: %w", err)
+	}
+
+	if !rolloutComplete(deployment) {
+		return cluster, nil
+	}
+
+	key := types.NamespacedName{Name: cluster.Name, Namespace: cluster.Namespace}
+	listing := pluginsListing{uid: cluster.UID, generation: deployment.Generation}
+	if l, ok := r.pluginsListings.Load(key); ok && l == listing {
+		return cluster, nil
+	}
+
+	kafkaConnect, err := r.NewKafkaConnectClientFunc(cluster.Namespace, cluster.Name)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create the client: %w", err)
+	}
+
+	plugins, err := kafkaConnect.ListConnectorPlugins(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list connector plugins: %w", err)
+	}
+
+	connectorPlugins := make([]kcv1alpha1.ConnectorPlugin, 0, len(plugins))
+	for _, p := range plugins {
+		connectorPlugins = append(connectorPlugins, kcv1alpha1.ConnectorPlugin(p))
+	}
+
+	if equality.Semantic.DeepEqual(cluster.Status.ConnectorPlugins, connectorPlugins) {
+		r.pluginsListings.Store(key, listing)
+		return cluster, nil
+	}
+
+	cluster.Status.ConnectorPlugins = connectorPlugins
+
+	log.Info("Update Cluster status connectorPlugins", "count", len(connectorPlugins))
+
+	err = r.Status().Update(ctx, cluster)
+	if err != nil {
+		return nil, fmt.Errorf("failed to update Cluster status connectorPlugins: %w", err)
+	}
+
+	r.pluginsListings.Store(key, listing)
+
+	// Reconciliation will be re-triggered by the status update
+	return nil, nil
 }

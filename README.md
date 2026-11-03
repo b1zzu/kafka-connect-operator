@@ -339,6 +339,23 @@ spec:
 | ---------------------------------------------- | ---------- | ------------------------- |
 | `kafka-connect.b1zzu.net/pause-reconciliation` | `true`     | Pause reconciliation loop |
 
+**Status:**
+
+```yaml
+status:
+  # Available condition, mirrors the Available condition of the Deployment
+  conditions: [...]
+
+  # REST API URL of the Kafka Connect cluster, served by the Cluster Service
+  url: http://NAME.NAMESPACE.svc:8083
+
+  # Connector plugins installed in the Kafka Connect cluster, refreshed after every rollout
+  connectorPlugins:
+    - class: org.apache.kafka.connect.mirror.MirrorSourceConnector
+      type: source
+      version: 4.2.0
+```
+
 ### Connector
 
 ```yaml

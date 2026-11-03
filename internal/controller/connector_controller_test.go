@@ -310,7 +310,7 @@ var _ = Describe("Connector Controller", func() {
 			RestartFailedConnectorBackoff: 5 * time.Minute,
 		}
 		if mock != nil {
-			r.NewKafkaConnectClientFunc = func(connector *kafkaconnectv1alpha1.Connector) (*kafkaconnect.Client, error) {
+			r.NewKafkaConnectClientFunc = func(_, _ string) (*kafkaconnect.Client, error) {
 				return kafkaconnect.NewClient(mock.server.URL), nil
 			}
 		}
@@ -597,7 +597,7 @@ var _ = Describe("Connector Controller", func() {
 				ReconcileInterval:             time.Minute,
 				RestartFailedConnectorBackoff: 1 * time.Millisecond,
 			}
-			r.NewKafkaConnectClientFunc = func(connector *kafkaconnectv1alpha1.Connector) (*kafkaconnect.Client, error) {
+			r.NewKafkaConnectClientFunc = func(_, _ string) (*kafkaconnect.Client, error) {
 				return kafkaconnect.NewClient(mock.server.URL), nil
 			}
 
@@ -744,7 +744,7 @@ var _ = Describe("Connector Controller", func() {
 				ReconcileInterval:             time.Minute,
 				RestartFailedConnectorBackoff: 1 * time.Hour,
 			}
-			r.NewKafkaConnectClientFunc = func(connector *kafkaconnectv1alpha1.Connector) (*kafkaconnect.Client, error) {
+			r.NewKafkaConnectClientFunc = func(_, _ string) (*kafkaconnect.Client, error) {
 				return kafkaconnect.NewClient(mock.server.URL), nil
 			}
 
@@ -797,7 +797,7 @@ var _ = Describe("Connector Controller", func() {
 				ReconcileInterval:             time.Minute,
 				RestartFailedConnectorBackoff: 1 * time.Millisecond,
 			}
-			r.NewKafkaConnectClientFunc = func(connector *kafkaconnectv1alpha1.Connector) (*kafkaconnect.Client, error) {
+			r.NewKafkaConnectClientFunc = func(_, _ string) (*kafkaconnect.Client, error) {
 				return kafkaconnect.NewClient(mock.server.URL), nil
 			}
 
@@ -940,7 +940,7 @@ var _ = Describe("Connector Controller", func() {
 				RestartFailedConnectorBackoff:   5 * time.Minute,
 				ConnectorStateTransitionBackoff: 1 * time.Hour,
 			}
-			r.NewKafkaConnectClientFunc = func(connector *kafkaconnectv1alpha1.Connector) (*kafkaconnect.Client, error) {
+			r.NewKafkaConnectClientFunc = func(_, _ string) (*kafkaconnect.Client, error) {
 				return kafkaconnect.NewClient(mock.server.URL), nil
 			}
 
