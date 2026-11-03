@@ -1408,6 +1408,20 @@ var _ = Describe("Cluster Resources", func() {
 			Expect(log4jConfig).To(ContainSubstring("monitorInterval=30"))
 		})
 
+		It("should escape line breaks in provider params so they cannot add properties", func() {
+			cluster := newCluster(nil)
+			cluster.Spec.ConfigProviders = []kcv1alpha1.ConfigProvider{{
+				Name:   "dir",
+				Class:  "com.example.Dir",
+				Params: map[string]string{"allowed.paths": "/secrets\nconfig.providers.file.class=com.example.Evil"},
+			}}
+			cm, err := configMapForCluster(cluster)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(cm.Data["connect.properties"]).NotTo(ContainSubstring("\nconfig.providers.file.class=com.example.Evil"))
+			Expect(cm.Data["connect.properties"]).To(ContainSubstring(
+				`config.providers.dir.param.allowed.paths=/secrets\nconfig.providers.file.class=com.example.Evil`))
+		})
+
 		It("should not have jmx-exporter-config.yaml key when metrics is nil", func() {
 			cluster := newCluster(nil)
 			cm, err := configMapForCluster(cluster)

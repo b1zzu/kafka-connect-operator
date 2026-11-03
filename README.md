@@ -608,6 +608,9 @@ spec:
     # ...
 ```
 
+Placeholders are resolved when a connector starts or is reconfigured, so a rotated Secret value is
+picked up only after the connector restarts.
+
 Providers that are not part of Kafka, such as AWS Secrets Manager or HashiCorp Vault providers,
 are shipped as JARs: mount them with `spec.libraries` (see [Libraries](#libraries)) so they are on
 the classpath of the Kafka Connect worker.
