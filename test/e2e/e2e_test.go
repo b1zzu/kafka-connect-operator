@@ -854,6 +854,83 @@ var _ = Describe("Manager", Ordered, func() {
 				}
 			}, 30*time.Second, 2*time.Second).Should(Succeed())
 		})
+
+		It("should restart a single task with the restart-task annotation", func() {
+			By("creating the test connector")
+			cmd := exec.Command("kubectl", "apply", "-f",
+				"config/e2e/test_connector.yaml", "-n", "default")
+			_, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+			DeferCleanup(func() {
+				cmd := exec.Command("kubectl", "delete", "-f",
+					"config/e2e/test_connector.yaml", "-n", "default", "--ignore-not-found", "--timeout=60s")
+				_, _ = utils.Run(cmd)
+			})
+
+			getTask0State := func() (string, error) {
+				cmd := exec.Command("kubectl", "get", "connector", "my-test-connector",
+					"-n", "default", "-o", "jsonpath={.status.tasks[?(@.id==0)].state}")
+				return utils.Run(cmd)
+			}
+
+			By("waiting for task 0 to be RUNNING")
+			Eventually(func(g Gomega) {
+				state, err := getTask0State()
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(state).To(Equal("RUNNING"))
+			}, time.Minute, 2*time.Second).Should(Succeed())
+
+			By("annotating the connector with restart-task=0")
+			cmd = exec.Command("kubectl", "annotate", "connector", "my-test-connector",
+				"-n", "default", "kafka-connect.b1zzu.net/restart-task=0")
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("verifying the annotation is removed")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "connector", "my-test-connector",
+					"-n", "default", "-o", `jsonpath={.metadata.annotations.kafka-connect\.b1zzu\.net/restart-task}`)
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(BeEmpty())
+			}, 30*time.Second, 2*time.Second).Should(Succeed())
+
+			By("verifying the restart event is emitted")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "events", "-n", "default",
+					"--field-selector", "involvedObject.kind=Connector,involvedObject.name=my-test-connector,reason=Restarted",
+					"-o", "jsonpath={.items[*].message}")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(ContainSubstring("Task 0 restarted"))
+			}, 30*time.Second, 2*time.Second).Should(Succeed())
+
+			By("verifying the restart is recorded in the status")
+			cmd = exec.Command("kubectl", "get", "connector", "my-test-connector",
+				"-n", "default", "-o", "jsonpath={.status.restartCount}")
+			output, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(output).To(Equal("1"))
+
+			By("verifying task 0 is RUNNING again")
+			Eventually(func(g Gomega) {
+				state, err := getTask0State()
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(state).To(Equal("RUNNING"))
+			}, time.Minute, 2*time.Second).Should(Succeed())
+
+			By("deleting the test connector and verifying it is fully removed")
+			cmd = exec.Command("kubectl", "delete", "-f",
+				"config/e2e/test_connector.yaml", "-n", "default", "--ignore-not-found", "--timeout=60s")
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "connector", "my-test-connector", "-n", "default")
+				_, err := utils.Run(cmd)
+				g.Expect(err).To(HaveOccurred(), "my-test-connector should no longer exist")
+			}, 30*time.Second, 2*time.Second).Should(Succeed())
+		})
 	})
 })
 

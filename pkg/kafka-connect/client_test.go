@@ -128,6 +128,55 @@ func TestRestartConnector_Error(t *testing.T) {
 	}
 }
 
+func TestRestartTask_Success(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Errorf("expected POST, got %s", r.Method)
+		}
+		if r.URL.Path != "/connectors/my-connector/tasks/2/restart" {
+			t.Errorf("unexpected path: %s", r.URL.Path)
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL)
+	err := client.RestartTask(t.Context(), "my-connector", 2)
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+}
+
+func TestRestartTask_204(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL)
+	err := client.RestartTask(t.Context(), "my-connector", 0)
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+}
+
+func TestRestartTask_Error(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte("internal error"))
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL)
+	err := client.RestartTask(t.Context(), "my-connector", 1)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if got := err.Error(); got == "" {
+		t.Fatal("expected non-empty error message")
+	}
+}
+
 func TestRestartFailedConnectorAndTasks_Success(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {

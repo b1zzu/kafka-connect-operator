@@ -392,6 +392,7 @@ When a connector is created with state `paused` or `stopped`, the operator passe
 | ---------------------------------------------- | --------------------------- | --------------------------------------------------------------------------- |
 | `kafka-connect.b1zzu.net/pause-reconciliation` | `true`                      | Pause reconciliation loop                                                   |
 | `kafka-connect.b1zzu.net/restart`              | `true`                      | Trigger a manual connector restart                                          |
+| `kafka-connect.b1zzu.net/restart-task`         | task ID (e.g. `0`)          | Trigger a manual restart of a single task                                   |
 | `kafka-connect.b1zzu.net/offsets`              | `export`, `import`, `reset` | Trigger an offset operation (see [Offsets Management](#offsets-management)) |
 
 Annotations are removed automatically after the operation completes. And the operation result is logged as a Kubernetes Event.
@@ -765,7 +766,7 @@ The operator itself exposes Prometheus metrics on the HTTPS port `8443` of the `
 - `kafka_connect_operator_connector_state` (gauge; labels `resource_namespace`, `name`, `cluster`, `state`): `1` for the connector state reported by Kafka Connect (`running`, `paused`, `stopped`, `failed`, `unassigned`, `restarting`), `0` for the others. All `0` until the first status sync.
 - `kafka_connect_operator_connector_tasks` (gauge; labels `resource_namespace`, `name`, `cluster`, `state`): Number of tasks by state (`running`, `paused`, `failed`, `unassigned`, `restarting`), `0` when there are none.
 - `kafka_connect_operator_cluster_available` (gauge; labels `resource_namespace`, `name`): `1` if the Cluster `Available` condition is `True`, `0` otherwise.
-- `kafka_connect_operator_connector_restarts_total` (counter; labels `resource_namespace`, `name`, `cluster`, `trigger`): Restart actions performed by the operator; `trigger` is `manual` (restart annotation) or `auto` (failed connector or tasks). One `auto` action may restart the connector and several tasks.
+- `kafka_connect_operator_connector_restarts_total` (counter; labels `resource_namespace`, `name`, `cluster`, `trigger`): Restart actions performed by the operator; `trigger` is `manual` (`restart` or `restart-task` annotation) or `auto` (failed connector or tasks). One `auto` action may restart the connector and several tasks.
 - `kafka_connect_operator_kafka_connect_requests_total` (counter; labels `resource_namespace`, `cluster`, `method`, `code`): Requests to the Kafka Connect REST API; `code` is `error` when no response was received.
 - `kafka_connect_operator_kafka_connect_request_duration_seconds` (histogram; labels `resource_namespace`, `cluster`, `method`): Latency of the Kafka Connect REST API requests (classic and native histogram).
 
