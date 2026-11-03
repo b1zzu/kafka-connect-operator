@@ -78,6 +78,10 @@ type ConnectorReconciler struct {
 	// to change the connector state while it's already changing.
 	ConnectorStateTransitionBackoff time.Duration
 
+	// AutoRestartGracePeriod is the time to wait after the connector is created or its
+	// config updated before restarting it automatically, so Kafka Connect can apply the config.
+	AutoRestartGracePeriod time.Duration
+
 	// NewKafkaConnectClientFunc creates a Kafka Connect client for the given connector.
 	NewKafkaConnectClientFunc func(connector *kcv1alpha1.Connector) (*kafkaconnect.Client, error)
 }
@@ -810,6 +814,11 @@ func (r *ConnectorReconciler) autoRestartFailedConnectorAndTasks(
 	}
 
 	if !failed {
+		return nil
+	}
+
+	if updatedAt := connector.Status.LastUpdatedAt; updatedAt != nil && time.Since(updatedAt.Time) < r.AutoRestartGracePeriod {
+		log.Info("Skip auto-restart of recently updated connector", "gracePeriod", r.AutoRestartGracePeriod)
 		return nil
 	}
 

@@ -667,6 +667,12 @@ var _ = Describe("Connector Controller", func() {
 			Expect(k8sClient.Status().Update(ctx, connector)).To(Succeed())
 		}
 
+		setLastUpdatedAt := func(ctx context.Context, name string, ago time.Duration) {
+			connector := getConnector(ctx, nameFor(name))
+			connector.Status.LastUpdatedAt = ptr.To(metav1.NewTime(time.Now().Add(-ago)))
+			Expect(k8sClient.Status().Update(ctx, connector)).To(Succeed())
+		}
+
 		setTasks := func(mock *mockKafkaConnectServer, tasks []kafkaconnect.ConnectorStatusTask) {
 			mock.mu.Lock()
 			defer mock.mu.Unlock()
@@ -911,6 +917,49 @@ var _ = Describe("Connector Controller", func() {
 
 			Expect(getConnector(ctx, nn).Status.AutoRestart).NotTo(BeNil())
 			Expect(restartQueries(mock)).To(BeEmpty())
+		})
+
+		It("should not restart during the grace period after the connector was updated", func(ctx SpecContext) {
+			name := "auto-restart-grace"
+			nn := nameFor(name)
+			mock, r, _ := setupConnector(ctx, name, nil)
+			r.AutoRestartGracePeriod = time.Hour
+
+			setTasks(mock, failedTasks)
+			_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(restartQueries(mock)).To(BeEmpty())
+			Expect(getConnector(ctx, nn).Status.AutoRestart).To(BeNil())
+		})
+
+		It("should restart once the grace period has passed", func(ctx SpecContext) {
+			name := "auto-restart-grace-passed"
+			nn := nameFor(name)
+			mock, r, _ := setupConnector(ctx, name, nil)
+			r.AutoRestartGracePeriod = 3 * time.Minute
+
+			setLastUpdatedAt(ctx, name, 4*time.Minute)
+			setTasks(mock, failedTasks)
+			_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(restartQueries(mock)).To(HaveLen(1))
+			Expect(getConnector(ctx, nn).Status.AutoRestart.RestartCount).To(Equal(int32(1)))
+		})
+
+		It("should not report the limit during the grace period", func(ctx SpecContext) {
+			name := "auto-restart-grace-limit"
+			nn := nameFor(name)
+			mock, r, _ := setupConnector(ctx, name, &kafkaconnectv1alpha1.AutoRestartSpec{MaxRestarts: ptr.To[int32](1)})
+			r.AutoRestartGracePeriod = time.Hour
+
+			setAutoRestartStatus(ctx, name, 1, time.Hour)
+			setTasks(mock, failedTasks)
+			_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(meta.FindStatusCondition(getConnector(ctx, nn).Status.Conditions, typeAutoRestartLimitReached)).To(BeNil())
 		})
 
 		It("should emit a warning event and return an error when the restart fails", func(ctx SpecContext) {

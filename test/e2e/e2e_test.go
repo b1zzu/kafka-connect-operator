@@ -767,6 +767,13 @@ var _ = Describe("Manager", Ordered, func() {
 			const restarted = "my-auto-restart-connector"
 			const disabled = "my-auto-restart-disabled-connector"
 
+			By("verifying it is not restarted during the grace period after creation")
+			Consistently(func(g Gomega) {
+				autoRestart, err := getConnectorField(restarted, "{.status.autoRestart}")
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(autoRestart).To(BeEmpty())
+			}, 15*time.Second, 3*time.Second).Should(Succeed())
+
 			By("verifying the failed task is restarted once and the limit is reported")
 			Eventually(func(g Gomega) {
 				count, err := getConnectorField(restarted, "{.status.autoRestart.restartCount}")
