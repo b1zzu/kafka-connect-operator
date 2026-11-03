@@ -1,0 +1,25 @@
+name: Cleanup Untagged Images
+
+on:
+  schedule:
+    - cron: "0 3 * * 0"
+  workflow_dispatch:
+    inputs:
+      dry-run:
+        description: Only list what would be deleted
+        type: boolean
+        default: true
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+
+    steps:
+      - name: Delete untagged image versions
+        uses: dataaxiom/ghcr-cleanup-action@v1
+        with:
+          package: kafka-connect-operator
+          delete-untagged: true
+          dry-run: ${{ inputs.dry-run || false }}
