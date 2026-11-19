@@ -17,7 +17,7 @@ spec:
 
   # libraries:
   #   - name: msk-iam-auth
-  #     image: ghcr.io/b1zzu/kafka-connect-library/msk-iam-auth:2.3.9
+  #     image: ghcr.io/b1zzu/kafka-connect-library/msk-iam-auth:2.4.0
 
   metrics:
     jmxExporter: {}

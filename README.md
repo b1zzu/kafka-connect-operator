@@ -196,7 +196,7 @@ spec:
   # The operator automatically sets the CLASSPATH environment variable
   libraries:
     - name: msk-iam-auth
-      image: ghcr.io/b1zzu/kafka-connect-library/msk-iam-auth:2.3.9
+      image: ghcr.io/b1zzu/kafka-connect-library/msk-iam-auth:2.4.0
       pullPolicy: IfNotPresent # optional (Always, Never, IfNotPresent)
 
   # Secrets to mount into the pods (optional)
@@ -554,7 +554,7 @@ metadata:
 spec:
   libraries:
     - name: msk-iam-auth
-      image: ghcr.io/b1zzu/kafka-connect-library/msk-iam-auth:2.3.9
+      image: ghcr.io/b1zzu/kafka-connect-library/msk-iam-auth:2.4.0
   # ...
 ```
 
@@ -668,7 +668,7 @@ metadata:
 spec:
   libraries:
     - name: msk-iam-auth
-      image: ghcr.io/b1zzu/kafka-connect-library/msk-iam-auth:2.3.9
+      image: ghcr.io/b1zzu/kafka-connect-library/msk-iam-auth:2.4.0
 
   serviceAccountAnnotations:
     eks.amazonaws.com/role-arn: "arn:aws:iam::123456789012:role/my-role"
